@@ -92,6 +92,8 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 - [x] Nama kelas dipilih dan bilangan murid dipaparkan dalam menu sisi.
 - [x] Senarai murid boleh discroll pada desktop dan telefon tanpa limpahan
   mendatar; nama panjang menggunakan elipsis dan status kekal kelihatan.
+- [x] HADIR v1.2.0 diterbitkan melalui GitHub Pages run #5 untuk commit
+  `8284fa6`; produksi desktop 1440×900 dan telefon 390×844 disahkan.
 - [x] Pengurusan murid admin dan sync kelompok dibina.
 - [x] Manifest, Service Worker, paparan luar talian dan auto-update dibina.
 - [x] Backend Apps Script serta penghala Telegram serasi disediakan.
@@ -108,6 +110,6 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
-| 2026-08-24 | 1.2.0 | Baiki kawasan scroll; kekalkan sidebar pada desktop; menu telefon boleh buka/tutup; paparkan kelas dipilih dalam menu; kemaskan kad nama panjang dan naikkan cache PWA | Ujian setempat hanya membaca senarai dan menguji UI; tiada kehadiran atau data murid diubah |
+| 2026-08-24 | 1.2.0 | Baiki kawasan scroll; kekalkan sidebar pada desktop; menu telefon boleh buka/tutup; paparkan kelas dipilih dalam menu; kemaskan kad nama panjang dan naikkan cache PWA; GitHub Pages run #5 (`8284fa6`) berjaya | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran atau data murid diubah |
 | 2026-08-24 | 1.1.0 | Susun semula kepada satu muka mesra telefon; guru terus isi tanpa login; login admin sahaja dalam menu; IC awam diganti kunci harian legap; Apps Script v96 dan GitHub Pages run #3 (`ea910fb`) diterbitkan | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran disimpan dan tiada sync sebenar dijalankan |
 | 2026-08-24 | 1.0.0 | Diterbitkan melalui GitHub Pages run #1 untuk commit `0382449`; Apps Script deployment kekal pada URL lama dan dinaikkan ke versi 95; Script Properties serta sambungan log masuk disahkan | Ujian teknikal hanya menggunakan PIN salah; tiada kehadiran atau data murid sebenar diubah |
