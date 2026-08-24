@@ -38,7 +38,7 @@ button[hidden], [hidden] { display: none !important; }
   position: fixed;
   z-index: 1000;
   inset: 0 0 auto;
-  padding: 9px 16px;
+  padding: calc(9px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 9px max(16px, env(safe-area-inset-left));
   text-align: center;
   background: #f8c44f;
   color: #513900;
@@ -51,13 +51,13 @@ button[hidden], [hidden] { display: none !important; }
   min-height: 0;
   overflow: hidden;
   display: grid;
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: calc(64px + env(safe-area-inset-top)) minmax(0, 1fr);
 }
 .topbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 max(10px, env(safe-area-inset-left));
+  padding: env(safe-area-inset-top) max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
   background: var(--navy);
   color: #fff;
   box-shadow: 0 2px 15px #0003;
@@ -472,7 +472,7 @@ dialog::backdrop { background: #061626aa; }
 @media (min-width: 901px) {
   .app {
     grid-template-columns: 300px minmax(0, 1fr);
-    grid-template-rows: 68px minmax(0, 1fr);
+    grid-template-rows: calc(68px + env(safe-area-inset-top)) minmax(0, 1fr);
   }
   .sidebar {
     position: relative;
@@ -485,11 +485,15 @@ dialog::backdrop { background: #061626aa; }
     transition: none;
     box-shadow: 8px 0 24px #06162624;
   }
-  .topbar { grid-column: 2; grid-row: 1; padding: 0 24px; }
+  .topbar {
+    grid-column: 2;
+    grid-row: 1;
+    padding: env(safe-area-inset-top) max(24px, env(safe-area-inset-right)) 0 max(24px, env(safe-area-inset-left));
+  }
   .topbar #menuBtn { display: none; }
   .content { grid-column: 2; grid-row: 2; padding: 20px 24px 34px; }
   .pane { width: min(1080px, 100%); }
-  .side-brand { padding-top: 18px; }
+  .side-brand { padding-top: calc(18px + env(safe-area-inset-top)); }
   #closeMenuBtn, .scrim { display: none !important; }
   .class-card {
     top: -20px;
@@ -501,7 +505,7 @@ dialog::backdrop { background: #061626aa; }
 }
 
 @media (max-width: 600px) {
-  .app { grid-template-rows: 60px minmax(0, 1fr); }
+  .app { grid-template-rows: calc(60px + env(safe-area-inset-top)) minmax(0, 1fr); }
   .topbar { padding-right: 9px; }
   .topbar img { width: 38px; height: 38px; }
   .sync-badge { width: 12px; overflow: hidden; font-size: 0; }

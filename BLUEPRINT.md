@@ -102,6 +102,8 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 - [x] Log masuk admin diletakkan di sebelah versi; ayat tanpa log masuk dibuang.
 - [x] Butang + Murid diganti dengan Update Data Murid CSV idME; edit satu murid
   kekal tersedia.
+- [x] Bar atas dan mesej luar talian menghormati `safe-area-inset-top` supaya
+  status/notch iPhone tidak menindih logo, masa atau tajuk PWA homescreen.
 - [x] Senarai murid boleh discroll pada desktop dan telefon tanpa limpahan
   mendatar; nama panjang menggunakan elipsis dan status kekal kelihatan.
 - [x] HADIR v1.2.0 diterbitkan melalui GitHub Pages run #5 untuk commit
@@ -122,7 +124,7 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
-| 2026-08-24 | 1.3.0 | Tambah Semak Kehadiran semua/ikut kelas; kemaskan pilihan kelas, butang Set semula, menu dan ruang nama; tambah import CSV idME admin melalui fungsi rasmi KEHADIRAN; naikkan cache PWA | Ujian hanya membaca data produksi dan menggunakan semakan struktur/paparan; tiada kehadiran disimpan, fail murid diimport atau sync sebenar dijalankan |
+| 2026-08-24 | 1.3.0 | Tambah Semak Kehadiran semua/ikut kelas; kemaskan pilihan kelas, butang Set semula, menu dan ruang nama; tambah import CSV idME admin melalui fungsi rasmi KEHADIRAN; lindungi bar atas PWA homescreen dengan ruang selamat iPhone; naikkan cache PWA | Ujian hanya membaca data produksi dan menggunakan semakan struktur/paparan; tiada kehadiran disimpan, fail murid diimport atau sync sebenar dijalankan |
 | 2026-08-24 | 1.2.0 | Baiki kawasan scroll; kekalkan sidebar pada desktop; menu telefon boleh buka/tutup; paparkan kelas dipilih dalam menu; kemaskan kad nama panjang dan naikkan cache PWA; GitHub Pages run #5 (`8284fa6`) berjaya | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran atau data murid diubah |
 | 2026-08-24 | 1.1.0 | Susun semula kepada satu muka mesra telefon; guru terus isi tanpa login; login admin sahaja dalam menu; IC awam diganti kunci harian legap; Apps Script v96 dan GitHub Pages run #3 (`ea910fb`) diterbitkan | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran disimpan dan tiada sync sebenar dijalankan |
 | 2026-08-24 | 1.0.0 | Diterbitkan melalui GitHub Pages run #1 untuk commit `0382449`; Apps Script deployment kekal pada URL lama dan dinaikkan ke versi 95; Script Properties serta sambungan log masuk disahkan | Ujian teknikal hanya menggunakan PIN salah; tiada kehadiran atau data murid sebenar diubah |

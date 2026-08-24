@@ -59,6 +59,7 @@ sah(app.includes("mode === 'sync' && !window.confirm"), 'Sync penuh CSV mesti me
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
 sah(css.includes('@media (min-width: 901px)') && css.includes('transform: none'), 'Menu desktop belum kekal terbuka');
+sah(css.includes('calc(60px + env(safe-area-inset-top))') && css.includes('padding: env(safe-area-inset-top)'), 'Bar atas PWA tidak menghormati ruang selamat iPhone');
 
 console.log('✓ Sintaks JavaScript/Apps Script sah');
 console.log('✓ Manifest HADIR standalone + maskable');
@@ -66,4 +67,5 @@ console.log('✓ Cache hanya aset statik, tiada API/data');
 console.log('✓ Kontrak kehadiran dan sync AKSI/SEMAK tersedia');
 console.log('✓ Menu telefon boleh ditutup melalui X, latar gelap dan Escape');
 console.log('✓ Senarai boleh discroll, menu desktop kekal dan nama kelas dipaparkan');
+console.log('✓ Bar atas PWA menghormati ruang selamat status/notch iPhone');
 console.log('✓ Guru terus mengisi; hanya admin perlu log masuk melalui menu');
