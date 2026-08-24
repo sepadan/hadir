@@ -1,0 +1,36 @@
+const fs = require('fs');
+const path = require('path');
+const root = path.resolve(__dirname, '..');
+function baca(n) { return fs.readFileSync(path.join(root, n), 'utf8'); }
+function sah(syarat, mesej) { if (!syarat) throw new Error(mesej); }
+
+new Function(baca('app.js'));
+new Function(baca('service-worker.js'));
+new Function(baca('apps-script/HadirWeb.gs'));
+
+const manifest = JSON.parse(baca('manifest.webmanifest'));
+sah(manifest.short_name === 'HADIR', 'short_name manifest salah');
+sah(manifest.display === 'standalone', 'PWA mesti standalone');
+sah(manifest.icons.some(x => x.purpose === 'maskable'), 'ikon maskable tiada');
+
+const sw = baca('service-worker.js');
+sah(sw.includes("url.origin !== self.location.origin"), 'Service Worker mesti menghadkan asal');
+sah(!/script\.google|googleusercontent|macros\/s\//.test(sw), 'URL API tidak boleh berada dalam cache PWA');
+sah((sw.match(/'\.\//g) || []).length >= 10, 'Senarai aset PWA terlalu pendek');
+
+const backend = baca('apps-script/HadirWeb.gs');
+sah(backend.includes('hadirAdakahPermintaan_'), 'Penghala HADIR tiada');
+sah(backend.includes('simpanSenaraiMuridUpload'), 'Sumber rasmi main tidak digunakan');
+sah(backend.includes("'importMurid'"), 'Penyelaras AKSI tiada');
+sah(backend.includes("'apiUploadMurid'"), 'Penyelaras SEMAK tiada');
+sah(!/HADIR_(?:AKSI|SEMAK)_PASSWORD\s*=/.test(backend), 'Kata laluan tidak boleh dihardcode');
+
+const html = baca('index.html');
+sah(html.includes('Simpan Kehadiran'), 'Butang simpan kehadiran tiada');
+sah(html.includes('Data Murid'), 'Paparan murid tiada');
+sah(html.includes('manifest.webmanifest'), 'Manifest tidak dipaut');
+
+console.log('✓ Sintaks JavaScript/Apps Script sah');
+console.log('✓ Manifest HADIR standalone + maskable');
+console.log('✓ Cache hanya aset statik, tiada API/data');
+console.log('✓ Kontrak kehadiran dan sync AKSI/SEMAK tersedia');

@@ -1,0 +1,99 @@
+# Blueprint HADIR — SK Paya Redan
+
+**Versi 1.0 · 24 Ogos 2026**
+
+## 1. Tujuan
+
+HADIR ialah saluran web kedua bagi sistem KEHADIRAN. Ia tidak mencipta pangkalan
+data kehadiran baharu: bot Telegram dan PWA membaca/menulis tab `kehadiran` yang
+sama. PWA memberi aliran lebih pantas pada telefon dan bertindak sebagai
+sandaran apabila Telegram lambat atau tidak sesuai digunakan.
+
+## 2. Seni bina
+
+```text
+Guru/Admin → sepadan.github.io/hadir (PWA statik)
+           → doPost mode=hadir (Apps Script KEHADIRAN)
+           → tab main / kehadiran
+           → API rasmi AKSI importMurid
+           → API rasmi SEMAK apiUploadMurid
+```
+
+`doPost` Telegram kekal. Baris penghala sahaja ditambah sebelum logik Telegram:
+
+```javascript
+if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
+```
+
+## 3. Peraturan yang tidak boleh dilanggar
+
+1. Tab `main` KEHADIRAN ialah sumber rasmi murid.
+2. IC/MyKid ialah kunci stabil dan tidak boleh ditukar pada rekod sedia ada.
+3. Penyelarasan murid tidak boleh mengubah markah SEMAK, keahlian atau rekod
+   aktiviti AKSI.
+4. Kemas kini murid dalam AKSI/SEMAK tidak dibuang. Penyelarasan HADIR berikutnya
+   boleh menyamakan semula medan murid dengan sumber rasmi.
+5. Repo awam tidak mengandungi nama/IC murid, PIN, kata laluan atau token.
+6. Cache PWA hanya aset statik asal GitHub Pages. API Google, sesi, murid dan
+   kehadiran tidak dipintas atau dicache.
+7. Simpanan kehadiran menggunakan satu `setValues()` berkelompok di bawah
+   `ScriptLock`. Semua murid aktif dalam kelas mendapat 1 atau 0.
+8. Tarikh sebelum murid masuk dan tempoh arkib terus menggunakan peraturan
+   sistem KEHADIRAN sedia ada.
+9. Log `HADIR_LOG` hanya menyimpan masa, tindakan, peranan, kelas dan bilangan;
+   tiada nama atau IC.
+
+## 4. Keselamatan
+
+- Sesi rawak lapan jam disimpan dalam Script Properties.
+- PIN disimpan sebagai SHA-256 (`HADIR_ADMIN_PIN_HASH`, `HADIR_GURU_PIN_HASH`).
+- Kata laluan perkhidmatan AKSI/SEMAK berada dalam Script Properties sahaja.
+- Hanya admin boleh melihat/mengemas kini murid atau menjalankan sync penuh.
+- Guru hanya boleh membaca kelas aktif dan menyimpan kehadiran.
+
+## 5. Kontrak API HADIR
+
+Semua permintaan POST berbentuk:
+
+```json
+{"mode":"hadir","kaedah":"init","argumen":["TOKEN"]}
+```
+
+Kaedah: `login`, `logout`, `init`, `simpanKehadiran`, `senaraiMurid`,
+`simpanMurid`, `syncSemua`.
+
+Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
+
+## 6. Penyelarasan murid
+
+- AKSI: backend HADIR login sebagai perkhidmatan, membina CSV dalam ingatan dan
+  memanggil `importMurid`. Murid hilang ditanda `TIDAK AKTIF`; data koku kekal.
+- SEMAK: backend memanggil `apiUploadMurid`; sheet `MURID`, calon peperiksaan
+  aktif dan revisi cache dikemas kini oleh fungsi rasmi SEMAK. Markah kekal.
+- Jika salah satu sasaran gagal, perubahan tab `main` tidak dibatalkan. UI
+  memaparkan sasaran yang gagal dan admin boleh tekan **Selaras Semua Aplikasi**.
+
+## 7. PWA dan auto-update
+
+Versi `HADIR v1.0.0 · PWA`. `service-worker.js` mencache 13 aset statik dan
+memintas permintaan GET sama asal sahaja. Backend Apps Script berlainan asal,
+maka data tidak pernah masuk Cache Storage. Service Worker menyemak binaan
+baharu ketika aplikasi dibuka, tanpa muat semula paksa.
+
+## 8. Status
+
+- [x] Antara muka kehadiran gaya Telegram dibina.
+- [x] Paparan mudah alih, menu boleh tutup dan navigasi bawah dibina.
+- [x] Pengurusan murid admin dan sync kelompok dibina.
+- [x] Manifest, Service Worker, paparan luar talian dan auto-update dibina.
+- [x] Backend Apps Script serta penghala Telegram serasi disediakan.
+- [x] Ikon HADIR disalin dan semua saiz PWA dijana.
+- [ ] Backend ditampal, Script Properties ditetapkan dan deployment dikemas kini.
+- [x] URL `/exec` deployment sedia ada dimasukkan ke `config.js`.
+- [ ] Ujian produksi telefon, kehadiran sebenar dan sync AKSI/SEMAK disahkan.
+
+## 9. Rekod perubahan
+
+| Tarikh | Versi | Perubahan | Data |
+|---|---|---|---|
+| 2026-08-24 | 1.0.0 (belum diterbitkan) | Bina PWA HADIR, aliran kehadiran kelompok, pengurusan murid, sync AKSI/SEMAK dan backend serasi bot Telegram | Tiada data sebenar diubah semasa pembangunan |
