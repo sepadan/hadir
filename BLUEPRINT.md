@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 1.0 · 24 Ogos 2026**
+**Versi 1.1 · 24 Ogos 2026**
 
 ## 1. Tujuan
 
@@ -12,7 +12,8 @@ sandaran apabila Telegram lambat atau tidak sesuai digunakan.
 ## 2. Seni bina
 
 ```text
-Guru/Admin → sepadan.github.io/hadir (PWA statik)
+Guru → sepadan.github.io/hadir (terus isi tanpa log masuk)
+Admin → menu sisi → log masuk PIN → urus murid/sync
            → doPost mode=hadir (Apps Script KEHADIRAN)
            → tab main / kehadiran
            → API rasmi AKSI importMurid
@@ -45,18 +46,19 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
 
 ## 4. Keselamatan
 
-- Sesi rawak lapan jam disimpan dalam Script Properties.
-- PIN disimpan sebagai SHA-256 (`HADIR_ADMIN_PIN_HASH`, `HADIR_GURU_PIN_HASH`).
+- Guru terus membaca kelas dan menyimpan kehadiran tanpa sesi.
+- Sesi rawak admin lapan jam disimpan dalam Script Properties.
+- PIN admin disimpan sebagai SHA-256 (`HADIR_ADMIN_PIN_HASH`).
 - Kata laluan perkhidmatan AKSI/SEMAK berada dalam Script Properties sahaja.
 - Hanya admin boleh melihat/mengemas kini murid atau menjalankan sync penuh.
-- Guru hanya boleh membaca kelas aktif dan menyimpan kehadiran.
+- Paparan guru menerima nama dan kunci harian legap; IC/MyKid tidak dihantar.
 
 ## 5. Kontrak API HADIR
 
 Semua permintaan POST berbentuk:
 
 ```json
-{"mode":"hadir","kaedah":"init","argumen":["TOKEN"]}
+{"mode":"hadir","kaedah":"init","argumen":[]}
 ```
 
 Kaedah: `login`, `logout`, `init`, `simpanKehadiran`, `senaraiMurid`,
@@ -75,14 +77,16 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ## 7. PWA dan auto-update
 
-Versi `HADIR v1.0.0 · PWA`. `service-worker.js` mencache 13 aset statik dan
+Versi `HADIR v1.1.0 · PWA`. `service-worker.js` mencache 13 aset statik dan
 memintas permintaan GET sama asal sahaja. Backend Apps Script berlainan asal,
 maka data tidak pernah masuk Cache Storage. Service Worker menyemak binaan
 baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 
 ## 8. Status
 
-- [x] Antara muka kehadiran gaya Telegram dibina.
+- [x] Antara muka satu muka dengan dropdown kelas dibina.
+- [x] Guru boleh mengisi kehadiran terus tanpa log masuk.
+- [x] Log masuk admin dipindahkan ke menu sisi.
 - [x] Paparan mudah alih, menu boleh tutup dan navigasi bawah dibina.
 - [x] Pengurusan murid admin dan sync kelompok dibina.
 - [x] Manifest, Service Worker, paparan luar talian dan auto-update dibina.
@@ -97,4 +101,5 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 2026-08-24 | 1.1.0 | Susun semula kepada satu muka mesra telefon; guru terus isi tanpa login; login admin sahaja dalam menu; IC awam diganti kunci harian legap | Tiada data sebenar diubah semasa pembangunan |
 | 2026-08-24 | 1.0.0 | Diterbitkan melalui GitHub Pages run #1 untuk commit `0382449`; Apps Script deployment kekal pada URL lama dan dinaikkan ke versi 95; Script Properties serta sambungan log masuk disahkan | Ujian teknikal hanya menggunakan PIN salah; tiada kehadiran atau data murid sebenar diubah |

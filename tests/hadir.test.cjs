@@ -24,12 +24,18 @@ sah(backend.includes('simpanSenaraiMuridUpload'), 'Sumber rasmi main tidak digun
 sah(backend.includes("'importMurid'"), 'Penyelaras AKSI tiada');
 sah(backend.includes("'apiUploadMurid'"), 'Penyelaras SEMAK tiada');
 sah(!/HADIR_(?:AKSI|SEMAK)_PASSWORD\s*=/.test(backend), 'Kata laluan tidak boleh dihardcode');
+sah(backend.includes("token ? hadirSesi_(token, true) : { peranan: 'guru' }"), 'Guru tanpa log masuk belum disokong');
+sah(backend.includes('hadirKunciMurid_'), 'Kunci murid legap untuk paparan awam tiada');
+sah(!/icAkhir: ic\.slice\(-4\)/.test(backend), 'Paparan awam tidak boleh menerima IC murid');
 
 const html = baca('index.html');
 sah(html.includes('Simpan Kehadiran'), 'Butang simpan kehadiran tiada');
 sah(html.includes('Data Murid'), 'Paparan murid tiada');
 sah(html.includes('manifest.webmanifest'), 'Manifest tidak dipaut');
 sah(html.includes('id="closeMenuBtn"') && html.includes('id="scrim"'), 'Kawalan tutup menu mudah alih tiada');
+sah(html.includes('id="classSelect"'), 'Dropdown kelas satu muka tiada');
+sah(html.includes('id="adminLoginDialog"'), 'Login admin dalam menu tiada');
+sah(!html.includes('id="loginRole"'), 'Guru tidak sepatutnya melihat pilihan login');
 
 const app = baca('app.js');
 sah(app.includes("$('closeMenuBtn').addEventListener('click', tutupMenu)"), 'Butang X tidak menutup menu');
@@ -41,3 +47,4 @@ console.log('✓ Manifest HADIR standalone + maskable');
 console.log('✓ Cache hanya aset statik, tiada API/data');
 console.log('✓ Kontrak kehadiran dan sync AKSI/SEMAK tersedia');
 console.log('✓ Menu telefon boleh ditutup melalui X, latar gelap dan Escape');
+console.log('✓ Guru terus mengisi; hanya admin perlu log masuk melalui menu');

@@ -1,4 +1,4 @@
-// HADIR v1.0.0 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.1.0 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
@@ -44,11 +44,11 @@ function hadirHash_(nilai) {
 }
 
 function hadirLogin_(peranan, pin) {
-  peranan = peranan === 'admin' ? 'admin' : 'guru';
+  if (peranan !== 'admin') throw new Error('Log masuk hanya diperlukan untuk admin.');
   var props = PropertiesService.getScriptProperties();
-  var kunci = peranan === 'admin' ? 'HADIR_ADMIN_PIN_HASH' : 'HADIR_GURU_PIN_HASH';
+  var kunci = 'HADIR_ADMIN_PIN_HASH';
   var betul = props.getProperty(kunci);
-  if (!betul) throw new Error('PIN ' + peranan + ' belum ditetapkan oleh pentadbir.');
+  if (!betul) throw new Error('PIN admin belum ditetapkan oleh pentadbir.');
   if (hadirHash_(pin) !== betul) throw new Error('PIN tidak betul.');
   var token = Utilities.getUuid() + Utilities.getUuid();
   props.setProperty('HADIR_SESI_' + token, JSON.stringify({
@@ -82,7 +82,7 @@ function hadirLogout_(token) {
 }
 
 function hadirInit_(token) {
-  var sesi = hadirSesi_(token, false);
+  var sesi = token ? hadirSesi_(token, true) : { peranan: 'guru' };
   sediakanLajurSahaja();
   var s = ss.getSheetByName('kehadiran');
   if (!s) throw new Error('Tab kehadiran tidak ditemui.');
@@ -100,7 +100,7 @@ function hadirInit_(token) {
     if (!peta[kelas]) peta[kelas] = [];
     var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
     peta[kelas].push({
-      ic: ic, icAkhir: ic.slice(-4), nama: nama,
+      kunci: hadirKunciMurid_(ic, tkh), nama: nama,
       nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : ''
     });
   }
@@ -120,24 +120,29 @@ function hadirInit_(token) {
   };
 }
 
+function hadirKunciMurid_(ic, tarikh) {
+  return hadirHash_(ScriptApp.getScriptId() + '|' + String(tarikh || tarikhHariIni_()) + '|' + normalisasiIc_(ic)).slice(0, 24);
+}
+
 function hadirSusunKelas_(a, b) {
   var na = parseInt(a, 10) || 99, nb = parseInt(b, 10) || 99;
   return na - nb || a.localeCompare(b);
 }
 
 function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
-  var sesi = hadirSesi_(token, false);
+  var sesi = token ? hadirSesi_(token, true) : { peranan: 'guru' };
   kelas = String(kelas || '').trim().toUpperCase();
   if (!kelas) throw new Error('Kelas tidak sah.');
   var tiada = Object.create(null);
-  (senaraiTiada || []).forEach(function (ic) { tiada[normalisasiIc_(ic)] = true; });
+  (senaraiTiada || []).forEach(function (kunci) { tiada[String(kunci || '').trim()] = true; });
   // Sediakan lajur sebelum mengambil lock di bawah kerana fungsi asal turut
   // menggunakan ScriptLock; ScriptLock tidak boleh dikunci dua kali.
   sediakanLajurSahaja();
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var s = ss.getSheetByName('kehadiran');
-    var col = dapatkanKolTarikh_(s, tarikhHariIni_());
+    var tkh = tarikhHariIni_();
+    var col = dapatkanKolTarikh_(s, tkh);
     var n = s.getLastRow() - 1;
     if (col < 1 || n < 1) throw new Error('Lajur kehadiran hari ini belum tersedia.');
     var asas = s.getRange(2, 2, n, 3).getDisplayValues();
@@ -148,8 +153,9 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
       var ic = normalisasiIc_(asas[i][2]);
       if (String(asas[i][1]).trim().toUpperCase() !== kelas ||
           muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
-      nilai[i][0] = tiada[ic] ? 0 : 1;
-      jumlah++; if (tiada[ic]) bilTiada++;
+      var tidakHadir = !!tiada[hadirKunciMurid_(ic, tkh)];
+      nilai[i][0] = tidakHadir ? 0 : 1;
+      jumlah++; if (tidakHadir) bilTiada++;
     }
     if (!jumlah) throw new Error('Tiada murid aktif ditemui untuk ' + kelas + '.');
     s.getRange(2, col, n, 1).setValues(nilai);
