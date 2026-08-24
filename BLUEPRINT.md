@@ -88,12 +88,13 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 - [x] Manifest, Service Worker, paparan luar talian dan auto-update dibina.
 - [x] Backend Apps Script serta penghala Telegram serasi disediakan.
 - [x] Ikon HADIR disalin dan semua saiz PWA dijana.
-- [ ] Backend ditampal, Script Properties ditetapkan dan deployment dikemas kini.
+- [x] Backend ditampal, Script Properties ditetapkan dan deployment dikemas kini.
 - [x] URL `/exec` deployment sedia ada dimasukkan ke `config.js`.
-- [ ] Ujian produksi telefon, kehadiran sebenar dan sync AKSI/SEMAK disahkan.
+- [x] Produksi telefon, manifest, Service Worker dan sambungan log masuk disahkan.
+- [ ] Satu simpanan kehadiran sebenar dan sync AKSI/SEMAK disahkan oleh pengguna.
 
 ## 9. Rekod perubahan
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
-| 2026-08-24 | 1.0.0 (belum diterbitkan) | Bina PWA HADIR, aliran kehadiran kelompok, pengurusan murid, sync AKSI/SEMAK dan backend serasi bot Telegram | Tiada data sebenar diubah semasa pembangunan |
+| 2026-08-24 | 1.0.0 | Diterbitkan melalui GitHub Pages run #1 untuk commit `0382449`; Apps Script deployment kekal pada URL lama dan dinaikkan ke versi 95; Script Properties serta sambungan log masuk disahkan | Ujian teknikal hanya menggunakan PIN salah; tiada kehadiran atau data murid sebenar diubah |

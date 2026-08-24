@@ -29,8 +29,15 @@ const html = baca('index.html');
 sah(html.includes('Simpan Kehadiran'), 'Butang simpan kehadiran tiada');
 sah(html.includes('Data Murid'), 'Paparan murid tiada');
 sah(html.includes('manifest.webmanifest'), 'Manifest tidak dipaut');
+sah(html.includes('id="closeMenuBtn"') && html.includes('id="scrim"'), 'Kawalan tutup menu mudah alih tiada');
+
+const app = baca('app.js');
+sah(app.includes("$('closeMenuBtn').addEventListener('click', tutupMenu)"), 'Butang X tidak menutup menu');
+sah(app.includes("$('scrim').addEventListener('click', tutupMenu)"), 'Latar gelap tidak menutup menu');
+sah(app.includes("e.key === 'Escape'"), 'Escape tidak menutup menu');
 
 console.log('✓ Sintaks JavaScript/Apps Script sah');
 console.log('✓ Manifest HADIR standalone + maskable');
 console.log('✓ Cache hanya aset statik, tiada API/data');
 console.log('✓ Kontrak kehadiran dan sync AKSI/SEMAK tersedia');
+console.log('✓ Menu telefon boleh ditutup melalui X, latar gelap dan Escape');
