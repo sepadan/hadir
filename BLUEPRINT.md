@@ -87,19 +87,22 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 - [x] Antara muka satu muka dengan dropdown kelas dibina.
 - [x] Guru boleh mengisi kehadiran terus tanpa log masuk.
 - [x] Log masuk admin dipindahkan ke menu sisi.
-- [x] Paparan mudah alih, menu boleh tutup dan navigasi bawah dibina.
+- [x] Paparan mudah alih, menu boleh ditutup dan dok simpan melekit dibina.
 - [x] Pengurusan murid admin dan sync kelompok dibina.
 - [x] Manifest, Service Worker, paparan luar talian dan auto-update dibina.
 - [x] Backend Apps Script serta penghala Telegram serasi disediakan.
 - [x] Ikon HADIR disalin dan semua saiz PWA dijana.
 - [x] Backend ditampal, Script Properties ditetapkan dan deployment dikemas kini.
 - [x] URL `/exec` deployment sedia ada dimasukkan ke `config.js`.
-- [x] Produksi telefon, manifest, Service Worker dan sambungan log masuk disahkan.
+- [x] Apps Script versi 96 dan GitHub Pages run #3 untuk commit `ea910fb` diterbitkan.
+- [x] Produksi telefon disahkan: 9 pilihan kelas, pemilihan kelas automatik,
+  senarai murid tanpa login, menu boleh ditutup dan PWA berstatus sedia.
+- [x] IC/MyKid tidak muncul pada paparan guru dan konsol tidak melaporkan ralat.
 - [ ] Satu simpanan kehadiran sebenar dan sync AKSI/SEMAK disahkan oleh pengguna.
 
 ## 9. Rekod perubahan
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
-| 2026-08-24 | 1.1.0 | Susun semula kepada satu muka mesra telefon; guru terus isi tanpa login; login admin sahaja dalam menu; IC awam diganti kunci harian legap | Tiada data sebenar diubah semasa pembangunan |
+| 2026-08-24 | 1.1.0 | Susun semula kepada satu muka mesra telefon; guru terus isi tanpa login; login admin sahaja dalam menu; IC awam diganti kunci harian legap; Apps Script v96 dan GitHub Pages run #3 (`ea910fb`) diterbitkan | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran disimpan dan tiada sync sebenar dijalankan |
 | 2026-08-24 | 1.0.0 | Diterbitkan melalui GitHub Pages run #1 untuk commit `0382449`; Apps Script deployment kekal pada URL lama dan dinaikkan ke versi 95; Script Properties serta sambungan log masuk disahkan | Ujian teknikal hanya menggunakan PIN salah; tiada kehadiran atau data murid sebenar diubah |
