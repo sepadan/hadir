@@ -83,6 +83,8 @@
       $('emptyState').hidden = false;
       $('emptyState').querySelector('h2').textContent = 'Tiada kelas aktif';
       $('emptyState').querySelector('p').textContent = 'Semak tab main dan kehadiran dalam sistem induk.';
+      $('menuClassName').textContent = 'Tiada kelas';
+      $('menuClassCount').textContent = '0 murid aktif';
       return;
     }
     kelas.forEach(function (k) {
@@ -106,6 +108,8 @@
     $('attendanceView').hidden = false;
     $('classSelect').value = kelas.nama;
     $('classTitle').textContent = kelas.nama;
+    $('menuClassName').textContent = kelas.nama;
+    $('menuClassCount').textContent = (kelas.murid || []).length + ' murid';
     $('classAvatar').textContent = (kelas.nama.match(/\d+/) || [kelas.nama.slice(0, 2)])[0];
     $('studentSearch').value = '';
     $('saveHint').textContent = kelas.sudahSimpan ? 'Rekod semasa dimuat' : 'Belum disimpan';
@@ -328,10 +332,12 @@
   function bukaMenu() {
     $('sidebar').classList.add('open');
     $('scrim').hidden = false;
+    $('menuBtn').setAttribute('aria-expanded', 'true');
   }
   function tutupMenu() {
     $('sidebar').classList.remove('open');
     $('scrim').hidden = true;
+    $('menuBtn').setAttribute('aria-expanded', 'false');
   }
   function sambungan() {
     var offline = !navigator.onLine;
@@ -381,7 +387,8 @@
   window.addEventListener('offline', sambungan);
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.1.0 · PWA';
+  $('menuBtn').setAttribute('aria-expanded', 'false');
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.2.0 · PWA';
   sambungan();
   daftarPwa();
   muatAwal();

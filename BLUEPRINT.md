@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 1.1 · 24 Ogos 2026**
+**Versi 1.2 · 24 Ogos 2026**
 
 ## 1. Tujuan
 
@@ -77,7 +77,7 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ## 7. PWA dan auto-update
 
-Versi `HADIR v1.1.0 · PWA`. `service-worker.js` mencache 13 aset statik dan
+Versi `HADIR v1.2.0 · PWA`. `service-worker.js` mencache 13 aset statik dan
 memintas permintaan GET sama asal sahaja. Backend Apps Script berlainan asal,
 maka data tidak pernah masuk Cache Storage. Service Worker menyemak binaan
 baharu ketika aplikasi dibuka, tanpa muat semula paksa.
@@ -88,6 +88,10 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 - [x] Guru boleh mengisi kehadiran terus tanpa log masuk.
 - [x] Log masuk admin dipindahkan ke menu sisi.
 - [x] Paparan mudah alih, menu boleh ditutup dan dok simpan melekit dibina.
+- [x] Menu desktop kekal terbuka seperti AKSI; menu telefon kekal buka/tutup.
+- [x] Nama kelas dipilih dan bilangan murid dipaparkan dalam menu sisi.
+- [x] Senarai murid boleh discroll pada desktop dan telefon tanpa limpahan
+  mendatar; nama panjang menggunakan elipsis dan status kekal kelihatan.
 - [x] Pengurusan murid admin dan sync kelompok dibina.
 - [x] Manifest, Service Worker, paparan luar talian dan auto-update dibina.
 - [x] Backend Apps Script serta penghala Telegram serasi disediakan.
@@ -104,5 +108,6 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 2026-08-24 | 1.2.0 | Baiki kawasan scroll; kekalkan sidebar pada desktop; menu telefon boleh buka/tutup; paparkan kelas dipilih dalam menu; kemaskan kad nama panjang dan naikkan cache PWA | Ujian setempat hanya membaca senarai dan menguji UI; tiada kehadiran atau data murid diubah |
 | 2026-08-24 | 1.1.0 | Susun semula kepada satu muka mesra telefon; guru terus isi tanpa login; login admin sahaja dalam menu; IC awam diganti kunci harian legap; Apps Script v96 dan GitHub Pages run #3 (`ea910fb`) diterbitkan | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran disimpan dan tiada sync sebenar dijalankan |
 | 2026-08-24 | 1.0.0 | Diterbitkan melalui GitHub Pages run #1 untuk commit `0382449`; Apps Script deployment kekal pada URL lama dan dinaikkan ke versi 95; Script Properties serta sambungan log masuk disahkan | Ujian teknikal hanya menggunakan PIN salah; tiada kehadiran atau data murid sebenar diubah |

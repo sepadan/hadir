@@ -34,6 +34,7 @@ sah(html.includes('Data Murid'), 'Paparan murid tiada');
 sah(html.includes('manifest.webmanifest'), 'Manifest tidak dipaut');
 sah(html.includes('id="closeMenuBtn"') && html.includes('id="scrim"'), 'Kawalan tutup menu mudah alih tiada');
 sah(html.includes('id="classSelect"'), 'Dropdown kelas satu muka tiada');
+sah(html.includes('id="menuClassName"') && html.includes('id="menuClassCount"'), 'Nama kelas dalam menu tiada');
 sah(html.includes('id="adminLoginDialog"'), 'Login admin dalam menu tiada');
 sah(!html.includes('id="loginRole"'), 'Guru tidak sepatutnya melihat pilihan login');
 
@@ -42,9 +43,14 @@ sah(app.includes("$('closeMenuBtn').addEventListener('click', tutupMenu)"), 'But
 sah(app.includes("$('scrim').addEventListener('click', tutupMenu)"), 'Latar gelap tidak menutup menu');
 sah(app.includes("e.key === 'Escape'"), 'Escape tidak menutup menu');
 
+const css = baca('styles.css');
+sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
+sah(css.includes('@media (min-width: 901px)') && css.includes('transform: none'), 'Menu desktop belum kekal terbuka');
+
 console.log('✓ Sintaks JavaScript/Apps Script sah');
 console.log('✓ Manifest HADIR standalone + maskable');
 console.log('✓ Cache hanya aset statik, tiada API/data');
 console.log('✓ Kontrak kehadiran dan sync AKSI/SEMAK tersedia');
 console.log('✓ Menu telefon boleh ditutup melalui X, latar gelap dan Escape');
+console.log('✓ Senarai boleh discroll, menu desktop kekal dan nama kelas dipaparkan');
 console.log('✓ Guru terus mengisi; hanya admin perlu log masuk melalui menu');

@@ -6,6 +6,10 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Semua murid dianggap hadir; tekan nama hanya untuk menanda tidak hadir.
 - Satu butang menyimpan seluruh kelas secara kelompok.
 - Log masuk admin berada dalam menu sisi untuk menambah atau mengemas kini murid.
+- Pada desktop, menu sisi kekal terbuka seperti AKSI; pada telefon menu boleh
+  dibuka dan ditutup. Nama kelas semasa turut dipaparkan dalam menu.
+- Senarai murid mempunyai scroll sendiri dan nama panjang dipendekkan dengan
+  kemas tanpa menyembunyikan butang status.
 - Tab `main` KEHADIRAN kekal sumber rasmi dan boleh menyelaraskan senarai aktif
   ke AKSI serta SEMAK.
 - Bot Telegram dan fungsi kemas kini dalam aplikasi sedia ada terus berfungsi.

@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.1.0">
+  <link rel="manifest" href="manifest.webmanifest?v=1.2.0.2">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.1.0">
+  <link rel="stylesheet" href="styles.css?v=1.2.0.2">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -34,6 +34,10 @@
       </div>
       <nav class="side-nav">
         <button class="menu-link active" data-pane="attendancePane"><span>✓</span><div><strong>Kehadiran</strong><small>Isi tanpa log masuk</small></div></button>
+        <div class="side-class-card" aria-live="polite">
+          <span class="side-class-icon">⌂</span>
+          <div><small>KELAS DIPILIH</small><strong id="menuClassName">Memuatkan…</strong><span id="menuClassCount">Sila tunggu</span></div>
+        </div>
         <button id="adminLoginMenu" class="menu-link"><span>🔐</span><div><strong>Log Masuk Admin</strong><small>Urus data murid</small></div></button>
         <div id="adminMenu" hidden>
           <button class="menu-link" data-pane="studentsPane"><span>♙</span><div><strong>Data Murid</strong><small>Tambah dan kemas kini</small></div></button>
@@ -41,7 +45,7 @@
           <button id="adminLogoutMenu" class="menu-link danger-link"><span>↪</span><div><strong>Log Keluar Admin</strong><small>Kembali ke mod guru</small></div></button>
         </div>
       </nav>
-      <div class="side-foot"><span id="roleLabel">Mod guru · tanpa log masuk</span><small id="sideVersion">HADIR v1.1.0 · PWA</small></div>
+      <div class="side-foot"><span id="roleLabel">Mod guru · tanpa log masuk</span><small id="sideVersion">HADIR v1.2.0 · PWA</small></div>
     </aside>
     <button id="scrim" class="scrim" aria-label="Tutup menu" hidden></button>
 
@@ -126,7 +130,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.1.0"></script>
-  <script src="app.js?v=1.1.0"></script>
+  <script src="config.js?v=1.2.0.2"></script>
+  <script src="app.js?v=1.2.0.2"></script>
 </body>
 </html>
