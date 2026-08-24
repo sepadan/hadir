@@ -1,6 +1,25 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 1.3 · 24 Ogos 2026**
+**Versi 1.4 · 24 Ogos 2026**
+
+> ### 📍 Fail ini ialah **jejari**, bukan hab
+>
+> Ia menerangkan **dalaman HADIR sahaja**.
+>
+> **Hab ekosistem:** <https://sepadan.github.io/dashboard/BLUEPRINT.md>
+> (dalam repo: `sepadan/dashboard` → `BLUEPRINT.md`)
+>
+> Baca hab dahulu. Ia memegang peraturan merentas sistem, kontrak data antara
+> sistem, akaun dan rahsia, serta **daftar isu**.
+>
+> **Fail ini tidak menyimpan senarai isu.** Setiap perkara yang belum selesai —
+> bagi mana-mana sistem — dicatat dalam **bahagian 8 hab**. Jangan mulakan satu
+> di sini. Dua senarai isu bermakna dua versi kebenaran, dan yang kedua akan
+> bercanggah dalam masa beberapa minggu tanpa sesiapa perasan.
+>
+> Fail ini juga **tidak membuat kenyataan status tentang sistem lain**.
+
+---
 
 ## 1. Tujuan
 
@@ -88,7 +107,10 @@ memintas permintaan GET sama asal sahaja. Backend Apps Script berlainan asal,
 maka data tidak pernah masuk Cache Storage. Service Worker menyemak binaan
 baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 
-## 8. Status
+## 8. Status pembinaan
+
+Senarai ini merekod **apa yang sudah dibina**, sebagai sejarah. Ia bukan senarai
+isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
 
 - [x] Antara muka satu muka dengan dropdown kelas dibina.
 - [x] Guru boleh mengisi kehadiran terus tanpa log masuk.
@@ -118,7 +140,11 @@ baharu ketika aplikasi dibuka, tanpa muat semula paksa.
 - [x] Produksi telefon disahkan: 9 pilihan kelas, pemilihan kelas automatik,
   senarai murid tanpa login, menu boleh ditutup dan PWA berstatus sedia.
 - [x] IC/MyKid tidak muncul pada paparan guru dan konsol tidak melaporkan ralat.
-- [ ] Satu simpanan kehadiran sebenar dan sync AKSI/SEMAK disahkan oleh pengguna.
+
+**Baki pengesahan:** satu simpanan kehadiran sebenar dan satu sync AKSI/SEMAK
+masih perlu dijalankan oleh pengguna. Dicatat sebagai **isu #20 dalam hab** —
+ujian itu akan mengubah data sekolah sebenar, jadi hanya pengguna boleh
+memutuskan bila.
 
 ## 9. Rekod perubahan
 
