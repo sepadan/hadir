@@ -5,7 +5,11 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Guru terus memilih kelas dan mengisi kehadiran tanpa log masuk.
 - Semua murid dianggap hadir; tekan nama hanya untuk menanda tidak hadir.
 - Satu butang menyimpan seluruh kelas secara kelompok.
-- Log masuk admin berada dalam menu sisi untuk menambah atau mengemas kini murid.
+- Menu **Semak Kehadiran** memaparkan ringkasan semua kelas atau satu kelas
+  yang dipilih, termasuk nama murid yang tidak hadir.
+- Log masuk admin berada di sebelah nombor versi dalam menu sisi.
+- Admin boleh mengemas kini senarai murid secara kelompok menggunakan CSV idME
+  atau terus mengedit satu rekod murid seperti biasa.
 - Pada desktop, menu sisi kekal terbuka seperti AKSI; pada telefon menu boleh
   dibuka dan ditutup. Nama kelas semasa turut dipaparkan dalam menu.
 - Senarai murid mempunyai scroll sendiri dan nama panjang dipendekkan dengan
@@ -13,6 +17,17 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Tab `main` KEHADIRAN kekal sumber rasmi dan boleh menyelaraskan senarai aktif
   ke AKSI serta SEMAK.
 - Bot Telegram dan fungsi kemas kini dalam aplikasi sedia ada terus berfungsi.
+
+## Update Data Murid
+
+Butang **Update Data Murid** menerima fail CSV idME sehingga 8 MB. Pilihan
+**Senarai aktif penuh** menggunakan fail sebagai senarai rasmi semasa; murid
+lama yang tiada dalam fail akan diarkibkan. Pilihan **Tambah/kemas kini sahaja**
+tidak mengarkibkan murid yang tiada dalam fail.
+
+Import menggunakan fungsi rasmi KEHADIRAN yang sama seperti halaman upload
+sedia ada, kemudian meminta penyelarasan AKSI dan SEMAK. Pratonton bilangan
+rekod dipaparkan sebelum admin mengesahkan import.
 
 ## PWA
 

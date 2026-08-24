@@ -1,4 +1,4 @@
-// HADIR v1.1.0 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.3.0 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
@@ -21,7 +21,8 @@ function hadirDoPost_(e) {
   var dibenarkan = {
     login: hadirLogin_, logout: hadirLogout_, init: hadirInit_,
     simpanKehadiran: hadirSimpanKehadiran_, senaraiMurid: hadirSenaraiMurid_,
-    simpanMurid: hadirSimpanMurid_, syncSemua: hadirSyncSemuaApi_
+    simpanMurid: hadirSimpanMurid_, uploadMuridCsv: hadirUploadMuridCsv_,
+    syncSemua: hadirSyncSemuaApi_
   };
   try {
     var fn = dibenarkan[String(p.kaedah || '')];
@@ -196,6 +197,45 @@ function hadirSimpanMurid_(rekod, token) {
     ok: true, syncOk: sync.ok, hasil: hasil, sync: sync,
     mesej: sync.ok ? 'Murid disimpan dan semua aplikasi diselaraskan.' :
       'Murid disimpan dalam KEHADIRAN, tetapi sebahagian penyelarasan perlu diperiksa.'
+  };
+}
+
+function hadirUploadMuridCsv_(payload, token) {
+  var sesi = hadirSesi_(token, true);
+  payload = payload || {};
+  var mentah = Array.isArray(payload.records) ? payload.records : [];
+  if (!mentah.length) throw new Error('Fail CSV tidak mengandungi rekod murid yang sah.');
+  if (mentah.length > 3000) throw new Error('Fail CSV melebihi had 3,000 rekod.');
+  var mode = payload.mode === 'merge' ? 'merge' : 'sync';
+  var kepala = Array.isArray(payload.kepala) ? payload.kepala.slice(0, 300).map(function (h) {
+    return String(h == null ? '' : h).trim().slice(0, 150);
+  }) : [];
+  var medan = ['idMurid', 'nama', 'ic', 'jenisPengenalan', 'tarikhLahir', 'statusPengajian',
+    'tarikhMasukSekolah', 'tarikhMasukKelas', 'tahun', 'namaKelas', 'kelas'];
+  var rekod = mentah.map(function (asal) {
+    asal = asal || {};
+    var item = { semua: {} };
+    medan.forEach(function (k) { item[k] = String(asal[k] == null ? '' : asal[k]).trim().slice(0, 500); });
+    if (asal.semua && typeof asal.semua === 'object') {
+      kepala.forEach(function (h) {
+        if (!h) return;
+        item.semua[h] = String(asal.semua[h] == null ? '' : asal.semua[h]).trim().slice(0, 1000);
+      });
+    }
+    return item;
+  }).filter(function (r) { return r.nama && (r.ic || r.idMurid); });
+  if (!rekod.length) throw new Error('Tiada rekod dengan nama dan IC/ID murid ditemui.');
+  var hasil = simpanSenaraiMuridUpload({ mode: mode, records: rekod, kepala: kepala });
+  var sync = hadirSyncSemua_();
+  hadirLog_('UPLOAD_MURID_CSV', sesi.peranan, '', rekod.length + ' rekod; mode=' + mode + '; sync=' + sync.ok);
+  var ringkasan = [];
+  if (hasil && hasil.ditambah != null) ringkasan.push(hasil.ditambah + ' ditambah');
+  if (hasil && hasil.dikemasKini != null) ringkasan.push(hasil.dikemasKini + ' dikemas kini');
+  if (hasil && hasil.diarkibkan) ringkasan.push(hasil.diarkibkan + ' diarkibkan');
+  return {
+    ok: true, syncOk: sync.ok, hasil: hasil, sync: sync,
+    mesej: 'Selesai: ' + (ringkasan.length ? ringkasan.join(', ') : rekod.length + ' rekod diproses') +
+      (sync.ok ? '. AKSI dan SEMAK telah diselaraskan.' : '. Data KEHADIRAN disimpan; semak status penyelarasan AKSI/SEMAK.')
   };
 }
 

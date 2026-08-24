@@ -1,7 +1,7 @@
-const CACHE_VERSION = 'hadir-shell-v1.2.0-20260824-2';
+const CACHE_VERSION = 'hadir-shell-v1.3.0-20260824-3';
 const APP_SHELL = [
-  './', './index.html', './styles.css?v=1.2.0.2', './config.js?v=1.2.0.2',
-  './app.js?v=1.2.0.2', './manifest.webmanifest?v=1.2.0.2', './offline.html',
+  './', './index.html', './styles.css?v=1.3.0.3', './config.js?v=1.3.0.3',
+  './app.js?v=1.3.0.3', './manifest.webmanifest?v=1.3.0.3', './offline.html',
   './icons/hadir-192.png', './icons/hadir-512.png',
   './icons/hadir-maskable-512.png', './icons/apple-touch-icon.png',
   './icons/favicon-32.png', './icons/favicon-48.png'

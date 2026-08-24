@@ -23,6 +23,8 @@ sah(backend.includes('hadirAdakahPermintaan_'), 'Penghala HADIR tiada');
 sah(backend.includes('simpanSenaraiMuridUpload'), 'Sumber rasmi main tidak digunakan');
 sah(backend.includes("'importMurid'"), 'Penyelaras AKSI tiada');
 sah(backend.includes("'apiUploadMurid'"), 'Penyelaras SEMAK tiada');
+sah(backend.includes('uploadMuridCsv: hadirUploadMuridCsv_'), 'API upload CSV murid tiada');
+sah(backend.includes("simpanSenaraiMuridUpload({ mode: mode, records: rekod, kepala: kepala })"), 'Upload CSV tidak menggunakan import rasmi KEHADIRAN');
 sah(!/HADIR_(?:AKSI|SEMAK)_PASSWORD\s*=/.test(backend), 'Kata laluan tidak boleh dihardcode');
 sah(backend.includes("token ? hadirSesi_(token, true) : { peranan: 'guru' }"), 'Guru tanpa log masuk belum disokong');
 sah(backend.includes('hadirKunciMurid_'), 'Kunci murid legap untuk paparan awam tiada');
@@ -36,12 +38,23 @@ sah(html.includes('id="closeMenuBtn"') && html.includes('id="scrim"'), 'Kawalan 
 sah(html.includes('id="classSelect"'), 'Dropdown kelas satu muka tiada');
 sah(html.includes('id="menuClassName"') && html.includes('id="menuClassCount"'), 'Nama kelas dalam menu tiada');
 sah(html.includes('id="adminLoginDialog"'), 'Login admin dalam menu tiada');
+sah(html.includes('id="reviewPane"') && html.includes('id="reviewClassSelect"'), 'Semak Kehadiran tiada');
+sah(html.includes('Semua Kelas'), 'Pilihan Semua Kelas tiada');
+sah(html.includes('id="resetBtn"') && html.indexOf('id="resetBtn"') < html.indexOf('id="classSelect"'), 'Set semula mesti berada di atas dropdown kelas');
+sah(!html.includes('id="classTitle"') && !html.includes('Pilih kelas'), 'Kad kelas lama atau ayat Pilih kelas masih ada');
+sah(html.indexOf('id="sideVersion"') < html.indexOf('id="adminLoginMenu"'), 'Login admin mesti berada di sebelah versi');
+sah(!html.includes('tanpa log masuk'), 'Ayat tanpa log masuk masih dipaparkan');
+sah(html.includes('id="uploadStudentsBtn"') && html.includes('id="studentCsvFile"'), 'Dialog Update Data Murid CSV tiada');
+sah(!html.includes('id="addStudentBtn"'), 'Butang + Murid lama masih ada');
 sah(!html.includes('id="loginRole"'), 'Guru tidak sepatutnya melihat pilihan login');
 
 const app = baca('app.js');
 sah(app.includes("$('closeMenuBtn').addEventListener('click', tutupMenu)"), 'Butang X tidak menutup menu');
 sah(app.includes("$('scrim').addEventListener('click', tutupMenu)"), 'Latar gelap tidak menutup menu');
 sah(app.includes("e.key === 'Escape'"), 'Escape tidak menutup menu');
+sah(app.includes("id !== 'reviewPane'"), 'Semak Kehadiran mesti boleh dibuka tanpa login admin');
+sah(app.includes("panggil('uploadMuridCsv'"), 'Frontend tidak menghantar CSV melalui API admin');
+sah(app.includes("mode === 'sync' && !window.confirm"), 'Sync penuh CSV mesti meminta pengesahan');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');

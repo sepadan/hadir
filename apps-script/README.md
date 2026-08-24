@@ -15,7 +15,6 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
 | Kunci | Nilai |
 |---|---|
 | `HADIR_ADMIN_PIN_HASH` | SHA-256 PIN admin daripada `hadirHashPinUntukTetapan()` |
-| `HADIR_GURU_PIN_HASH` | SHA-256 PIN guru |
 | `HADIR_AKSI_PASSWORD` | Kata laluan admin AKSI |
 | `HADIR_SEMAK_PASSWORD` | Kata laluan admin SEMAK |
 | `HADIR_AKSI_ID` | Pilihan; lalai `admin` |
@@ -26,6 +25,12 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
    kedua kerana URL webhook Telegram mesti kekal.
 5. Salin URL `/exec` yang sama ke `config.js`.
 
+## Import CSV idME
+
+API `uploadMuridCsv` hanya menerima sesi admin. Ia menyerahkan rekod kepada
+fungsi rasmi KEHADIRAN `simpanSenaraiMuridUpload`, menggunakan mod `sync` atau
+`merge`, kemudian menjalankan penyelarasan AKSI dan SEMAK. Fungsi upload rasmi
+itu mesti kekal dalam projek Apps Script yang sama.
+
 PIN dan kata laluan tidak boleh dimasukkan ke repo ini. Cache PWA juga tidak
 menyimpan sesi, nama murid, IC atau jawapan API.
-
