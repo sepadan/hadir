@@ -130,31 +130,6 @@ button[hidden], [hidden] { display: none !important; }
 .menu-link.active { background: var(--blue); color: #fff; }
 .menu-link.active small { color: #e6f6ff; }
 .danger-link { color: #ffced4; }
-.side-class-card {
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  margin: 10px 5px 14px;
-  padding: 12px 10px;
-  border: 1px solid #ffffff18;
-  border-radius: 15px;
-  background: #ffffff0c;
-}
-.side-class-icon {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 11px;
-  background: #ffffff12;
-  color: #8edaff;
-  font-size: 1.1rem;
-}
-.side-class-card small, .side-class-card strong, .side-class-card div > span { display: block; }
-.side-class-card small { color: #82cdee; font-size: .66rem; font-weight: 900; letter-spacing: .09em; }
-.side-class-card strong { margin-top: 2px; overflow: hidden; color: #fff; text-overflow: ellipsis; white-space: nowrap; }
-.side-class-card div > span { color: #9fb0c4; font-size: .76rem; }
 .side-foot {
   margin-top: auto;
   display: flex;

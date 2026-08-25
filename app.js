@@ -86,8 +86,8 @@
       $('emptyState').hidden = false;
       $('emptyState').querySelector('h2').textContent = 'Tiada kelas aktif';
       $('emptyState').querySelector('p').textContent = 'Semak tab main dan kehadiran dalam sistem induk.';
-      $('menuClassName').textContent = 'Tiada kelas';
-      $('menuClassCount').textContent = '0 murid aktif';
+      /* Kotak "KELAS DIPILIH" dibuang dari menu sisi — nama kelas sudah
+         ada dalam dropdown di kanan atas. */
       return;
     }
     kelas.forEach(function (k) {
@@ -101,17 +101,30 @@
     pilihKelas(dipilih);
   }
 
+  /* Kosong BUKAN sifar.
+     Backend memulangkan nilai 0 (tidak hadir), 1 (hadir), atau '' (belum
+     ditanda). `Number('')` ialah 0 dalam JavaScript, jadi ujian
+     `Number(m.nilai) === 0` menandakan SETIAP murid yang belum ditanda
+     sebagai tidak hadir.
+
+     Kesannya pada pagi hari baru: seluruh kelas merah, kaunter berbunyi
+     "24 tidak hadir", dan satu ketikan pada Simpan Kehadiran merekodkan
+     semua murid tidak hadir. Perbandingan mesti ketat.
+
+     Peraturan 3.6 dalam hab: kosong bukan sifar. */
+  function tidakHadirAsal_(murid) {
+    return new Set((murid || []).filter(function (m) {
+      return m.nilai === 0;
+    }).map(function (m) { return teks(m.kunci); }));
+  }
+
   function pilihKelas(kelas) {
     if (!kelas) return;
     state.kelas = kelas;
-    state.tidakHadir = new Set((kelas.murid || []).filter(function (m) {
-      return Number(m.nilai) === 0;
-    }).map(function (m) { return teks(m.kunci); }));
+    state.tidakHadir = tidakHadirAsal_(kelas.murid);
     $('emptyState').hidden = true;
     $('attendanceView').hidden = false;
     $('classSelect').value = kelas.nama;
-    $('menuClassName').textContent = kelas.nama;
-    $('menuClassCount').textContent = (kelas.murid || []).length + ' murid';
     $('studentSearch').value = '';
     $('saveHint').textContent = kelas.sudahSimpan ? 'Rekod semasa dimuat' : 'Belum disimpan';
     lukisMuridKelas();
@@ -142,7 +155,12 @@
         });
         box.appendChild(btn);
       });
-    $('absentCount').textContent = state.tidakHadir.size + ' tidak hadir';
+    /* "0 tidak hadir" membaca seperti masalah. Pada pagi hari baru,
+       keadaan sebenar ialah "belum ada yang ditanda". */
+    var bil = state.tidakHadir.size;
+    $('absentCount').textContent = bil
+      ? bil + ' tidak hadir'
+      : 'Semua hadir';
   }
 
   function lukisPilihanSemakan() {
@@ -265,9 +283,7 @@
 
   function setSemula() {
     if (!state.kelas) return;
-    state.tidakHadir = new Set((state.kelas.murid || []).filter(function (m) {
-      return Number(m.nilai) === 0;
-    }).map(function (m) { return teks(m.kunci); }));
+    state.tidakHadir = tidakHadirAsal_(state.kelas.murid);
     $('saveHint').textContent = 'Kembali kepada rekod disimpan';
     lukisMuridKelas();
   }

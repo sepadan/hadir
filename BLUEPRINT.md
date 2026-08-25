@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 1.4 · 24 Ogos 2026**
+**Versi 1.5 · 25 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -150,6 +150,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 25 Ogos 2026 | 1.3.1 | **Pepijat keadaan lalai dibaiki.** `Number(m.nilai) === 0` menandakan setiap murid yang belum ditanda sebagai tidak hadir, kerana `Number('')` ialah `0` dalam JavaScript. Pada pagi hari baru seluruh kelas kelihatan merah dan kaunter berbunyi "24 tidak hadir". Diganti dengan pembandingan ketat melalui `tidakHadirAsal_()`. Kaunter memaparkan "Semua hadir" apabila sifar. Kotak "KELAS DIPILIH" dibuang dari menu sisi — nama kelas sudah ada dalam dropdown | Tiada data diubah; pepijat hanya pada paparan, tetapi satu ketikan Simpan boleh merekod seluruh kelas tidak hadir |
 | 2026-08-24 | 1.3.0 | Tambah Semak Kehadiran semua/ikut kelas; kemaskan pilihan kelas, butang Set semula, menu dan ruang nama; tambah import CSV idME admin melalui fungsi rasmi KEHADIRAN; lindungi bar atas PWA homescreen dengan ruang selamat iPhone; naikkan cache PWA | Ujian hanya membaca data produksi dan menggunakan semakan struktur/paparan; tiada kehadiran disimpan, fail murid diimport atau sync sebenar dijalankan |
 | 2026-08-24 | 1.2.0 | Baiki kawasan scroll; kekalkan sidebar pada desktop; menu telefon boleh buka/tutup; paparkan kelas dipilih dalam menu; kemaskan kad nama panjang dan naikkan cache PWA; GitHub Pages run #5 (`8284fa6`) berjaya | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran atau data murid diubah |
 | 2026-08-24 | 1.1.0 | Susun semula kepada satu muka mesra telefon; guru terus isi tanpa login; login admin sahaja dalam menu; IC awam diganti kunci harian legap; Apps Script v96 dan GitHub Pages run #3 (`ea910fb`) diterbitkan | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran disimpan dan tiada sync sebenar dijalankan |
