@@ -4,6 +4,7 @@
   var cfg = window.HADIR_CONFIG || {};
   var state = {
     token: '', peranan: 'guru', data: null, reviewData: null, kelas: null,
+    paneAktif: 'reviewPane',
     tidakHadir: new Set(), murid: [], sedangSimpan: false,
     uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null
   };
@@ -75,7 +76,9 @@
     lukisPilihanKelas(kelasSemasa);
     lukisPilihanSemakan();
     status($('publicStatus'), '', '');
+    status($('reviewStatus'), '', '');
     $('retryBtn').hidden = true;
+    bukaPane(state.paneAktif || 'reviewPane');
   }
 
   function lukisPilihanKelas(kelasSemasa) {
@@ -226,7 +229,10 @@
       var hadir = k.sudahSimpan
         ? (typeof k.hadir === 'number' ? k.hadir : murid.filter(function (m) { return m.nilai === 1; }).length)
         : 0;
-      var card = el('article', 'review-card' + (k.sudahSimpan ? ' done' : ' pending'));
+      var card = el('article', 'review-card review-card-action' + (k.sudahSimpan ? ' done' : ' pending'));
+      card.tabIndex = 0;
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-label', 'Isi kehadiran kelas ' + k.nama);
       var head = el('div', 'review-card-head');
       var title = el('div');
       title.appendChild(el('h2', '', k.nama));
@@ -235,7 +241,7 @@
       head.appendChild(el('span', 'review-state', k.sudahSimpan ? 'Selesai' : 'Belum disimpan'));
       card.appendChild(head);
       if (!k.sudahSimpan) {
-        card.appendChild(el('p', 'review-message', 'Kehadiran kelas ini belum disimpan pada tarikh tersebut.'));
+        card.appendChild(el('p', 'review-message', 'Belum ada rekod. Tekan untuk isi kehadiran.'));
       } else {
         var stats = el('div', 'review-card-stats');
         var hadirBox = el('div');
@@ -260,8 +266,33 @@
         }
         card.appendChild(absentBox);
       }
+      var tarikhHariIni = state.data && state.reviewData && state.data.tarikhIso === state.reviewData.tarikhIso;
+      var buka = el('span', 'review-open', tarikhHariIni ? 'Isi kehadiran' : 'Isi kehadiran hari ini');
+      buka.setAttribute('aria-hidden', 'true');
+      buka.appendChild(el('span', '', '→'));
+      card.appendChild(buka);
+      card.addEventListener('click', function () { bukaKehadiranKelas(k.nama); });
+      card.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          bukaKehadiranKelas(k.nama);
+        }
+      });
       box.appendChild(card);
     });
+  }
+
+  function bukaKehadiranKelas(namaKelas) {
+    var kelasHariIni = state.data && state.data.kelas ? state.data.kelas : [];
+    var kelas = kelasHariIni.find(function (k) { return k.nama === namaKelas; });
+    if (!kelas) {
+      status($('reviewStatus'), 'Kelas ini tiada dalam senarai aktif hari ini.', 'err');
+      return;
+    }
+    bukaPane('attendancePane');
+    pilihKelas(kelas);
+    var content = document.querySelector('.content');
+    if (content) content.scrollTop = 0;
   }
 
   function muatSemakanTarikh() {
@@ -286,6 +317,7 @@
 
   function muatAwal() {
     status($('publicStatus'), 'Memuatkan senarai kelas…', '');
+    status($('reviewStatus'), 'Memuatkan ringkasan kehadiran…', '');
     $('retryBtn').hidden = true;
     var tokenSimpan = sessionStorage.getItem('hadir_admin_token') || '';
     state.token = tokenSimpan;
@@ -297,6 +329,7 @@
       return panggil('init', []);
     }).then(bukaAplikasi).catch(function (err) {
       status($('publicStatus'), err.message, 'err');
+      status($('reviewStatus'), err.message, 'err');
       $('retryBtn').hidden = false;
       $('classSelect').disabled = true;
       $('emptyState').querySelector('h2').textContent = 'Tidak dapat memuatkan';
@@ -373,7 +406,7 @@
     state.muridDialog = null;
     sessionStorage.removeItem('hadir_admin_token');
     tetapkanModAdmin(false);
-    bukaPane('attendancePane');
+    bukaPane('reviewPane');
     tutupMenu();
     if (token) panggil('logout', [token], 8000).catch(function () {});
   }
@@ -383,6 +416,7 @@
       bukaDialogAdmin();
       return;
     }
+    state.paneAktif = id;
     ['attendancePane', 'reviewPane', 'studentSettingsPane', 'studentsPane', 'syncPane'].forEach(function (x) { $(x).hidden = x !== id; });
     document.querySelectorAll('.menu-link[data-pane]').forEach(function (b) {
       b.classList.toggle('active', b.dataset.pane === id);
@@ -809,7 +843,7 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.5.0';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.6.0';
   sambungan();
   daftarPwa();
   muatAwal();

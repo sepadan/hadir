@@ -236,6 +236,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .soft { background: #edf3f7; color: #40536b; }
 .wide { width: 100%; }
 .status { min-height: 21px; margin-top: 10px; color: var(--muted); font-size: .9rem; }
+.status:empty { min-height: 0; margin-top: 0; }
 .status.ok { color: #087851; }
 .status.err { color: #b82f42; }
 
@@ -385,6 +386,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 }
 .review-hero h1 { margin: 2px 0 0; font-size: 1.55rem; }
 .review-hero p { margin: 3px 0 0; color: var(--muted); }
+.review-heading small { display: block; margin-top: 7px; color: #52677e; font-size: .78rem; }
 .review-controls { display: grid; grid-template-columns: minmax(160px, .85fr) minmax(180px, 1.15fr); gap: 10px; }
 .review-picker { display: grid; gap: 6px; color: #40536b; font-size: .78rem; font-weight: 800; }
 .review-picker input, .review-picker select {
@@ -417,6 +419,17 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
   background: #fff;
   box-shadow: 0 5px 18px #17385010;
 }
+.review-card-action {
+  position: relative;
+  width: 100%;
+  padding: 0;
+  color: var(--ink);
+  text-align: left;
+  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.review-card-action:hover { border-color: #8fcbe9; box-shadow: 0 8px 24px #1738501c; transform: translateY(-1px); }
+.review-card-action:active { transform: translateY(0); }
+.review-card-action:focus-visible { outline: 3px solid #168acd55; outline-offset: 2px; }
 .review-card.pending { border-color: #efd598; background: #fffdf8; }
 .review-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 15px; }
 .review-card-head h2, .review-card-head p { margin: 0; }
@@ -435,6 +448,19 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .review-absent ul { margin: 8px 0 0; padding-left: 20px; color: #a42f40; }
 .review-absent li { margin: 4px 0; }
 .review-message { margin: 0; padding: 0 15px 15px; color: #8a6000; font-size: .84rem; }
+.review-open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 15px;
+  border-top: 1px solid var(--line);
+  color: #087bbd;
+  font-size: .78rem;
+  font-weight: 850;
+}
+.review-card.pending .review-open { border-color: #efd598; color: #8a6000; }
+.review-open > span { font-size: 1.05rem; line-height: 1; }
 .attendance-summary { display: grid; gap: 1px; }
 .attendance-summary #rmtPresentCount { color: #087851; font-weight: 750; }
 .empty-review { grid-column: 1 / -1; display: grid; gap: 3px; padding: 28px; border: 1px dashed var(--line); border-radius: 18px; background: #fff; color: var(--muted); text-align: center; }
@@ -564,9 +590,16 @@ dialog::backdrop { background: #061626aa; }
   .settings-item { align-items: start; }
   .settings-badges { max-width: 42%; }
   #uploadStudentsBtn { max-width: 155px; font-size: .78rem; line-height: 1.25; }
-  .review-hero { grid-template-columns: 1fr; gap: 12px; padding: 15px; border-radius: 17px; }
+  .review-hero { grid-template-columns: 1fr; gap: 10px; padding: 14px; border-radius: 17px; }
   .review-controls { grid-template-columns: 1fr; }
   .review-hero h1 { font-size: 1.3rem; }
+  .review-heading { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 0 10px; }
+  .review-heading .eyebrow, .review-heading small { grid-column: 1 / -1; }
+  .review-heading h1, .review-heading p { margin-top: 3px; }
+  .review-heading p { font-size: .8rem; text-align: right; }
+  .review-heading small { margin-top: 4px; }
+  .review-picker { gap: 4px; }
+  .review-picker input, .review-picker select { height: 43px; }
   .review-overview { gap: 7px; }
   .review-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .review-overview > div { padding: 11px 10px; }
@@ -574,6 +607,11 @@ dialog::backdrop { background: #061626aa; }
   .review-overview span { font-size: .68rem; }
   .review-list { grid-template-columns: minmax(0, 1fr); }
   .review-card-head { padding: 12px 13px; }
+  .review-card-head h2 { font-size: 1rem; }
+  .review-card-stats > div { padding: 9px 12px; }
+  .review-absent { padding: 11px 13px 12px; }
+  .review-message { padding: 0 13px 11px; }
+  .review-open { padding: 9px 13px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .full { grid-column: auto; }
   #studentDialog .dialog-actions { padding: 12px; }

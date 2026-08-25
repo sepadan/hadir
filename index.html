@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.5.0">
+  <link rel="manifest" href="manifest.webmanifest?v=1.6.0">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.5.0">
+  <link rel="stylesheet" href="styles.css?v=1.6.0">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -33,8 +33,8 @@
         <button id="closeMenuBtn" class="icon-btn" aria-label="Tutup menu">×</button>
       </div>
       <nav class="side-nav">
-        <button class="menu-link active" data-pane="attendancePane"><span>✓</span><div><strong>Kehadiran</strong><small>Isi kehadiran murid</small></div></button>
-        <button class="menu-link" data-pane="reviewPane"><span>⌕</span><div><strong>Semak Kehadiran</strong><small>Semua kelas mengikut tarikh</small></div></button>
+        <button class="menu-link" data-pane="attendancePane"><span>✓</span><div><strong>Kehadiran</strong><small>Isi kehadiran murid</small></div></button>
+        <button class="menu-link active" data-pane="reviewPane"><span>⌕</span><div><strong>Semak Kehadiran</strong><small>Semua kelas mengikut tarikh</small></div></button>
         <div id="adminMenu" hidden>
           <button class="menu-link" data-pane="studentSettingsPane"><span>⚙</span><div><strong>Tetapan Murid</strong><small>RMT dan jawatan murid</small></div></button>
           <button class="menu-link" data-pane="studentsPane"><span>♙</span><div><strong>Data Murid</strong><small>Tambah dan kemas kini</small></div></button>
@@ -44,7 +44,7 @@
       <div class="side-foot">
         <span id="roleLabel" hidden>Mod guru</span>
         <div class="side-version-row">
-          <small id="sideVersion">HADIR v1.5.0</small>
+          <small id="sideVersion">HADIR v1.6.0</small>
           <button id="adminLoginMenu" class="side-admin-btn" type="button">🔐 Admin</button>
           <button id="adminLogoutMenu" class="side-admin-btn side-logout-btn" type="button" hidden>↪ Log Keluar</button>
         </div>
@@ -53,7 +53,7 @@
     <button id="scrim" class="scrim" aria-label="Tutup menu" hidden></button>
 
     <main class="content">
-      <section id="attendancePane" class="pane">
+      <section id="attendancePane" class="pane" hidden>
         <div class="class-card">
           <div><span class="eyebrow">KEHADIRAN HARI INI</span><div class="class-title-row"><h1>Kelas</h1><button id="resetBtn" class="text-action" type="button">Set semula</button></div></div>
           <label class="class-picker"><span class="sr-only">Kelas</span>
@@ -80,9 +80,9 @@
         </div>
       </section>
 
-      <section id="reviewPane" class="pane" hidden>
+      <section id="reviewPane" class="pane">
         <div class="review-hero">
-          <div><span class="eyebrow">REKOD KEHADIRAN</span><h1>Semak Kehadiran</h1><p id="reviewDate">Hari ini</p></div>
+          <div class="review-heading"><span class="eyebrow">PAPAN KEHADIRAN</span><h1>Semak Kehadiran</h1><p id="reviewDate">Hari ini</p><small>Tekan kad kelas untuk terus mengisi kehadiran.</small></div>
           <div class="review-controls">
             <label class="review-picker">Tarikh<input id="reviewDateSelect" type="date"></label>
             <label class="review-picker">Kelas<select id="reviewClassSelect"><option value="">Semua Kelas</option></select></label>
@@ -196,7 +196,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.5.0"></script>
-  <script src="app.js?v=1.5.0"></script>
+  <script src="config.js?v=1.6.0"></script>
+  <script src="app.js?v=1.6.0"></script>
 </body>
 </html>
