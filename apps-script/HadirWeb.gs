@@ -1,4 +1,4 @@
-// HADIR v1.3.0 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.5.0 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
@@ -22,7 +22,8 @@ function hadirDoPost_(e) {
     login: hadirLogin_, logout: hadirLogout_, init: hadirInit_,
     semakKehadiran: hadirSemakKehadiran_,
     simpanKehadiran: hadirSimpanKehadiran_, senaraiMurid: hadirSenaraiMurid_,
-    simpanMurid: hadirSimpanMurid_, uploadMuridCsv: hadirUploadMuridCsv_,
+    simpanMurid: hadirSimpanMurid_, simpanTetapanMurid: hadirSimpanTetapanMurid_,
+    uploadMuridCsv: hadirUploadMuridCsv_,
     syncSemua: hadirSyncSemuaApi_
   };
   try {
@@ -105,6 +106,7 @@ function hadirInit_(token) {
     peta[kelas].push({
       kunci: hadirKunciMurid_(ic, tkh), nama: nama,
       nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
+      _rmt: !!petaRmt[ic],
       _rmtHadir: nilai === '1' && !!petaRmt[ic]
     });
   }
@@ -115,6 +117,7 @@ function hadirInit_(token) {
       murid: murid.map(function (m) { return { kunci: m.kunci, nama: m.nama, nilai: m.nilai }; }),
       jumlah: murid.length,
       tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
+      rmtJumlah: murid.filter(function (m) { return m._rmt; }).length,
       rmtHadir: murid.filter(function (m) { return m._rmtHadir; }).length,
       sudahSimpan: murid.some(function (m) { return m.nilai === 0 || m.nilai === 1; })
     };
@@ -170,6 +173,7 @@ function hadirSemakKehadiran_(tarikhIso) {
       peta[kelas].push({
         nama: nama,
         nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
+        _rmt: !!petaRmt[ic],
         _rmtHadir: nilai === '1' && !!petaRmt[ic]
       });
     }
@@ -184,6 +188,7 @@ function hadirSemakKehadiran_(tarikhIso) {
       jumlah: murid.length,
       hadir: murid.filter(function (m) { return m.nilai === 1; }).length,
       tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
+      rmtJumlah: murid.filter(function (m) { return m._rmt; }).length,
       rmtHadir: murid.filter(function (m) { return m._rmtHadir; }).length,
       sudahSimpan: murid.some(function (m) { return m.nilai === 0 || m.nilai === 1; })
     };
@@ -247,7 +252,7 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
     var nilai = s.getRange(2, col, n, 1).getValues();
     var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
     var petaRmt = hadirPetaRmt_();
-    var jumlah = 0, bilTiada = 0, rmtHadir = 0;
+    var jumlah = 0, bilTiada = 0, rmtHadir = 0, rmtJumlah = 0;
     for (var i = 0; i < n; i++) {
       var ic = normalisasiIc_(asas[i][2]);
       if (String(asas[i][1]).trim().toUpperCase() !== kelas ||
@@ -255,12 +260,14 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
       var tidakHadir = !!tiada[hadirKunciMurid_(ic, tkh)];
       nilai[i][0] = tidakHadir ? 0 : 1;
       jumlah++; if (tidakHadir) bilTiada++;
+      if (petaRmt[ic]) rmtJumlah++;
       if (!tidakHadir && petaRmt[ic]) rmtHadir++;
     }
     if (!jumlah) throw new Error('Tiada murid aktif ditemui untuk ' + kelas + '.');
     s.getRange(2, col, n, 1).setValues(nilai);
     hadirLog_('SIMPAN_KEHADIRAN', sesi.peranan, kelas, jumlah + ' murid; ' + bilTiada + ' tidak hadir');
-    return { ok: true, jumlah: jumlah, tidakHadir: bilTiada, rmtHadir: rmtHadir,
+    return { ok: true, jumlah: jumlah, tidakHadir: bilTiada,
+      rmtHadir: rmtHadir, rmtJumlah: rmtJumlah,
       masa: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'HH:mm') };
   } finally { lock.releaseLock(); }
 }
@@ -271,15 +278,72 @@ function hadirSenaraiMurid_(token) {
   if (!s) throw new Error('Tab main tidak ditemui.');
   var header = cariBarisHeaderMain_(s), n = Math.max(s.getLastRow() - header, 0);
   if (!n) return [];
-  return s.getRange(header + 1, 1, n, 11).getDisplayValues()
+  var lebar = Math.max(s.getLastColumn(), 11);
+  var tajuk = s.getRange(header, 1, 1, lebar).getDisplayValues()[0];
+  var idxJantina = hadirIndeksTajuk_(tajuk, ['JANTINA', 'JENIS KELAMIN']);
+  var idxJawatan = hadirIndeksTajuk_(tajuk, ['JAWATAN MURID', 'JAWATAN']);
+  var petaJantina = hadirPetaJantinaAdmin_();
+  var petaRmt = hadirPetaRmt_();
+  return s.getRange(header + 1, 1, n, lebar).getDisplayValues()
     .filter(function (r) { return r[2] || r[3] || r[1]; })
-    .map(function (r) { return {
-      idMurid: r[1], nama: r[2], ic: normalisasiIc_(r[3]), icAkhir: normalisasiIc_(r[3]).slice(-4),
+    .map(function (r) {
+      var ic = normalisasiIc_(r[3]);
+      var tahunKod = hadirKodTahun_(r[9], r[10]);
+      return {
+      idMurid: r[1], nama: r[2], ic: ic, icAkhir: ic.slice(-4),
       jenisPengenalan: r[4], tarikhLahir: r[5], statusPengajian: r[6],
-      tarikhMasukSekolah: r[7], tarikhMasukKelas: r[8], tahun: r[9], namaKelas: r[10]
+      tarikhMasukSekolah: r[7], tarikhMasukKelas: r[8], tahun: r[9], tahunKod: tahunKod,
+      namaKelas: r[10], kelasLengkap: binaKelasLengkap_(r[9], r[10]),
+      jantina: hadirJantinaKod_((idxJantina >= 0 ? r[idxJantina] : '') || petaJantina[ic], ic),
+      rmt: !!petaRmt[ic],
+      jawatan: String(idxJawatan >= 0 ? r[idxJawatan] : '').trim().toUpperCase() || 'MURID BIASA'
     }; }).sort(function (a, b) {
       return hadirSusunKelas_(binaKelasLengkap_(a.tahun, a.namaKelas), binaKelasLengkap_(b.tahun, b.namaKelas)) || a.nama.localeCompare(b.nama);
     });
+}
+
+function hadirIndeksTajuk_(tajuk, calon) {
+  var peta = Object.create(null);
+  (tajuk || []).forEach(function (h, i) { peta[normalisasiHeader_(h)] = i; });
+  for (var i = 0; i < calon.length; i++) {
+    var idx = peta[normalisasiHeader_(calon[i])];
+    if (idx !== undefined) return idx;
+  }
+  return -1;
+}
+
+function hadirKodTahun_(tahun, kelas) {
+  var t = String(tahun || '').trim().toUpperCase();
+  var k = String(kelas || '').trim().toUpperCase();
+  if (t.indexOf('PRASEKOLAH') >= 0 || k.indexOf('PRASEKOLAH') >= 0) return 'PRASEKOLAH';
+  var peta = { SATU: '1', DUA: '2', TIGA: '3', EMPAT: '4', LIMA: '5', ENAM: '6' };
+  var hasil = '';
+  Object.keys(peta).some(function (perkataan) {
+    if (t.indexOf(perkataan) >= 0) { hasil = peta[perkataan]; return true; }
+    return false;
+  });
+  return hasil || (t.match(/[1-6]/) || [''])[0];
+}
+
+function hadirPetaJantinaAdmin_() {
+  var peta = Object.create(null);
+  var s = ss.getSheetByName('jantina');
+  if (!s || s.getLastRow() < 2) return peta;
+  s.getRange(2, 1, s.getLastRow() - 1, 2).getDisplayValues().forEach(function (r) {
+    var ic = normalisasiIc_(r[0]);
+    var j = hadirJantinaKod_(r[1], ic);
+    if (ic && j) peta[ic] = j;
+  });
+  return peta;
+}
+
+function hadirJantinaKod_(nilai, ic) {
+  var v = String(nilai || '').trim().toUpperCase();
+  if (v.charAt(0) === 'L') return 'L';
+  if (v.charAt(0) === 'P') return 'P';
+  var digit = String(ic || '').replace(/\D/g, '');
+  if (digit.length >= 12) return Number(digit.slice(-1)) % 2 ? 'L' : 'P';
+  return '';
 }
 
 function hadirSimpanMurid_(rekod, token) {
@@ -290,6 +354,7 @@ function hadirSimpanMurid_(rekod, token) {
   if (asal && asal !== ic) throw new Error('IC/MyKid ialah kunci tetap dan tidak boleh ditukar. Arkibkan rekod lama dan tambah murid baharu.');
   rekod.ic = ic;
   var hasil = simpanSenaraiMuridUpload({ mode: 'merge', records: [rekod], kepala: [] });
+  if (rekod.jantina && typeof simpanJantinaUpload === 'function') simpanJantinaUpload([rekod]);
   var sync = hadirSyncSemua_();
   hadirLog_('SIMPAN_MURID', sesi.peranan, '', '1 rekod; sync=' + sync.ok);
   return {
@@ -297,6 +362,69 @@ function hadirSimpanMurid_(rekod, token) {
     mesej: sync.ok ? 'Murid disimpan dan semua aplikasi diselaraskan.' :
       'Murid disimpan dalam KEHADIRAN, tetapi sebahagian penyelarasan perlu diperiksa.'
   };
+}
+
+function hadirSimpanTetapanMurid_(tetapan, token) {
+  var sesi = hadirSesi_(token, true);
+  tetapan = tetapan || {};
+  var ic = normalisasiIc_(tetapan.ic);
+  var dibenarkan = ['PENGAWAS', 'PENGAWAS PERPUSTAKAAN', 'KETUA KELAS',
+    'PENOLONG KETUA KELAS', 'MURID BIASA'];
+  var jawatan = String(tetapan.jawatan || 'MURID BIASA').trim().toUpperCase();
+  var rmt = tetapan.rmt === true;
+  if (!ic) throw new Error('Murid tidak sah.');
+  if (dibenarkan.indexOf(jawatan) < 0) throw new Error('Jawatan murid tidak sah.');
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var kelas = '';
+  try {
+    var sMain = ss.getSheetByName('main');
+    if (!sMain) throw new Error('Tab main tidak ditemui.');
+    var header = cariBarisHeaderMain_(sMain);
+    var n = Math.max(sMain.getLastRow() - header, 0);
+    var asas = n ? sMain.getRange(header + 1, 1, n, Math.max(sMain.getLastColumn(), 11)).getDisplayValues() : [];
+    var indeks = -1;
+    for (var i = 0; i < asas.length; i++) {
+      if (normalisasiIc_(asas[i][3]) === ic) { indeks = i; break; }
+    }
+    if (indeks < 0) throw new Error('Murid tidak ditemui dalam tab main.');
+    var nama = String(asas[indeks][2] || '').trim();
+    kelas = binaKelasLengkap_(asas[indeks][9], asas[indeks][10]);
+
+    var tajuk = sMain.getRange(header, 1, 1, Math.max(sMain.getLastColumn(), 11)).getDisplayValues()[0];
+    var idxJawatan = hadirIndeksTajuk_(tajuk, ['JAWATAN MURID', 'JAWATAN']);
+    var kolJawatan;
+    if (idxJawatan < 0) {
+      kolJawatan = sMain.getLastColumn() + 1;
+      sMain.getRange(header, kolJawatan).setValue('JAWATAN MURID');
+    } else kolJawatan = idxJawatan + 1;
+    sMain.getRange(header + 1 + indeks, kolJawatan).setValue(jawatan);
+
+    var sRmt = ss.getSheetByName('rmt');
+    if (!sRmt) {
+      sRmt = ss.insertSheet('rmt');
+      sRmt.getRange(1, 1, 1, 5).setValues([['BIL', 'NAMA MURID', 'KELAS', 'STATUS RMT', 'IC']]);
+    }
+    var dataRmt = sRmt.getLastRow() > 1
+      ? sRmt.getRange(2, 1, sRmt.getLastRow() - 1, 5).getDisplayValues() : [];
+    var barisRmt = -1;
+    for (var r = 0; r < dataRmt.length; r++) {
+      if (normalisasiIc_(dataRmt[r][4]) === ic) { barisRmt = r + 2; break; }
+    }
+    if (barisRmt < 0) {
+      barisRmt = sRmt.getLastRow() + 1;
+      sRmt.getRange(barisRmt, 1, 1, 5).setValues([[barisRmt - 1, nama, kelas, rmt ? 1 : 0, ic]]);
+    } else {
+      sRmt.getRange(barisRmt, 2, 1, 3).setValues([[nama, kelas, rmt ? 1 : 0]]);
+    }
+    sRmt.getRange(barisRmt, 5).setNumberFormat('@');
+    SpreadsheetApp.flush();
+    if (typeof padamCacheSistem_ === 'function') padamCacheSistem_();
+  } finally { lock.releaseLock(); }
+
+  hadirLog_('TETAPAN_MURID', sesi.peranan, kelas, 'rmt=' + (rmt ? 1 : 0) + '; jawatan=' + jawatan);
+  return { ok: true, rmt: rmt, jawatan: jawatan, mesej: 'Tetapan murid berjaya disimpan.' };
 }
 
 function hadirUploadMuridCsv_(payload, token) {
@@ -359,6 +487,7 @@ function hadirMuridAktif_() {
   var lebar = Math.max(s.getLastColumn(), 11);
   var tajuk = s.getRange(header, 1, 1, lebar).getDisplayValues()[0];
   var peta = Object.create(null);
+  var petaJantina = hadirPetaJantinaAdmin_();
   tajuk.forEach(function (h, i) { var k = normalisasiHeader_(h); if (k) peta[k] = i; });
   function nilai(r, calon) {
     for (var i = 0; i < calon.length; i++) {
@@ -371,9 +500,10 @@ function hadirMuridAktif_() {
     var status = String(r[6] || '').trim().toUpperCase();
     return r[2] && normalisasiIc_(r[3]) && !/(BERPINDAH|TIDAK AKTIF|BERHENTI|TAMAT)/.test(status);
   }).map(function (r) {
-    return { idMurid: r[1], nama: r[2], ic: normalisasiIc_(r[3]), tahun: r[9],
+    var ic = normalisasiIc_(r[3]);
+    return { idMurid: r[1], nama: r[2], ic: ic, tahun: r[9],
       namaKelas: r[10], kelas: binaKelasLengkap_(r[9], r[10]),
-      jantina: nilai(r, ['JANTINA', 'JENIS KELAMIN']),
+      jantina: hadirJantinaKod_(nilai(r, ['JANTINA', 'JENIS KELAMIN']) || petaJantina[ic], ic),
       agama: nilai(r, ['AGAMA']), kaum: nilai(r, ['KAUM', 'BANGSA']) };
   });
 }

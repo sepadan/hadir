@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.4.0">
+  <link rel="manifest" href="manifest.webmanifest?v=1.5.0">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.4.0">
+  <link rel="stylesheet" href="styles.css?v=1.5.0">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -36,16 +36,17 @@
         <button class="menu-link active" data-pane="attendancePane"><span>✓</span><div><strong>Kehadiran</strong><small>Isi kehadiran murid</small></div></button>
         <button class="menu-link" data-pane="reviewPane"><span>⌕</span><div><strong>Semak Kehadiran</strong><small>Semua kelas mengikut tarikh</small></div></button>
         <div id="adminMenu" hidden>
+          <button class="menu-link" data-pane="studentSettingsPane"><span>⚙</span><div><strong>Tetapan Murid</strong><small>RMT dan jawatan murid</small></div></button>
           <button class="menu-link" data-pane="studentsPane"><span>♙</span><div><strong>Data Murid</strong><small>Tambah dan kemas kini</small></div></button>
           <button class="menu-link" data-pane="syncPane"><span>↻</span><div><strong>Penyelarasan</strong><small>AKSI dan SEMAK</small></div></button>
-          <button id="adminLogoutMenu" class="menu-link danger-link"><span>↪</span><div><strong>Log Keluar Admin</strong><small>Kembali ke mod guru</small></div></button>
         </div>
       </nav>
       <div class="side-foot">
         <span id="roleLabel" hidden>Mod guru</span>
         <div class="side-version-row">
-          <small id="sideVersion">HADIR v1.3.0 · PWA</small>
+          <small id="sideVersion">HADIR v1.5.0</small>
           <button id="adminLoginMenu" class="side-admin-btn" type="button">🔐 Admin</button>
+          <button id="adminLogoutMenu" class="side-admin-btn side-logout-btn" type="button" hidden>↪ Log Keluar</button>
         </div>
       </div>
     </aside>
@@ -92,9 +93,18 @@
           <div><strong id="reviewSavedCount">0</strong><span>Kelas selesai</span></div>
           <div><strong id="reviewPendingCount">0</strong><span>Belum disimpan</span></div>
           <div><strong id="reviewAbsentCount">0</strong><span>Tidak hadir</span></div>
-          <div><strong id="reviewRmtCount">0</strong><span>RMT hadir</span></div>
+          <div><strong id="reviewRmtCount">0/0</strong><span>RMT hadir</span></div>
         </div>
         <div id="reviewList" class="review-list"></div>
+      </section>
+
+      <section id="studentSettingsPane" class="pane" hidden>
+        <div class="page-head settings-head">
+          <div><span class="eyebrow">ADMIN</span><h2>Tetapan Murid</h2><p>Tetapkan penerima RMT dan jawatan murid mengikut kelas.</p></div>
+          <label class="compact-picker">Kelas<select id="settingsClassSelect"><option value="">Pilih kelas</option></select></label>
+        </div>
+        <div id="studentSettingsStatus" class="status" aria-live="polite"></div>
+        <div id="studentSettingsList" class="admin-list settings-list"></div>
       </section>
 
       <section id="studentsPane" class="pane" hidden>
@@ -129,19 +139,38 @@
 
   <dialog id="studentDialog">
     <form id="studentForm" method="dialog">
-      <div class="dialog-head"><h2 id="dialogTitle">Murid</h2><button type="button" class="icon-btn cancel-student-dialog">×</button></div>
+      <div class="dialog-head"><h2 id="dialogTitle">Maklumat murid</h2><button type="button" class="icon-btn cancel-student-dialog">×</button></div>
       <input id="studentOriginalIc" type="hidden">
       <div class="form-grid">
         <label class="full">Nama murid<input id="studentName" required></label>
         <label>IC/MyKid<input id="studentIc" required inputmode="numeric"></label>
         <label>ID murid<input id="studentId"></label>
-        <label>Tahun<select id="studentYear"><option value="">Pilih</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
+        <label>Tahun<select id="studentYear"><option value="">Pilih</option><option value="PRASEKOLAH">Prasekolah</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
         <label>Kelas<input id="studentClass" placeholder="BIJAK"></label>
         <label>Jantina<select id="studentGender"><option value="">—</option><option value="L">Lelaki</option><option value="P">Perempuan</option></select></label>
         <label>Status<select id="studentStatus"><option value="BERSEKOLAH">Bersekolah</option><option value="BERPINDAH">Berpindah</option></select></label>
       </div>
       <div id="studentFormStatus" class="status"></div>
-      <div class="dialog-actions"><button type="button" class="soft cancel-student-dialog">Batal</button><button id="saveStudentBtn" type="submit" class="primary">Simpan &amp; Selaras</button></div>
+      <div class="dialog-actions"><button type="button" class="soft cancel-student-dialog">Batal</button><button id="editStudentBtn" type="button" class="soft edit-action">Edit</button><button id="saveStudentBtn" type="submit" class="primary" disabled>Simpan &amp; Selaras</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="studentSettingsDialog" class="settings-dialog">
+    <form id="studentSettingsForm" method="dialog">
+      <div class="dialog-head"><div><span class="eyebrow">TETAPAN MURID</span><h2 id="settingsStudentName">Murid</h2><p id="settingsStudentClass"></p></div><button type="button" class="icon-btn cancel-student-settings">×</button></div>
+      <input id="settingsStudentIc" type="hidden">
+      <div class="dialog-body settings-form">
+        <label class="toggle-row"><span><strong>Penerima RMT</strong><small>Tandakan jika murid menerima RMT</small></span><input id="settingsStudentRmt" type="checkbox"></label>
+        <label>Jawatan murid<select id="settingsStudentRole">
+          <option value="MURID BIASA">Murid biasa</option>
+          <option value="PENGAWAS">Pengawas</option>
+          <option value="PENGAWAS PERPUSTAKAAN">Pengawas perpustakaan</option>
+          <option value="KETUA KELAS">Ketua kelas</option>
+          <option value="PENOLONG KETUA KELAS">Penolong ketua kelas</option>
+        </select></label>
+        <div id="studentSettingsFormStatus" class="status" aria-live="polite"></div>
+      </div>
+      <div class="dialog-actions"><button type="button" class="soft cancel-student-settings">Batal</button><button id="saveStudentSettingsBtn" type="submit" class="primary">Simpan Tetapan</button></div>
     </form>
   </dialog>
 
@@ -167,7 +196,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.4.0"></script>
-  <script src="app.js?v=1.4.0"></script>
+  <script src="config.js?v=1.5.0"></script>
+  <script src="app.js?v=1.5.0"></script>
 </body>
 </html>

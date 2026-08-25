@@ -5,7 +5,7 @@
   var state = {
     token: '', peranan: 'guru', data: null, reviewData: null, kelas: null,
     tidakHadir: new Set(), murid: [], sedangSimpan: false,
-    uploadRecords: [], uploadHeaders: [], uploadFileName: ''
+    uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null
   };
 
   function $(id) { return document.getElementById(id); }
@@ -57,6 +57,7 @@
   function tetapkanModAdmin(aktif) {
     state.peranan = aktif ? 'admin' : 'guru';
     $('adminLoginMenu').hidden = aktif;
+    $('adminLogoutMenu').hidden = !aktif;
     $('adminMenu').hidden = !aktif;
     $('roleLabel').textContent = aktif ? 'Mod admin' : 'Mod guru';
   }
@@ -139,7 +140,7 @@
     if (!state.kelas) return;
     $('rmtPresentCount').textContent = belumSimpan || !state.kelas.sudahSimpan
       ? 'RMT hadir dikira selepas simpan'
-      : Number(state.kelas.rmtHadir || 0) + ' murid RMT hadir';
+      : Number(state.kelas.rmtHadir || 0) + '/' + Number(state.kelas.rmtJumlah || 0) + ' murid RMT hadir';
   }
 
   function lukisMuridKelas() {
@@ -199,15 +200,16 @@
     var kelas = namaKelas ? semuaKelas.filter(function (k) { return k.nama === namaKelas; }) : semuaKelas;
     var selesai = kelas.filter(function (k) { return !!k.sudahSimpan; });
     var jumlahTidakHadir = 0;
-    var jumlahRmtHadir = 0;
+    var jumlahRmtHadir = 0, jumlahRmt = 0;
     selesai.forEach(function (k) {
       jumlahTidakHadir += (k.murid || []).filter(function (m) { return m.nilai === 0; }).length;
       jumlahRmtHadir += Number(k.rmtHadir || 0);
+      jumlahRmt += Number(k.rmtJumlah || 0);
     });
     $('reviewSavedCount').textContent = selesai.length;
     $('reviewPendingCount').textContent = kelas.length - selesai.length;
     $('reviewAbsentCount').textContent = jumlahTidakHadir;
-    $('reviewRmtCount').textContent = jumlahRmtHadir;
+    $('reviewRmtCount').textContent = jumlahRmtHadir + '/' + jumlahRmt;
 
     var box = $('reviewList');
     box.textContent = '';
@@ -245,7 +247,7 @@
         stats.appendChild(hadirBox);
         stats.appendChild(tiadaBox);
         var rmtBox = el('div');
-        rmtBox.appendChild(el('strong', '', Number(k.rmtHadir || 0)));
+        rmtBox.appendChild(el('strong', '', Number(k.rmtHadir || 0) + '/' + Number(k.rmtJumlah || 0)));
         rmtBox.appendChild(el('span', '', 'RMT hadir'));
         stats.appendChild(rmtBox);
         card.appendChild(stats);
@@ -312,6 +314,7 @@
         state.kelas.sudahSimpan = true;
         state.kelas.tidakHadir = state.tidakHadir.size;
         state.kelas.rmtHadir = Number(r.rmtHadir || 0);
+        state.kelas.rmtJumlah = Number(r.rmtJumlah || 0);
         (state.kelas.murid || []).forEach(function (m) {
           m.nilai = state.tidakHadir.has(teks(m.kunci)) ? 0 : 1;
         });
@@ -367,6 +370,7 @@
     state.token = '';
     state.peranan = 'guru';
     state.murid = [];
+    state.muridDialog = null;
     sessionStorage.removeItem('hadir_admin_token');
     tetapkanModAdmin(false);
     bukaPane('attendancePane');
@@ -379,12 +383,13 @@
       bukaDialogAdmin();
       return;
     }
-    ['attendancePane', 'reviewPane', 'studentsPane', 'syncPane'].forEach(function (x) { $(x).hidden = x !== id; });
+    ['attendancePane', 'reviewPane', 'studentSettingsPane', 'studentsPane', 'syncPane'].forEach(function (x) { $(x).hidden = x !== id; });
     document.querySelectorAll('.menu-link[data-pane]').forEach(function (b) {
       b.classList.toggle('active', b.dataset.pane === id);
     });
     tutupMenu();
     if (id === 'studentsPane') muatMuridAdmin();
+    if (id === 'studentSettingsPane') muatTetapanMurid();
     if (id === 'reviewPane') {
       if (!state.reviewData) state.reviewData = state.data;
       lukisPilihanSemakan();
@@ -410,16 +415,122 @@
         return norm(x).indexOf(q) > -1;
       });
     }).forEach(function (m) {
-      var row = el('div', 'admin-item'), copy = el('div');
+      var row = el('button', 'admin-item admin-item-button'), copy = el('span');
+      row.type = 'button';
       copy.appendChild(el('strong', '', m.nama));
-      copy.appendChild(el('small', '', [m.tahun, m.namaKelas, m.statusPengajian, m.icAkhir ? '•••• ' + m.icAkhir : ''].filter(Boolean).join(' · ')));
+      copy.appendChild(el('small', '', [labelKelasMurid(m), labelJantina(m.jantina), m.statusPengajian, m.icAkhir ? '•••• ' + m.icAkhir : ''].filter(Boolean).join(' · ')));
       row.appendChild(copy);
-      var btn = el('button', '', 'Edit');
-      btn.type = 'button';
-      btn.addEventListener('click', function () { bukaDialogMurid(m); });
-      row.appendChild(btn);
+      row.appendChild(el('span', 'row-chevron', '›'));
+      row.addEventListener('click', function () { bukaDialogMurid(m); });
       box.appendChild(row);
     });
+  }
+
+  function labelKelasMurid(m) {
+    var nilai = teks(m && (m.kelasLengkap || ((m.tahunKod || m.tahun) + ' ' + (m.namaKelas || '')))).trim();
+    if (!nilai) return '';
+    if (norm(nilai).indexOf('PRASEKOLAH') >= 0) return 'Prasekolah';
+    return nilai.toLowerCase().replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+  }
+
+  function labelJantina(kod) {
+    return kod === 'L' ? 'Lelaki' : kod === 'P' ? 'Perempuan' : '';
+  }
+
+  function muridAktif(m) {
+    return !/(BERPINDAH|TIDAK AKTIF|BERHENTI|TAMAT)/.test(norm(m.statusPengajian));
+  }
+
+  function muatTetapanMurid() {
+    status($('studentSettingsStatus'), 'Memuatkan tetapan murid…', '');
+    panggil('senaraiMurid', [state.token]).then(function (r) {
+      state.murid = r || [];
+      lukisPilihanKelasTetapan();
+      status($('studentSettingsStatus'), '', '');
+    }).catch(function (e) {
+      status($('studentSettingsStatus'), e.message, 'err');
+    });
+  }
+
+  function lukisPilihanKelasTetapan() {
+    var select = $('settingsClassSelect');
+    var semasa = select.value;
+    var kelas = [];
+    state.murid.filter(muridAktif).forEach(function (m) {
+      var nama = m.kelasLengkap || binaKelasPaparan(m);
+      if (nama && kelas.indexOf(nama) < 0) kelas.push(nama);
+    });
+    kelas.sort(function (a, b) {
+      var na = parseInt(a, 10) || 99, nb = parseInt(b, 10) || 99;
+      return na - nb || a.localeCompare(b);
+    });
+    select.textContent = '';
+    kelas.forEach(function (nama) {
+      var option = el('option', '', teks(nama).toLowerCase().replace(/\b\w/g, function (c) { return c.toUpperCase(); }));
+      option.value = nama;
+      select.appendChild(option);
+    });
+    select.value = kelas.indexOf(semasa) >= 0 ? semasa : (kelas[0] || '');
+    lukisTetapanMurid();
+  }
+
+  function binaKelasPaparan(m) {
+    return norm((m.tahunKod || m.tahun || '') + ' ' + (m.namaKelas || '')).trim();
+  }
+
+  function lukisTetapanMurid() {
+    var kelas = $('settingsClassSelect').value;
+    var box = $('studentSettingsList');
+    box.textContent = '';
+    var senarai = state.murid.filter(function (m) {
+      return muridAktif(m) && (m.kelasLengkap || binaKelasPaparan(m)) === kelas;
+    });
+    senarai.forEach(function (m) {
+      var row = el('button', 'admin-item admin-item-button settings-item');
+      row.type = 'button';
+      var copy = el('span');
+      copy.appendChild(el('strong', '', m.nama));
+      copy.appendChild(el('small', '', labelKelasMurid(m)));
+      row.appendChild(copy);
+      var badges = el('span', 'settings-badges');
+      if (m.rmt) badges.appendChild(el('span', 'mini-tag rmt-tag', 'RMT'));
+      badges.appendChild(el('span', 'mini-tag', teks(m.jawatan || 'MURID BIASA').toLowerCase().replace(/\b\w/g, function (c) { return c.toUpperCase(); })));
+      row.appendChild(badges);
+      row.addEventListener('click', function () { bukaDialogTetapanMurid(m); });
+      box.appendChild(row);
+    });
+    if (!senarai.length) box.appendChild(el('div', 'empty-review', 'Tiada murid aktif dalam kelas ini.'));
+  }
+
+  function bukaDialogTetapanMurid(m) {
+    state.muridDialog = m;
+    $('settingsStudentIc').value = m.ic || '';
+    $('settingsStudentName').textContent = m.nama || 'Murid';
+    $('settingsStudentClass').textContent = labelKelasMurid(m);
+    $('settingsStudentRmt').checked = !!m.rmt;
+    $('settingsStudentRole').value = m.jawatan || 'MURID BIASA';
+    status($('studentSettingsFormStatus'), '', '');
+    $('studentSettingsDialog').showModal();
+  }
+
+  function simpanTetapanMurid(e) {
+    e.preventDefault();
+    if (!state.muridDialog) return;
+    var siap = mulaButang($('saveStudentSettingsBtn'), 'Menyimpan…');
+    var tetapan = {
+      ic: $('settingsStudentIc').value,
+      rmt: $('settingsStudentRmt').checked,
+      jawatan: $('settingsStudentRole').value
+    };
+    panggil('simpanTetapanMurid', [tetapan, state.token], 45000).then(function (r) {
+      state.muridDialog.rmt = !!r.rmt;
+      state.muridDialog.jawatan = r.jawatan || 'MURID BIASA';
+      lukisTetapanMurid();
+      status($('studentSettingsFormStatus'), r.mesej || 'Tetapan berjaya disimpan.', 'ok');
+      setTimeout(function () { $('studentSettingsDialog').close(); }, 500);
+    }).catch(function (err) {
+      status($('studentSettingsFormStatus'), err.message, 'err');
+    }).finally(siap);
   }
 
   var aliasCsvMurid = {
@@ -556,18 +667,37 @@
 
   function bukaDialogMurid(m) {
     m = m || {};
-    $('dialogTitle').textContent = m.ic ? 'Edit murid' : 'Tambah murid';
+    state.muridDialog = m;
+    $('dialogTitle').textContent = 'Maklumat murid';
     $('studentOriginalIc').value = m.ic || '';
     $('studentName').value = m.nama || '';
     $('studentIc').value = m.ic || '';
-    $('studentIc').readOnly = !!m.ic;
     $('studentId').value = m.idMurid || '';
-    $('studentYear').value = m.tahun || '';
+    $('studentYear').value = m.tahunKod || m.tahun || '';
     $('studentClass').value = m.namaKelas || '';
     $('studentGender').value = m.jantina || '';
     $('studentStatus').value = m.statusPengajian || 'BERSEKOLAH';
     status($('studentFormStatus'), '', '');
+    tetapkanEditMurid(false);
     $('studentDialog').showModal();
+  }
+
+  function tetapkanEditMurid(aktif) {
+    ['studentName', 'studentIc', 'studentId', 'studentClass'].forEach(function (id) {
+      $(id).readOnly = !aktif;
+    });
+    ['studentYear', 'studentGender', 'studentStatus'].forEach(function (id) {
+      $(id).disabled = !aktif;
+    });
+    $('editStudentBtn').hidden = !!aktif;
+    $('saveStudentBtn').disabled = !aktif;
+    $('studentForm').classList.toggle('editing', !!aktif);
+    if (aktif) {
+      $('dialogTitle').textContent = 'Edit murid';
+      $('studentName').focus();
+    } else {
+      $('dialogTitle').textContent = 'Maklumat murid';
+    }
   }
 
   function simpanMurid(e) {
@@ -655,6 +785,9 @@
   $('studentCsvFile').addEventListener('change', bacaFailUploadMurid);
   $('studentUploadForm').addEventListener('submit', uploadMuridCsv);
   $('studentForm').addEventListener('submit', simpanMurid);
+  $('editStudentBtn').addEventListener('click', function () { tetapkanEditMurid(true); });
+  $('settingsClassSelect').addEventListener('change', lukisTetapanMurid);
+  $('studentSettingsForm').addEventListener('submit', simpanTetapanMurid);
   $('syncAllBtn').addEventListener('click', syncSemua);
   document.querySelectorAll('.cancel-admin-login').forEach(function (b) {
     b.addEventListener('click', function () { $('adminLoginDialog').close(); });
@@ -665,6 +798,9 @@
   document.querySelectorAll('.cancel-student-upload').forEach(function (b) {
     b.addEventListener('click', function () { $('studentUploadDialog').close(); });
   });
+  document.querySelectorAll('.cancel-student-settings').forEach(function (b) {
+    b.addEventListener('click', function () { $('studentSettingsDialog').close(); });
+  });
   document.querySelectorAll('.menu-link[data-pane]').forEach(function (b) {
     b.addEventListener('click', function () { bukaPane(b.dataset.pane); });
   });
@@ -673,7 +809,7 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.3.0 · PWA';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.5.0';
   sambungan();
   daftarPwa();
   muatAwal();

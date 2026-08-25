@@ -30,6 +30,10 @@ sah(backend.includes('semakKehadiran: hadirSemakKehadiran_'), 'API semakan tarik
 sah(backend.includes("throw new Error('Semakan hanya tersedia bagi tahun semasa.')"), 'Semakan tarikh mesti dihadkan kepada tahun semasa');
 sah(backend.includes('muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)'), 'Semakan sejarah mesti menghormati tempoh murid aktif');
 sah(backend.includes('function hadirPetaRmt_()'), 'Sumber status RMT tiada');
+sah(backend.includes('simpanTetapanMurid: hadirSimpanTetapanMurid_'), 'API Tetapan Murid tiada');
+sah(backend.includes("'JAWATAN MURID'"), 'Simpanan jawatan murid tiada');
+sah(backend.includes('rmtHadir: rmtHadir, rmtJumlah: rmtJumlah'), 'Simpanan kehadiran mesti pulangkan nisbah RMT');
+sah(backend.includes('tahunKod: tahunKod') && backend.includes('hadirJantinaKod_'), 'Tahun atau jantina admin tidak dilengkapkan');
 sah(backend.includes('murid.filter(function (m) { return m.nilai === 0; })'), 'Respons sejarah hanya boleh menghantar nama murid tidak hadir');
 sah(backend.includes('.map(function (m) { return { nama: m.nama, nilai: 0 }; })'), 'Respons sejarah mesti membuang IC dan status RMT individu');
 sah(!backend.includes("murid: murid, jumlah: murid.length"), 'Objek murid dalaman tidak boleh dihantar terus kepada paparan awam');
@@ -37,7 +41,7 @@ sah(backend.includes("simpanSenaraiMuridUpload({ mode: mode, records: rekod, kep
 sah(!/HADIR_(?:AKSI|SEMAK)_PASSWORD\s*=/.test(backend), 'Kata laluan tidak boleh dihardcode');
 sah(backend.includes("token ? hadirSesi_(token, true) : { peranan: 'guru' }"), 'Guru tanpa log masuk belum disokong');
 sah(backend.includes('hadirKunciMurid_'), 'Kunci murid legap untuk paparan awam tiada');
-sah(!/icAkhir: ic\.slice\(-4\)/.test(backend), 'Paparan awam tidak boleh menerima IC murid');
+sah((backend.match(/icAkhir:\s*ic\.slice\(-4\)/g) || []).length === 1, 'Hanya API admin boleh menerima hujung IC murid');
 
 const fungsiTarikh = backend.match(/function hadirTarikhPaparanMs_\(tarikh, zona\) \{([\s\S]*?)\n\}/);
 sah(fungsiTarikh, 'Pemformat tarikh Bahasa Melayu tiada');
@@ -65,9 +69,14 @@ sah(html.includes('id="adminLoginDialog"'), 'Login admin dalam menu tiada');
 sah(html.includes('id="reviewPane"') && html.includes('id="reviewClassSelect"'), 'Semak Kehadiran tiada');
 sah(html.includes('id="reviewDateSelect"') && html.includes('type="date"'), 'Pilihan tarikh Semak Kehadiran tiada');
 sah(html.includes('id="reviewRmtCount"') && html.includes('id="rmtPresentCount"'), 'Bilangan RMT hadir tiada');
+sah(html.includes('id="studentSettingsPane"') && html.includes('id="settingsClassSelect"'), 'Menu Tetapan Murid tiada');
+sah(html.indexOf('data-pane="studentSettingsPane"') < html.indexOf('data-pane="studentsPane"'), 'Tetapan Murid mesti berada di atas Data Murid');
+sah(html.includes('id="editStudentBtn"') && html.indexOf('id="editStudentBtn"') < html.indexOf('id="saveStudentBtn"'), 'Butang Edit mesti sebelum Simpan & Selaras');
+sah(html.includes('id="adminLogoutMenu"') && html.indexOf('id="sideVersion"') < html.indexOf('id="adminLogoutMenu"'), 'Log keluar mesti berada di sebelah versi');
+sah(!html.includes('· PWA'), 'Label versi tidak perlu memaparkan PWA');
 sah(html.includes('Semua Kelas'), 'Pilihan Semua Kelas tiada');
 sah(html.includes('id="resetBtn"') && html.indexOf('id="resetBtn"') < html.indexOf('id="classSelect"'), 'Set semula mesti berada di atas dropdown kelas');
-sah(!html.includes('id="classTitle"') && !html.includes('Pilih kelas'), 'Kad kelas lama atau ayat Pilih kelas masih ada');
+sah(!html.includes('id="classTitle"') && !html.includes('<h1>Pilih kelas</h1>'), 'Kad kelas lama atau tajuk Pilih kelas masih ada');
 sah(html.indexOf('id="sideVersion"') < html.indexOf('id="adminLoginMenu"'), 'Login admin mesti berada di sebelah versi');
 sah(!html.includes('tanpa log masuk'), 'Ayat tanpa log masuk masih dipaparkan');
 sah(html.includes('id="uploadStudentsBtn"') && html.includes('id="studentCsvFile"'), 'Dialog Update Data Murid CSV tiada');
@@ -84,6 +93,16 @@ sah(app.includes('m.nilai === 0') && !app.includes('return Number(m.nilai) === 0
 sah(app.includes("'Murid tidak hadir' : 'Semua murid hadir'"), 'Semakan mesti menyenaraikan murid tidak hadir sahaja');
 sah(app.includes("panggil('uploadMuridCsv'"), 'Frontend tidak menghantar CSV melalui API admin');
 sah(app.includes("mode === 'sync' && !window.confirm"), 'Sync penuh CSV mesti meminta pengesahan');
+sah(app.includes("panggil('simpanTetapanMurid'"), 'Frontend tidak menyimpan RMT atau jawatan murid');
+sah(app.includes("$('reviewRmtCount').textContent = jumlahRmtHadir + '/' + jumlahRmt"), 'Kotak RMT mesti memaparkan hadir/jumlah');
+sah(app.includes("$('saveStudentBtn').disabled = !aktif"), 'Butiran murid mesti baca sahaja sehingga Edit ditekan');
+sah(app.includes("m.tahunKod || m.tahun"), 'Tahun murid tidak dimasukkan ke dialog');
+
+const cfg = baca('config.js');
+sah(cfg.includes("versi: 'HADIR v1.5.0'"), 'Versi paparan bukan v1.5.0');
+sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
+sah(html.includes('styles.css?v=1.5.0') && html.includes('app.js?v=1.5.0') && html.includes('config.js?v=1.5.0'), 'Versi aset HTML tidak seragam');
+sah(sw.includes("hadir-shell-v1.5.0-20260825-1") && sw.includes('app.js?v=1.5.0'), 'Cache PWA belum dinaikkan bersama aset');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
@@ -100,3 +119,5 @@ console.log('✓ Bar atas PWA menghormati ruang selamat status/notch iPhone');
 console.log('✓ Guru terus mengisi; hanya admin perlu log masuk melalui menu');
 console.log('✓ Guru boleh semak tarikh terdahulu; nama hadir dan status RMT individu tidak didedahkan');
 console.log('✓ Bilangan RMT hadir tersedia selepas simpan dan dalam semakan tarikh');
+console.log('✓ Nisbah RMT menggunakan format hadir/jumlah');
+console.log('✓ Tetapan Murid, paparan baca sahaja dan versi PWA v1.5.0 tersedia');

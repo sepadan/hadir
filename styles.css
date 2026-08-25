@@ -154,6 +154,11 @@ button[hidden], [hidden] { display: none !important; }
   font-weight: 800;
 }
 .side-admin-btn:hover { background: #ffffff18; }
+.side-logout-btn {
+  border-color: #ff9cab44;
+  background: #d8445720;
+  color: #ffd5db;
+}
 .scrim {
   position: fixed;
   z-index: 35;
@@ -256,6 +261,8 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 }
 .page-head h2 { margin: 0; }
 .page-head p { margin: 2px 0 0; color: var(--muted); }
+.settings-head { align-items: end; }
+.compact-picker { width: min(250px, 45%); color: #40536b; font-size: .78rem; }
 .tip-bubble {
   width: max-content;
   max-width: 94%;
@@ -344,6 +351,22 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .admin-item strong, .admin-item small { display: block; }
 .admin-item small { margin-top: 2px; color: var(--muted); }
 .admin-item button { padding: 9px 12px; border: 0; border-radius: 11px; background: #edf5fa; color: #147aae; font-weight: 800; }
+.admin-item-button {
+  width: 100%;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.admin-item-button:hover { border-color: #9dcce6; background: #fafdff; }
+.admin-item-button > span:first-child { min-width: 0; }
+.admin-item-button strong, .admin-item-button small { overflow-wrap: anywhere; }
+.row-chevron { color: var(--blue); font-size: 1.55rem; line-height: 1; }
+.settings-list { margin-top: 12px; }
+.settings-item { grid-template-columns: minmax(0, 1fr) auto; }
+.settings-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; max-width: 230px; }
+.mini-tag { padding: 4px 7px; border-radius: 999px; background: #edf3f7; color: #40536b; font-size: .67rem; font-weight: 850; }
+.rmt-tag { background: #e5f7ef; color: #087851; }
 .sync-card { max-width: 560px; margin: 35px auto; padding: 30px 24px; border-radius: 24px; text-align: center; }
 .sync-icon { width: 70px; height: 70px; display: grid; place-items: center; margin: 0 auto 15px; border-radius: 50%; background: var(--blue2); color: var(--blue); font-size: 2rem; font-weight: 900; }
 .sync-card h2 { margin: 3px 0 5px; }
@@ -432,6 +455,7 @@ dialog::backdrop { background: #061626aa; }
 .dialog-head, .dialog-actions { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; }
 .dialog-head { border-bottom: 1px solid var(--line); }
 .dialog-head h2 { margin: 2px 0 0; }
+.dialog-head p { margin: 2px 0 0; color: var(--muted); }
 .dialog-head .icon-btn { color: var(--ink); }
 .dialog-body { padding: 8px 18px 14px; }
 .dialog-body p { color: var(--muted); }
@@ -440,6 +464,31 @@ dialog::backdrop { background: #061626aa; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; padding: 8px 18px; }
 .form-grid label { margin: 7px 0; }
 .form-grid .full { grid-column: 1 / -1; }
+.form-grid input[readonly], .form-grid select:disabled {
+  border-color: transparent;
+  background: #f2f6f9;
+  color: var(--ink);
+  opacity: 1;
+  cursor: default;
+}
+.edit-action { color: #087bbd; }
+.settings-dialog { width: min(520px, calc(100% - 24px)); }
+.settings-form { display: grid; gap: 16px; padding-top: 18px; }
+.toggle-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: #f8fbfd;
+}
+.toggle-row span { min-width: 0; }
+.toggle-row strong, .toggle-row small { display: block; }
+.toggle-row small { margin-top: 2px; color: var(--muted); font-weight: 500; }
+.toggle-row input { width: 24px; min-height: 24px; flex: 0 0 auto; accent-color: var(--blue); }
 .upload-body { display: grid; gap: 14px; }
 .upload-body > p { margin-bottom: 0; }
 .file-drop {
@@ -510,6 +559,10 @@ dialog::backdrop { background: #061626aa; }
   .page-head { padding: 12px; }
   .page-head p { font-size: .8rem; }
   .page-head .primary { padding: 9px 11px; }
+  .settings-head { align-items: stretch; flex-direction: column; }
+  .compact-picker { width: 100%; }
+  .settings-item { align-items: start; }
+  .settings-badges { max-width: 42%; }
   #uploadStudentsBtn { max-width: 155px; font-size: .78rem; line-height: 1.25; }
   .review-hero { grid-template-columns: 1fr; gap: 12px; padding: 15px; border-radius: 17px; }
   .review-controls { grid-template-columns: 1fr; }
@@ -523,6 +576,8 @@ dialog::backdrop { background: #061626aa; }
   .review-card-head { padding: 12px 13px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .full { grid-column: auto; }
+  #studentDialog .dialog-actions { padding: 12px; }
+  #studentDialog .dialog-actions button { min-width: 0; padding: 10px 12px; }
 }
 
 @media (max-width: 370px) {
