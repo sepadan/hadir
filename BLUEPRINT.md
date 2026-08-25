@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 1.5 · 25 Ogos 2026**
+**Versi 1.6 · 25 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -102,10 +102,45 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ## 7. PWA dan auto-update
 
-Versi `HADIR v1.3.0 · PWA`. `service-worker.js` mencache aset statik dan
-memintas permintaan GET sama asal sahaja. Backend Apps Script berlainan asal,
-maka data tidak pernah masuk Cache Storage. Service Worker menyemak binaan
-baharu ketika aplikasi dibuka, tanpa muat semula paksa.
+Versi `HADIR v1.3.1 · PWA`. `service-worker.js` memintas permintaan GET sama
+asal sahaja. Backend Apps Script berlainan asal, maka data tidak pernah masuk
+Cache Storage.
+
+### Strategi cache — kod berbeza daripada ikon
+
+| Jenis | Strategi | Sebab |
+|---|---|---|
+| Halaman (navigate) | Rangkaian dahulu | Guru sentiasa mendapat HTML terbaharu |
+| `.js` `.css` `.webmanifest` | **Rangkaian dahulu** | Kod lapuk merosakkan aplikasi sepenuhnya |
+| Ikon dan gambar | Cache dahulu | Besar, dan tidak pernah berubah |
+
+> Pada 25 Ogos 2026, `index.html` dikemas kini tetapi nombor versi pada
+> `app.js?v=` tidak dinaikkan. Strategi cache-first ketika itu menghidangkan
+> `app.js` lama bersama HTML baharu. Elemen `menuClassName` sudah dibuang dari
+> HTML tetapi masih dicari oleh JavaScript lama, jadi aplikasi mati dengan
+> *"Cannot set properties of null"* — guru tidak boleh mengisi kehadiran
+> mahupun log masuk.
+>
+> Bergantung pada manusia mengingati tiga nombor versi dalam tiga fail ialah
+> reka bentuk yang rapuh. Kod kini diambil dari rangkaian dahulu, dan cache
+> menjadi sandaran luar talian sahaja.
+
+### Senarai semak WAJIB bagi setiap perubahan aset
+
+Ketiga-tiganya dalam **commit yang sama**, atau jangan buat langsung:
+
+1. `index.html` — naikkan `?v=` pada `styles.css`, `config.js`, `app.js`, `manifest.webmanifest`
+2. `service-worker.js` — naikkan `?v=` yang sama dalam `APP_SHELL`
+3. `service-worker.js` — naikkan `CACHE_VERSION`, supaya cache lama dibuang
+
+Nombor versi dalam `config.js` (`versi:`) dinaikkan sekali supaya guru nampak
+versi sebenar di kaki menu sisi.
+
+### Pemasangan berdaya tahan
+
+`cache.addAll()` menolak keseluruhan janji jika **satu** fail gagal diambil —
+satu ikon tersalah nama bermakna Service Worker langsung tidak dipasang dan PWA
+mati senyap. Setiap fail kini diambil berasingan dengan `cache.add().catch()`.
 
 ## 8. Status pembinaan
 
@@ -150,6 +185,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 25 Ogos 2026 | 1.3.1 | **Regresi cache dibaiki.** Kod (`.js`/`.css`/`.webmanifest`) kini diambil rangkaian-dahulu; ikon kekal cache-dahulu. `CACHE_VERSION` dan semua `?v=` dinaikkan ke `1.3.1`. Pemasangan Service Worker tidak lagi gagal sepenuhnya kalau satu aset hilang. Senarai semak tiga langkah ditambah di bahagian 7 | Tiada data diubah |
 | 25 Ogos 2026 | 1.3.1 | **Pepijat keadaan lalai dibaiki.** `Number(m.nilai) === 0` menandakan setiap murid yang belum ditanda sebagai tidak hadir, kerana `Number('')` ialah `0` dalam JavaScript. Pada pagi hari baru seluruh kelas kelihatan merah dan kaunter berbunyi "24 tidak hadir". Diganti dengan pembandingan ketat melalui `tidakHadirAsal_()`. Kaunter memaparkan "Semua hadir" apabila sifar. Kotak "KELAS DIPILIH" dibuang dari menu sisi — nama kelas sudah ada dalam dropdown | Tiada data diubah; pepijat hanya pada paparan, tetapi satu ketikan Simpan boleh merekod seluruh kelas tidak hadir |
 | 2026-08-24 | 1.3.0 | Tambah Semak Kehadiran semua/ikut kelas; kemaskan pilihan kelas, butang Set semula, menu dan ruang nama; tambah import CSV idME admin melalui fungsi rasmi KEHADIRAN; lindungi bar atas PWA homescreen dengan ruang selamat iPhone; naikkan cache PWA | Ujian hanya membaca data produksi dan menggunakan semakan struktur/paparan; tiada kehadiran disimpan, fail murid diimport atau sync sebenar dijalankan |
 | 2026-08-24 | 1.2.0 | Baiki kawasan scroll; kekalkan sidebar pada desktop; menu telefon boleh buka/tutup; paparkan kelas dipilih dalam menu; kemaskan kad nama panjang dan naikkan cache PWA; GitHub Pages run #5 (`8284fa6`) berjaya | Ujian produksi hanya membaca senarai dan menguji UI; tiada kehadiran atau data murid diubah |
