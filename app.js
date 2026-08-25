@@ -3,7 +3,7 @@
 
   var cfg = window.HADIR_CONFIG || {};
   var state = {
-    token: '', peranan: 'guru', data: null, kelas: null,
+    token: '', peranan: 'guru', data: null, reviewData: null, kelas: null,
     tidakHadir: new Set(), murid: [], sedangSimpan: false,
     uploadRecords: [], uploadHeaders: [], uploadFileName: ''
   };
@@ -64,9 +64,13 @@
   function bukaAplikasi(data) {
     var kelasSemasa = state.kelas && state.kelas.nama;
     state.data = data || { kelas: [] };
+    state.reviewData = state.data;
     tetapkanModAdmin(state.data.peranan === 'admin' && !!state.token);
     $('topDate').textContent = state.data.tarikhPaparan || state.data.tarikh || 'Hari ini';
     $('reviewDate').textContent = state.data.tarikhPaparan || state.data.tarikh || 'Hari ini';
+    $('reviewDateSelect').value = state.data.tarikhIso || '';
+    $('reviewDateSelect').min = state.data.tarikhMinimum || '';
+    $('reviewDateSelect').max = state.data.tarikhMaksimum || state.data.tarikhIso || '';
     lukisPilihanKelas(kelasSemasa);
     lukisPilihanSemakan();
     status($('publicStatus'), '', '');
@@ -127,7 +131,15 @@
     $('classSelect').value = kelas.nama;
     $('studentSearch').value = '';
     $('saveHint').textContent = kelas.sudahSimpan ? 'Rekod semasa dimuat' : 'Belum disimpan';
+    kemasKiniRmtHariIni();
     lukisMuridKelas();
+  }
+
+  function kemasKiniRmtHariIni(belumSimpan) {
+    if (!state.kelas) return;
+    $('rmtPresentCount').textContent = belumSimpan || !state.kelas.sudahSimpan
+      ? 'RMT hadir dikira selepas simpan'
+      : Number(state.kelas.rmtHadir || 0) + ' murid RMT hadir';
   }
 
   function lukisMuridKelas() {
@@ -151,6 +163,7 @@
           if (state.tidakHadir.has(kunci)) state.tidakHadir.delete(kunci);
           else state.tidakHadir.add(kunci);
           $('saveHint').textContent = 'Perubahan belum disimpan';
+          kemasKiniRmtHariIni(true);
           lukisMuridKelas();
         });
         box.appendChild(btn);
@@ -166,7 +179,7 @@
   function lukisPilihanSemakan() {
     var select = $('reviewClassSelect');
     var pilihanSemasa = select.value;
-    var kelas = state.data && state.data.kelas ? state.data.kelas : [];
+    var kelas = state.reviewData && state.reviewData.kelas ? state.reviewData.kelas : [];
     select.textContent = '';
     var semua = el('option', '', 'Semua Kelas');
     semua.value = '';
@@ -182,30 +195,35 @@
 
   function lukisSemakan() {
     var namaKelas = $('reviewClassSelect').value;
-    var semuaKelas = state.data && state.data.kelas ? state.data.kelas : [];
+    var semuaKelas = state.reviewData && state.reviewData.kelas ? state.reviewData.kelas : [];
     var kelas = namaKelas ? semuaKelas.filter(function (k) { return k.nama === namaKelas; }) : semuaKelas;
     var selesai = kelas.filter(function (k) { return !!k.sudahSimpan; });
     var jumlahTidakHadir = 0;
+    var jumlahRmtHadir = 0;
     selesai.forEach(function (k) {
-      jumlahTidakHadir += (k.murid || []).filter(function (m) { return Number(m.nilai) === 0; }).length;
+      jumlahTidakHadir += (k.murid || []).filter(function (m) { return m.nilai === 0; }).length;
+      jumlahRmtHadir += Number(k.rmtHadir || 0);
     });
     $('reviewSavedCount').textContent = selesai.length;
     $('reviewPendingCount').textContent = kelas.length - selesai.length;
     $('reviewAbsentCount').textContent = jumlahTidakHadir;
+    $('reviewRmtCount').textContent = jumlahRmtHadir;
 
     var box = $('reviewList');
     box.textContent = '';
     if (!kelas.length) {
       var kosong = el('div', 'empty-review');
-      kosong.appendChild(el('strong', '', 'Tiada kelas aktif'));
-      kosong.appendChild(el('span', '', 'Senarai kelas belum tersedia.'));
+      kosong.appendChild(el('strong', '', 'Tiada rekod kehadiran'));
+      kosong.appendChild(el('span', '', 'Belum ada kelas yang disimpan pada tarikh ini.'));
       box.appendChild(kosong);
       return;
     }
     kelas.forEach(function (k) {
       var murid = k.murid || [];
-      var tiada = k.sudahSimpan ? murid.filter(function (m) { return Number(m.nilai) === 0; }) : [];
-      var hadir = k.sudahSimpan ? murid.filter(function (m) { return Number(m.nilai) === 1; }).length : 0;
+      var tiada = k.sudahSimpan ? murid.filter(function (m) { return m.nilai === 0; }) : [];
+      var hadir = k.sudahSimpan
+        ? (typeof k.hadir === 'number' ? k.hadir : murid.filter(function (m) { return m.nilai === 1; }).length)
+        : 0;
       var card = el('article', 'review-card' + (k.sudahSimpan ? ' done' : ' pending'));
       var head = el('div', 'review-card-head');
       var title = el('div');
@@ -215,7 +233,7 @@
       head.appendChild(el('span', 'review-state', k.sudahSimpan ? 'Selesai' : 'Belum disimpan'));
       card.appendChild(head);
       if (!k.sudahSimpan) {
-        card.appendChild(el('p', 'review-message', 'Kehadiran kelas ini belum disimpan untuk hari ini.'));
+        card.appendChild(el('p', 'review-message', 'Kehadiran kelas ini belum disimpan pada tarikh tersebut.'));
       } else {
         var stats = el('div', 'review-card-stats');
         var hadirBox = el('div');
@@ -226,6 +244,10 @@
         tiadaBox.appendChild(el('span', '', 'Tidak hadir'));
         stats.appendChild(hadirBox);
         stats.appendChild(tiadaBox);
+        var rmtBox = el('div');
+        rmtBox.appendChild(el('strong', '', Number(k.rmtHadir || 0)));
+        rmtBox.appendChild(el('span', '', 'RMT hadir'));
+        stats.appendChild(rmtBox);
         card.appendChild(stats);
         var absentBox = el('div', 'review-absent');
         absentBox.appendChild(el('strong', '', tiada.length ? 'Murid tidak hadir' : 'Semua murid hadir'));
@@ -237,6 +259,26 @@
         card.appendChild(absentBox);
       }
       box.appendChild(card);
+    });
+  }
+
+  function muatSemakanTarikh() {
+    var tarikhIso = $('reviewDateSelect').value;
+    if (!tarikhIso) return;
+    status($('reviewStatus'), 'Memuatkan rekod kehadiran…', '');
+    $('reviewDateSelect').disabled = true;
+    var permintaan = state.data && tarikhIso === state.data.tarikhIso
+      ? Promise.resolve(state.data)
+      : panggil('semakKehadiran', [tarikhIso], 30000);
+    permintaan.then(function (data) {
+      state.reviewData = data || { kelas: [] };
+      $('reviewDate').textContent = state.reviewData.tarikhPaparan || state.reviewData.tarikh || tarikhIso;
+      status($('reviewStatus'), '', '');
+      lukisPilihanSemakan();
+    }).catch(function (err) {
+      status($('reviewStatus'), err.message, 'err');
+    }).finally(function () {
+      $('reviewDateSelect').disabled = false;
     });
   }
 
@@ -269,9 +311,14 @@
         $('saveHint').textContent = 'Disimpan ' + (r.masa || 'sekarang');
         state.kelas.sudahSimpan = true;
         state.kelas.tidakHadir = state.tidakHadir.size;
+        state.kelas.rmtHadir = Number(r.rmtHadir || 0);
         (state.kelas.murid || []).forEach(function (m) {
           m.nilai = state.tidakHadir.has(teks(m.kunci)) ? 0 : 1;
         });
+        kemasKiniRmtHariIni();
+        if (state.reviewData && state.data && state.reviewData.tarikhIso === state.data.tarikhIso) {
+          state.reviewData = state.data;
+        }
         lukisSemakan();
       }).catch(function (err) {
         $('saveHint').textContent = 'Gagal: ' + err.message;
@@ -285,6 +332,7 @@
     if (!state.kelas) return;
     state.tidakHadir = tidakHadirAsal_(state.kelas.murid);
     $('saveHint').textContent = 'Kembali kepada rekod disimpan';
+    kemasKiniRmtHariIni();
     lukisMuridKelas();
   }
 
@@ -337,7 +385,10 @@
     });
     tutupMenu();
     if (id === 'studentsPane') muatMuridAdmin();
-    if (id === 'reviewPane') lukisSemakan();
+    if (id === 'reviewPane') {
+      if (!state.reviewData) state.reviewData = state.data;
+      lukisPilihanSemakan();
+    }
   }
 
   function muatMuridAdmin() {
@@ -592,6 +643,7 @@
   });
   $('studentSearch').addEventListener('input', lukisMuridKelas);
   $('reviewClassSelect').addEventListener('change', lukisSemakan);
+  $('reviewDateSelect').addEventListener('change', muatSemakanTarikh);
   $('saveAttendanceBtn').addEventListener('click', simpanKehadiran);
   $('resetBtn').addEventListener('click', setSemula);
   $('retryBtn').addEventListener('click', muatAwal);

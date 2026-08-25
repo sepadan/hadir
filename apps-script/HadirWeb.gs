@@ -20,6 +20,7 @@ function hadirDoPost_(e) {
   var p = e.hadirPayload_ || JSON.parse(e.postData.contents || '{}');
   var dibenarkan = {
     login: hadirLogin_, logout: hadirLogout_, init: hadirInit_,
+    semakKehadiran: hadirSemakKehadiran_,
     simpanKehadiran: hadirSimpanKehadiran_, senaraiMurid: hadirSenaraiMurid_,
     simpanMurid: hadirSimpanMurid_, uploadMuridCsv: hadirUploadMuridCsv_,
     syncSemua: hadirSyncSemuaApi_
@@ -92,6 +93,7 @@ function hadirInit_(token) {
   var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
   var intervalArkib = dapatkanIntervalArkib_();
   var icMain = dapatkanIcAktifMain_();
+  var petaRmt = hadirPetaRmt_();
   var peta = Object.create(null);
   for (var i = 1; i < data.length; i++) {
     var nama = String(data[i][1] || '').trim();
@@ -102,23 +104,107 @@ function hadirInit_(token) {
     var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
     peta[kelas].push({
       kunci: hadirKunciMurid_(ic, tkh), nama: nama,
-      nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : ''
+      nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
+      _rmtHadir: nilai === '1' && !!petaRmt[ic]
     });
   }
   var kelasHasil = Object.keys(peta).sort(hadirSusunKelas_).map(function (kelas) {
     var murid = peta[kelas].sort(function (a, b) { return a.nama.localeCompare(b.nama); });
     return {
-      nama: kelas, murid: murid, jumlah: murid.length,
+      nama: kelas,
+      murid: murid.map(function (m) { return { kunci: m.kunci, nama: m.nama, nilai: m.nilai }; }),
+      jumlah: murid.length,
       tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
+      rmtHadir: murid.filter(function (m) { return m._rmtHadir; }).length,
       sudahSimpan: murid.some(function (m) { return m.nilai === 0 || m.nilai === 1; })
     };
   });
   var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
+  var tarikhIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
   return {
     peranan: sesi.peranan, tarikh: tkh,
+    tarikhIso: tarikhIso,
+    tarikhMinimum: tarikhIso.slice(0, 4) + '-01-01',
+    tarikhMaksimum: tarikhIso,
     tarikhPaparan: hadirTarikhPaparanMs_(new Date(), zona),
     kelas: kelasHasil
   };
+}
+
+/* Paparan baca sahaja untuk guru tanpa log masuk. Tab kehadiran menggunakan
+   tajuk dd/MM, jadi semakan dihadkan kepada tahun semasa untuk mengelakkan
+   satu tajuk lama disalah tafsir sebagai tahun yang berlainan. Respons awam
+   hanya mengandungi nama murid tidak hadir, bilangan kelas dan jumlah RMT;
+   nama murid hadir, IC serta status RMT individu tidak pernah dihantar. */
+function hadirSemakKehadiran_(tarikhIso) {
+  var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
+  var hariIniIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
+  tarikhIso = String(tarikhIso || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tarikhIso)) throw new Error('Tarikh tidak sah.');
+  var bahagian = tarikhIso.split('-').map(Number);
+  var semak = new Date(Date.UTC(bahagian[0], bahagian[1] - 1, bahagian[2]));
+  if (semak.getUTCFullYear() !== bahagian[0] || semak.getUTCMonth() + 1 !== bahagian[1] ||
+      semak.getUTCDate() !== bahagian[2]) throw new Error('Tarikh tidak sah.');
+  if (tarikhIso.slice(0, 4) !== hariIniIso.slice(0, 4))
+    throw new Error('Semakan hanya tersedia bagi tahun semasa.');
+  if (tarikhIso > hariIniIso) throw new Error('Tarikh akan datang belum boleh disemak.');
+
+  var tkh = ('0' + bahagian[2]).slice(-2) + '/' + ('0' + bahagian[1]).slice(-2);
+  var s = ss.getSheetByName('kehadiran');
+  if (!s) throw new Error('Tab kehadiran tidak ditemui.');
+  var data = s.getDataRange().getDisplayValues();
+  var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
+  var peta = Object.create(null);
+  var intervalArkib = dapatkanIntervalArkib_();
+  var icMain = dapatkanIcAktifMain_();
+  var petaRmt = hadirPetaRmt_();
+
+  if (idxTarikh >= 0) {
+    for (var i = 1; i < data.length; i++) {
+      var nama = String(data[i][1] || '').trim();
+      var kelas = String(data[i][2] || '').trim().toUpperCase();
+      var ic = normalisasiIc_(data[i][3]);
+      if (!nama || !kelas || !ic || muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)) continue;
+      if (!peta[kelas]) peta[kelas] = [];
+      var nilai = data[i][idxTarikh];
+      peta[kelas].push({
+        nama: nama,
+        nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
+        _rmtHadir: nilai === '1' && !!petaRmt[ic]
+      });
+    }
+  }
+
+  var kelasHasil = Object.keys(peta).sort(hadirSusunKelas_).map(function (kelas) {
+    var murid = peta[kelas].sort(function (a, b) { return a.nama.localeCompare(b.nama); });
+    return {
+      nama: kelas,
+      murid: murid.filter(function (m) { return m.nilai === 0; })
+        .map(function (m) { return { nama: m.nama, nilai: 0 }; }),
+      jumlah: murid.length,
+      hadir: murid.filter(function (m) { return m.nilai === 1; }).length,
+      tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
+      rmtHadir: murid.filter(function (m) { return m._rmtHadir; }).length,
+      sudahSimpan: murid.some(function (m) { return m.nilai === 0 || m.nilai === 1; })
+    };
+  });
+
+  return {
+    tarikh: tkh, tarikhIso: tarikhIso,
+    tarikhMinimum: hariIniIso.slice(0, 4) + '-01-01', tarikhMaksimum: hariIniIso,
+    tarikhPaparan: hadirTarikhPaparanMs_(semak, 'UTC'), kelas: kelasHasil
+  };
+}
+
+function hadirPetaRmt_() {
+  var s = ss.getSheetByName('rmt');
+  var peta = Object.create(null);
+  if (!s || s.getLastRow() < 2) return peta;
+  s.getRange(2, 4, s.getLastRow() - 1, 2).getDisplayValues().forEach(function (r) {
+    var ic = normalisasiIc_(r[1]);
+    if (ic && String(r[0]).trim() === '1') peta[ic] = true;
+  });
+  return peta;
 }
 
 function hadirTarikhPaparanMs_(tarikh, zona) {
@@ -160,7 +246,8 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
     var asas = s.getRange(2, 2, n, 3).getDisplayValues();
     var nilai = s.getRange(2, col, n, 1).getValues();
     var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
-    var jumlah = 0, bilTiada = 0;
+    var petaRmt = hadirPetaRmt_();
+    var jumlah = 0, bilTiada = 0, rmtHadir = 0;
     for (var i = 0; i < n; i++) {
       var ic = normalisasiIc_(asas[i][2]);
       if (String(asas[i][1]).trim().toUpperCase() !== kelas ||
@@ -168,11 +255,12 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
       var tidakHadir = !!tiada[hadirKunciMurid_(ic, tkh)];
       nilai[i][0] = tidakHadir ? 0 : 1;
       jumlah++; if (tidakHadir) bilTiada++;
+      if (!tidakHadir && petaRmt[ic]) rmtHadir++;
     }
     if (!jumlah) throw new Error('Tiada murid aktif ditemui untuk ' + kelas + '.');
     s.getRange(2, col, n, 1).setValues(nilai);
     hadirLog_('SIMPAN_KEHADIRAN', sesi.peranan, kelas, jumlah + ' murid; ' + bilTiada + ' tidak hadir');
-    return { ok: true, jumlah: jumlah, tidakHadir: bilTiada,
+    return { ok: true, jumlah: jumlah, tidakHadir: bilTiada, rmtHadir: rmtHadir,
       masa: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'HH:mm') };
   } finally { lock.releaseLock(); }
 }

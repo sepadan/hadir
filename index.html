@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.3.1">
+  <link rel="manifest" href="manifest.webmanifest?v=1.4.0">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.3.1">
+  <link rel="stylesheet" href="styles.css?v=1.4.0">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -34,7 +34,7 @@
       </div>
       <nav class="side-nav">
         <button class="menu-link active" data-pane="attendancePane"><span>✓</span><div><strong>Kehadiran</strong><small>Isi kehadiran murid</small></div></button>
-        <button class="menu-link" data-pane="reviewPane"><span>⌕</span><div><strong>Semak Kehadiran</strong><small>Semua kelas hari ini</small></div></button>
+        <button class="menu-link" data-pane="reviewPane"><span>⌕</span><div><strong>Semak Kehadiran</strong><small>Semua kelas mengikut tarikh</small></div></button>
         <div id="adminMenu" hidden>
           <button class="menu-link" data-pane="studentsPane"><span>♙</span><div><strong>Data Murid</strong><small>Tambah dan kemas kini</small></div></button>
           <button class="menu-link" data-pane="syncPane"><span>↻</span><div><strong>Penyelarasan</strong><small>AKSI dan SEMAK</small></div></button>
@@ -73,7 +73,7 @@
           <label class="search student-search"><span>⌕</span><input id="studentSearch" type="search" placeholder="Cari nama murid"></label>
           <div id="studentList" class="student-list"></div>
           <div class="save-dock">
-            <div><strong id="absentCount">0 tidak hadir</strong><small id="saveHint">Belum disimpan</small></div>
+            <div class="attendance-summary"><strong id="absentCount">0 tidak hadir</strong><small id="rmtPresentCount">RMT hadir dikira selepas simpan</small><small id="saveHint">Belum disimpan</small></div>
             <button id="saveAttendanceBtn" class="primary">✓ Simpan Kehadiran</button>
           </div>
         </div>
@@ -81,15 +81,18 @@
 
       <section id="reviewPane" class="pane" hidden>
         <div class="review-hero">
-          <div><span class="eyebrow">REKOD HARI INI</span><h1>Semak Kehadiran</h1><p id="reviewDate">Hari ini</p></div>
-          <label class="review-picker">Kelas
-            <select id="reviewClassSelect"><option value="">Semua Kelas</option></select>
-          </label>
+          <div><span class="eyebrow">REKOD KEHADIRAN</span><h1>Semak Kehadiran</h1><p id="reviewDate">Hari ini</p></div>
+          <div class="review-controls">
+            <label class="review-picker">Tarikh<input id="reviewDateSelect" type="date"></label>
+            <label class="review-picker">Kelas<select id="reviewClassSelect"><option value="">Semua Kelas</option></select></label>
+          </div>
         </div>
+        <div id="reviewStatus" class="status" aria-live="polite"></div>
         <div class="review-overview" aria-live="polite">
           <div><strong id="reviewSavedCount">0</strong><span>Kelas selesai</span></div>
           <div><strong id="reviewPendingCount">0</strong><span>Belum disimpan</span></div>
           <div><strong id="reviewAbsentCount">0</strong><span>Tidak hadir</span></div>
+          <div><strong id="reviewRmtCount">0</strong><span>RMT hadir</span></div>
         </div>
         <div id="reviewList" class="review-list"></div>
       </section>
@@ -164,7 +167,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.3.1"></script>
-  <script src="app.js?v=1.3.1"></script>
+  <script src="config.js?v=1.4.0"></script>
+  <script src="app.js?v=1.4.0"></script>
 </body>
 </html>

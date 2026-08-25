@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 1.8 · 25 Ogos 2026**
+**Versi 1.9 · 25 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -71,6 +71,12 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
 - Kata laluan perkhidmatan AKSI/SEMAK berada dalam Script Properties sahaja.
 - Hanya admin boleh melihat/mengemas kini murid atau menjalankan sync penuh.
 - Paparan guru menerima nama dan kunci harian legap; IC/MyKid tidak dihantar.
+- Semakan tarikh dalam tahun semasa terbuka kepada guru tanpa login atas
+  keputusan pemilik sistem. Respons sejarah hanya menghantar nama murid tidak
+  hadir; nama murid hadir, IC dan status RMT setiap individu tidak dihantar.
+- Bilangan RMT hadir dikira di backend daripada tab `rmt` dan dihantar sebagai
+  angka agregat kelas. Oleh sebab tab `rmt` tidak menyimpan sejarah kelayakan,
+  semakan tarikh lalu menggunakan status RMT semasa.
 
 ## 5. Kontrak API HADIR
 
@@ -80,8 +86,13 @@ Semua permintaan POST berbentuk:
 {"mode":"hadir","kaedah":"init","argumen":[]}
 ```
 
-Kaedah: `login`, `logout`, `init`, `simpanKehadiran`, `senaraiMurid`,
+Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `simpanKehadiran`, `senaraiMurid`,
 `simpanMurid`, `uploadMuridCsv`, `syncSemua`.
+
+`semakKehadiran(tarikhIso)` ialah bacaan awam bagi tahun semasa. Tarikh mesti
+berformat `YYYY-MM-DD`, tidak boleh melebihi hari ini, dan ditukar kepada tajuk
+`DD/MM` dalam tab `kehadiran`. Respons mengandungi statistik kelas, bilangan RMT
+hadir dan nama murid tidak hadir sahaja.
 
 Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
@@ -106,7 +117,7 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ## 7. PWA dan auto-update
 
-Versi `HADIR v1.3.1 · PWA`. `service-worker.js` memintas permintaan GET sama
+Versi `HADIR v1.4.0 · PWA`. `service-worker.js` memintas permintaan GET sama
 asal sahaja. Backend Apps Script berlainan asal, maka data tidak pernah masuk
 Cache Storage.
 
@@ -159,6 +170,10 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
 - [x] Kad kelas berulang dibuang daripada menu sisi; kelas dan bilangan murid
   kekal jelas dalam dropdown utama.
 - [x] Menu Semak Kehadiran dibina dengan pilihan Semua Kelas dan setiap kelas.
+- [x] Semak Kehadiran mempunyai pilihan tarikh bagi tahun semasa, boleh dibuka
+  guru tanpa login, dan hanya menyenaraikan nama murid tidak hadir.
+- [x] Kehadiran hari ini dan Semak Kehadiran memaparkan bilangan murid RMT
+  hadir sebagai agregat; status RMT individu tidak dihantar ke pelayar.
 - [x] Tajuk pilihan dipadatkan kepada Kelas; Set semula diletakkan di sebelah
   tajuk dan kad ringkasan kelas lama dibuang untuk meluaskan ruang nama.
 - [x] Log masuk admin diletakkan di sebelah versi; ayat tanpa log masuk dibuang.
@@ -193,6 +208,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 25 Ogos 2026 | 1.4.0 | Tambah pilihan tarikh baca sahaja dalam Semak Kehadiran untuk guru tanpa login. Semakan dihadkan kepada tahun semasa dan hanya menghantar nama murid tidak hadir. Tambah bilangan agregat RMT hadir pada aliran hari ini serta semakan kelas; status RMT individu tidak dihantar. Semua versi aset dan cache PWA dinaikkan serentak | Bacaan sahaja bagi rekod lampau; simpanan hari ini kekal hanya berlaku apabila guru menekan Simpan Kehadiran |
 | 25 Ogos 2026 | 1.3.1 backend | Nama hari dan bulan pada bar atas ditukar kepada Bahasa Melayu melalui pemetaan tarikh berasaskan zon `Asia/Kuala_Lumpur`; contoh ujian `Selasa, 25 Ogos 2026`. Pemformat tidak lagi bergantung pada locale Inggeris `Utilities.formatDate` | Tiada data diubah |
 | 25 Ogos 2026 | 1.3.1 backend | **Penghubung penyelarasan dibaiki dan diterbitkan pada Apps Script versi 98.** AKSI kini menerima token sesi sebenar pada sampul RPC selepas login perkhidmatan. Pembaca SEMAK kini menerima respons langsung dan pembungkus `HtmlService` Google serta menyemak sumber/ID respons. Ujian regresi turut mengesahkan kedua-dua format dan membuang jangkaan lama terhadap kad kelas menu yang sudah dibuang | Ujian tidak menulis data; satu sync produksi sebenar kekal sebagai pengesahan pengguna dalam isu #20 hab |
 | 25 Ogos 2026 | 1.3.1 | **Regresi cache dibaiki.** Kod (`.js`/`.css`/`.webmanifest`) kini diambil rangkaian-dahulu; ikon kekal cache-dahulu. `CACHE_VERSION` dan semua `?v=` dinaikkan ke `1.3.1`. Pemasangan Service Worker tidak lagi gagal sepenuhnya kalau satu aset hilang. Senarai semak tiga langkah ditambah di bahagian 7 | Tiada data diubah |
