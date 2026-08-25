@@ -23,6 +23,8 @@ sah(backend.includes('hadirAdakahPermintaan_'), 'Penghala HADIR tiada');
 sah(backend.includes('simpanSenaraiMuridUpload'), 'Sumber rasmi main tidak digunakan');
 sah(backend.includes("'importMurid'"), 'Penyelaras AKSI tiada');
 sah(backend.includes("'apiUploadMurid'"), 'Penyelaras SEMAK tiada');
+sah(!backend.includes("token: 'SISTEM_HADIR'"), 'AKSI tidak boleh menerima token sampul palsu');
+sah(backend.includes("hadirAksiRpc_(url, 'importMurid', [csv, masuk.token], masuk.token)"), 'Token sesi AKSI mesti dihantar pada sampul import');
 sah(backend.includes('uploadMuridCsv: hadirUploadMuridCsv_'), 'API upload CSV murid tiada');
 sah(backend.includes("simpanSenaraiMuridUpload({ mode: mode, records: rekod, kepala: kepala })"), 'Upload CSV tidak menggunakan import rasmi KEHADIRAN');
 sah(!/HADIR_(?:AKSI|SEMAK)_PASSWORD\s*=/.test(backend), 'Kata laluan tidak boleh dihardcode');
@@ -30,13 +32,19 @@ sah(backend.includes("token ? hadirSesi_(token, true) : { peranan: 'guru' }"), '
 sah(backend.includes('hadirKunciMurid_'), 'Kunci murid legap untuk paparan awam tiada');
 sah(!/icAkhir: ic\.slice\(-4\)/.test(backend), 'Paparan awam tidak boleh menerima IC murid');
 
+const fungsiMuatan = backend.match(/function hadirSemakMuatan64_\(html\) \{([\s\S]*?)\n\}/);
+sah(fungsiMuatan, 'Pembaca muatan RPC SEMAK tiada');
+const bacaMuatanSemak = new Function('html', fungsiMuatan[1]);
+sah(bacaMuatanSemak("<script>atob('YWJj')</script>") === 'YWJj', 'Respons SEMAK langsung tidak boleh dibaca');
+sah(bacaMuatanSemak('userHtml\\x22:\\x22...atob(\\x27YWJjZA==\\x27)...') === 'YWJjZA==', 'Pembungkus HtmlService Google tidak boleh dibaca');
+
 const html = baca('index.html');
 sah(html.includes('Simpan Kehadiran'), 'Butang simpan kehadiran tiada');
 sah(html.includes('Data Murid'), 'Paparan murid tiada');
 sah(html.includes('manifest.webmanifest'), 'Manifest tidak dipaut');
 sah(html.includes('id="closeMenuBtn"') && html.includes('id="scrim"'), 'Kawalan tutup menu mudah alih tiada');
 sah(html.includes('id="classSelect"'), 'Dropdown kelas satu muka tiada');
-sah(html.includes('id="menuClassName"') && html.includes('id="menuClassCount"'), 'Nama kelas dalam menu tiada');
+sah(!html.includes('id="menuClassName"') && !html.includes('id="menuClassCount"'), 'Kad kelas lama tidak sepatutnya berada dalam menu');
 sah(html.includes('id="adminLoginDialog"'), 'Login admin dalam menu tiada');
 sah(html.includes('id="reviewPane"') && html.includes('id="reviewClassSelect"'), 'Semak Kehadiran tiada');
 sah(html.includes('Semua Kelas'), 'Pilihan Semua Kelas tiada');
@@ -66,6 +74,6 @@ console.log('✓ Manifest HADIR standalone + maskable');
 console.log('✓ Cache hanya aset statik, tiada API/data');
 console.log('✓ Kontrak kehadiran dan sync AKSI/SEMAK tersedia');
 console.log('✓ Menu telefon boleh ditutup melalui X, latar gelap dan Escape');
-console.log('✓ Senarai boleh discroll, menu desktop kekal dan nama kelas dipaparkan');
+console.log('✓ Senarai boleh discroll dan menu desktop kekal tanpa kad kelas berulang');
 console.log('✓ Bar atas PWA menghormati ruang selamat status/notch iPhone');
 console.log('✓ Guru terus mengisi; hanya admin perlu log masuk melalui menu');

@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 1.6 · 25 Ogos 2026**
+**Versi 1.7 · 25 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -94,9 +94,13 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
   mengekalkan lajur asal dalam `semua`, dan menghadkan satu import kepada 3,000
   rekod serta fail 8 MB.
 - AKSI: backend HADIR login sebagai perkhidmatan, membina CSV dalam ingatan dan
-  memanggil `importMurid`. Murid hilang ditanda `TIDAK AKTIF`; data koku kekal.
+  memanggil `importMurid`. Token sesi yang dipulangkan oleh login dihantar pada
+  sampul RPC dan pada argumen fungsi; token tetap atau token rekaan tidak
+  digunakan. Murid hilang ditanda `TIDAK AKTIF`; data koku kekal.
 - SEMAK: backend memanggil `apiUploadMurid`; sheet `MURID`, calon peperiksaan
-  aktif dan revisi cache dikemas kini oleh fungsi rasmi SEMAK. Markah kekal.
+  aktif dan revisi cache dikemas kini oleh fungsi rasmi SEMAK. Pembaca RPC
+  menerima HTML langsung dan pembungkus `HtmlService` Google, kemudian
+  mengesahkan `sumber` serta ID respons sebelum menggunakan hasil. Markah kekal.
 - Jika salah satu sasaran gagal, perubahan tab `main` tidak dibatalkan. UI
   memaparkan sasaran yang gagal dan admin boleh tekan **Selaras Semua Aplikasi**.
 
@@ -152,7 +156,8 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
 - [x] Log masuk admin dipindahkan ke menu sisi.
 - [x] Paparan mudah alih, menu boleh ditutup dan dok simpan melekit dibina.
 - [x] Menu desktop kekal terbuka seperti AKSI; menu telefon kekal buka/tutup.
-- [x] Nama kelas dipilih dan bilangan murid dipaparkan dalam menu sisi.
+- [x] Kad kelas berulang dibuang daripada menu sisi; kelas dan bilangan murid
+  kekal jelas dalam dropdown utama.
 - [x] Menu Semak Kehadiran dibina dengan pilihan Semua Kelas dan setiap kelas.
 - [x] Tajuk pilihan dipadatkan kepada Kelas; Set semula diletakkan di sebelah
   tajuk dan kad ringkasan kelas lama dibuang untuk meluaskan ruang nama.
@@ -185,6 +190,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 25 Ogos 2026 | 1.3.1 backend | **Penghubung penyelarasan dibaiki.** AKSI kini menerima token sesi sebenar pada sampul RPC selepas login perkhidmatan. Pembaca SEMAK kini menerima respons langsung dan pembungkus `HtmlService` Google serta menyemak sumber/ID respons. Ujian regresi turut mengesahkan kedua-dua format dan membuang jangkaan lama terhadap kad kelas menu yang sudah dibuang | Ujian tidak menulis data; sync produksi masih perlu disahkan selepas deployment |
 | 25 Ogos 2026 | 1.3.1 | **Regresi cache dibaiki.** Kod (`.js`/`.css`/`.webmanifest`) kini diambil rangkaian-dahulu; ikon kekal cache-dahulu. `CACHE_VERSION` dan semua `?v=` dinaikkan ke `1.3.1`. Pemasangan Service Worker tidak lagi gagal sepenuhnya kalau satu aset hilang. Senarai semak tiga langkah ditambah di bahagian 7 | Tiada data diubah |
 | 25 Ogos 2026 | 1.3.1 | **Pepijat keadaan lalai dibaiki.** `Number(m.nilai) === 0` menandakan setiap murid yang belum ditanda sebagai tidak hadir, kerana `Number('')` ialah `0` dalam JavaScript. Pada pagi hari baru seluruh kelas kelihatan merah dan kaunter berbunyi "24 tidak hadir". Diganti dengan pembandingan ketat melalui `tidakHadirAsal_()`. Kaunter memaparkan "Semua hadir" apabila sifar. Kotak "KELAS DIPILIH" dibuang dari menu sisi — nama kelas sudah ada dalam dropdown | Tiada data diubah; pepijat hanya pada paparan, tetapi satu ketikan Simpan boleh merekod seluruh kelas tidak hadir |
 | 2026-08-24 | 1.3.0 | Tambah Semak Kehadiran semua/ikut kelas; kemaskan pilihan kelas, butang Set semula, menu dan ruang nama; tambah import CSV idME admin melalui fungsi rasmi KEHADIRAN; lindungi bar atas PWA homescreen dengan ruang selamat iPhone; naikkan cache PWA | Ujian hanya membaca data produksi dan menggunakan semakan struktur/paparan; tiada kehadiran disimpan, fail murid diimport atau sync sebenar dijalankan |

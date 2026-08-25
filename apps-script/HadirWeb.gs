@@ -286,22 +286,23 @@ function hadirSyncAksi_(murid) {
   var kata = props.getProperty('HADIR_AKSI_PASSWORD');
   if (!kata) return { ok: false, mesej: 'Kata laluan perkhidmatan AKSI belum ditetapkan.' };
   try {
-    var masuk = hadirAksiRpc_(url, 'login', [id, kata]);
+    var masuk = hadirAksiRpc_(url, 'login', [id, kata], '');
     if (!masuk || !masuk.berjaya || !masuk.token) throw new Error((masuk && masuk.mesej) || 'Login AKSI gagal.');
     var csv = 'IC,NAMA,TAHUN,NAMA KELAS,JANTINA,AGAMA,KAUM\n' + murid.map(function (m) {
       return [m.ic, m.nama, m.tahun, m.namaKelas, m.jantina, m.agama, m.kaum].map(hadirCsv_).join(',');
     }).join('\n');
-    var hasil = hadirAksiRpc_(url, 'importMurid', [csv, masuk.token]);
-    try { hadirAksiRpc_(url, 'logout', [masuk.token]); } catch (abaikan) {}
+    var hasil = hadirAksiRpc_(url, 'importMurid', [csv, masuk.token], masuk.token);
+    try { hadirAksiRpc_(url, 'logout', [masuk.token], masuk.token); } catch (abaikan) {}
     if (!hasil || hasil.berjaya === false) throw new Error((hasil && hasil.mesej) || 'Import AKSI gagal.');
     return { ok: true, mesej: murid.length + ' murid diselaraskan.', hasil: hasil };
   } catch (e) { return { ok: false, mesej: e.message }; }
 }
 
-function hadirAksiRpc_(url, fn, args) {
+function hadirAksiRpc_(url, fn, args, tokenSesi) {
   var r = UrlFetchApp.fetch(url, {
     method: 'post', contentType: 'text/plain; charset=utf-8', followRedirects: true,
-    muteHttpExceptions: true, payload: JSON.stringify({ fn: fn, args: args || [], token: 'SISTEM_HADIR' })
+    muteHttpExceptions: true,
+    payload: JSON.stringify({ fn: fn, args: args || [], token: tokenSesi || '' })
   });
   var j = JSON.parse(r.getContentText());
   if (!j.ok) throw new Error(j.ralat || 'Panggilan AKSI gagal.');
@@ -331,11 +332,20 @@ function hadirSemakRpc_(url, kaedah, argumen) {
     payload: { mode: 'rpc', id: id, kaedah: kaedah, argumen: JSON.stringify(argumen || []) }
   });
   var html = r.getContentText();
-  var padan = html.match(/atob\('([^']+)'\)/);
+  var padan = hadirSemakMuatan64_(html);
   if (!padan) throw new Error('SEMAK tidak memulangkan respons RPC yang sah.');
-  var data = JSON.parse(Utilities.newBlob(Utilities.base64Decode(padan[1])).getDataAsString('UTF-8'));
+  var data = JSON.parse(Utilities.newBlob(Utilities.base64Decode(padan)).getDataAsString('UTF-8'));
+  if (data.sumber !== 'semak-rpc' || data.id !== id)
+    throw new Error('SEMAK memulangkan respons RPC yang tidak sepadan.');
   if (!data.ok) throw new Error(data.ralat || 'Panggilan SEMAK gagal.');
   return data.hasil;
+}
+
+function hadirSemakMuatan64_(html) {
+  var padan = String(html || '').match(
+    /atob\((?:['"]|\\x(?:27|22))([A-Za-z0-9+/=]+)(?:['"]|\\x(?:27|22))\)/
+  );
+  return padan ? padan[1] : '';
 }
 
 function hadirCsv_(nilai) {
