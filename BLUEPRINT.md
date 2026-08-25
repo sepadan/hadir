@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 1.7 · 25 Ogos 2026**
+**Versi 1.8 · 25 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -166,6 +166,8 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
   kekal tersedia.
 - [x] Bar atas dan mesej luar talian menghormati `safe-area-inset-top` supaya
   status/notch iPhone tidak menindih logo, masa atau tajuk PWA homescreen.
+- [x] Nama hari dan bulan pada bar atas dipaparkan sepenuhnya dalam Bahasa
+  Melayu pada pelayar dan PWA, tanpa bergantung pada locale Apps Script.
 - [x] Senarai murid boleh discroll pada desktop dan telefon tanpa limpahan
   mendatar; nama panjang menggunakan elipsis dan status kekal kelihatan.
 - [x] HADIR v1.2.0 diterbitkan melalui GitHub Pages run #5 untuk commit
@@ -191,6 +193,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 25 Ogos 2026 | 1.3.1 backend | Nama hari dan bulan pada bar atas ditukar kepada Bahasa Melayu melalui pemetaan tarikh berasaskan zon `Asia/Kuala_Lumpur`; contoh ujian `Selasa, 25 Ogos 2026`. Pemformat tidak lagi bergantung pada locale Inggeris `Utilities.formatDate` | Tiada data diubah |
 | 25 Ogos 2026 | 1.3.1 backend | **Penghubung penyelarasan dibaiki dan diterbitkan pada Apps Script versi 98.** AKSI kini menerima token sesi sebenar pada sampul RPC selepas login perkhidmatan. Pembaca SEMAK kini menerima respons langsung dan pembungkus `HtmlService` Google serta menyemak sumber/ID respons. Ujian regresi turut mengesahkan kedua-dua format dan membuang jangkaan lama terhadap kad kelas menu yang sudah dibuang | Ujian tidak menulis data; satu sync produksi sebenar kekal sebagai pengesahan pengguna dalam isu #20 hab |
 | 25 Ogos 2026 | 1.3.1 | **Regresi cache dibaiki.** Kod (`.js`/`.css`/`.webmanifest`) kini diambil rangkaian-dahulu; ikon kekal cache-dahulu. `CACHE_VERSION` dan semua `?v=` dinaikkan ke `1.3.1`. Pemasangan Service Worker tidak lagi gagal sepenuhnya kalau satu aset hilang. Senarai semak tiga langkah ditambah di bahagian 7 | Tiada data diubah |
 | 25 Ogos 2026 | 1.3.1 | **Pepijat keadaan lalai dibaiki.** `Number(m.nilai) === 0` menandakan setiap murid yang belum ditanda sebagai tidak hadir, kerana `Number('')` ialah `0` dalam JavaScript. Pada pagi hari baru seluruh kelas kelihatan merah dan kaunter berbunyi "24 tidak hadir". Diganti dengan pembandingan ketat melalui `tidakHadirAsal_()`. Kaunter memaparkan "Semua hadir" apabila sifar. Kotak "KELAS DIPILIH" dibuang dari menu sisi — nama kelas sudah ada dalam dropdown | Tiada data diubah; pepijat hanya pada paparan, tetapi satu ketikan Simpan boleh merekod seluruh kelas tidak hadir |

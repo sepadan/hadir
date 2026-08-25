@@ -32,6 +32,15 @@ sah(backend.includes("token ? hadirSesi_(token, true) : { peranan: 'guru' }"), '
 sah(backend.includes('hadirKunciMurid_'), 'Kunci murid legap untuk paparan awam tiada');
 sah(!/icAkhir: ic\.slice\(-4\)/.test(backend), 'Paparan awam tidak boleh menerima IC murid');
 
+const fungsiTarikh = backend.match(/function hadirTarikhPaparanMs_\(tarikh, zona\) \{([\s\S]*?)\n\}/);
+sah(fungsiTarikh, 'Pemformat tarikh Bahasa Melayu tiada');
+const tarikhMelayu = new Function('tarikh', 'zona', 'Utilities', fungsiTarikh[1]);
+const utilitiTarikh = { formatDate: function (_, __, corak) {
+  return { yyyy: '2026', M: '8', d: '25' }[corak];
+} };
+sah(tarikhMelayu(new Date(), 'Asia/Kuala_Lumpur', utilitiTarikh) === 'Selasa, 25 Ogos 2026', 'Hari atau bulan belum dalam Bahasa Melayu');
+sah(!backend.includes("'EEEE, d MMMM yyyy'"), 'Format tarikh Inggeris lama masih digunakan');
+
 const fungsiMuatan = backend.match(/function hadirSemakMuatan64_\(html\) \{([\s\S]*?)\n\}/);
 sah(fungsiMuatan, 'Pembaca muatan RPC SEMAK tiada');
 const bacaMuatanSemak = new Function('html', fungsiMuatan[1]);

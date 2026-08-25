@@ -116,9 +116,20 @@ function hadirInit_(token) {
   var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
   return {
     peranan: sesi.peranan, tarikh: tkh,
-    tarikhPaparan: Utilities.formatDate(new Date(), zona, 'EEEE, d MMMM yyyy'),
+    tarikhPaparan: hadirTarikhPaparanMs_(new Date(), zona),
     kelas: kelasHasil
   };
+}
+
+function hadirTarikhPaparanMs_(tarikh, zona) {
+  var tahun = Number(Utilities.formatDate(tarikh, zona, 'yyyy'));
+  var bulan = Number(Utilities.formatDate(tarikh, zona, 'M'));
+  var hari = Number(Utilities.formatDate(tarikh, zona, 'd'));
+  var namaHari = ['Ahad', 'Isnin', 'Selasa', 'Rabu', 'Khamis', 'Jumaat', 'Sabtu'];
+  var namaBulan = ['Januari', 'Februari', 'Mac', 'April', 'Mei', 'Jun',
+    'Julai', 'Ogos', 'September', 'Oktober', 'November', 'Disember'];
+  var indeksHari = new Date(Date.UTC(tahun, bulan - 1, hari)).getUTCDay();
+  return namaHari[indeksHari] + ', ' + hari + ' ' + namaBulan[bulan - 1] + ' ' + tahun;
 }
 
 function hadirKunciMurid_(ic, tarikh) {
