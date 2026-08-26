@@ -29,6 +29,10 @@
     return function () { btn.disabled = false; btn.textContent = asal; };
   }
 
+  function tunggu_(ms) {
+    return new Promise(function (selesai) { setTimeout(selesai, ms); });
+  }
+
   function panggil(kaedah, argumen, timeout) {
     if (!cfg.apiUrl) return Promise.reject(new Error('Backend HADIR belum disambungkan.'));
     var pengawal = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -51,8 +55,29 @@
     }).catch(function (e) {
       clearTimeout(jam);
       if (e && e.name === 'AbortError') throw new Error('Pelayan mengambil masa terlalu lama.');
+      if (!navigator.onLine) throw new Error('Tiada sambungan internet. Sambung semula dan cuba lagi.');
+      if (e && (e.name === 'TypeError' || /failed to fetch|load failed|network/i.test(e.message || '')))
+        throw new Error('Sambungan ke pelayan Google terganggu.');
       throw e;
     });
+  }
+
+  function bolehCubaSemula_(err) {
+    var mesej = err && err.message ? err.message : '';
+    return navigator.onLine && !/sesi tamat|akses pentadbir|pin|fungsi tidak dibenarkan/i.test(mesej);
+  }
+
+  function panggilInit_(token, nombor) {
+    nombor = nombor || 1;
+    if (nombor > 1) {
+      status($('publicStatus'), 'Sambungan lambat. Mencuba semula…', '');
+      status($('reviewStatus'), 'Sambungan lambat. Mencuba semula…', '');
+    }
+    return panggil('init', token ? [token] : [], nombor === 1 ? 12000 : 20000)
+      .catch(function (err) {
+        if (nombor >= 2 || !bolehCubaSemula_(err)) throw err;
+        return tunggu_(350).then(function () { return panggilInit_(token, nombor + 1); });
+      });
   }
 
   function tetapkanModAdmin(aktif) {
@@ -78,6 +103,7 @@
     status($('publicStatus'), '', '');
     status($('reviewStatus'), '', '');
     $('retryBtn').hidden = true;
+    $('reviewRetryBtn').hidden = true;
     bukaPane(state.paneAktif || 'reviewPane');
   }
 
@@ -319,18 +345,21 @@
     status($('publicStatus'), 'Memuatkan senarai kelas…', '');
     status($('reviewStatus'), 'Memuatkan ringkasan kehadiran…', '');
     $('retryBtn').hidden = true;
+    $('reviewRetryBtn').hidden = true;
     var tokenSimpan = sessionStorage.getItem('hadir_admin_token') || '';
     state.token = tokenSimpan;
-    var cubaan = tokenSimpan ? panggil('init', [tokenSimpan]) : panggil('init', []);
-    cubaan.catch(function () {
-      if (!tokenSimpan) throw new Error('Gagal memuatkan data kehadiran.');
+    var cubaan = panggilInit_(tokenSimpan, 1);
+    cubaan.catch(function (err) {
+      if (!tokenSimpan) throw err;
       state.token = '';
       sessionStorage.removeItem('hadir_admin_token');
-      return panggil('init', []);
+      return panggilInit_('', 1);
     }).then(bukaAplikasi).catch(function (err) {
-      status($('publicStatus'), err.message, 'err');
-      status($('reviewStatus'), err.message, 'err');
+      var mesej = err && err.message ? err.message : 'Gagal memuatkan data kehadiran.';
+      status($('publicStatus'), mesej, 'err');
+      status($('reviewStatus'), mesej, 'err');
       $('retryBtn').hidden = false;
+      $('reviewRetryBtn').hidden = false;
       $('classSelect').disabled = true;
       $('emptyState').querySelector('h2').textContent = 'Tidak dapat memuatkan';
       $('emptyState').querySelector('p').textContent = 'Semak sambungan internet dan cuba semula.';
@@ -811,6 +840,7 @@
   $('saveAttendanceBtn').addEventListener('click', simpanKehadiran);
   $('resetBtn').addEventListener('click', setSemula);
   $('retryBtn').addEventListener('click', muatAwal);
+  $('reviewRetryBtn').addEventListener('click', muatAwal);
   $('adminLoginMenu').addEventListener('click', bukaDialogAdmin);
   $('adminLoginForm').addEventListener('submit', loginAdmin);
   $('adminLogoutMenu').addEventListener('click', logoutAdmin);
@@ -843,7 +873,7 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.6.0';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.6.1';
   sambungan();
   daftarPwa();
   muatAwal();

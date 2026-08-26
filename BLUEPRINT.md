@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.1 · 26 Ogos 2026**
+**Versi 2.2 · 26 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -129,7 +129,7 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.6.0`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.6.1`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -164,6 +164,19 @@ Ketiga-tiganya dalam **commit yang sama**, atau jangan buat langsung:
 Nombor versi dalam `config.js` (`versi:`) dinaikkan sekali supaya guru nampak
 versi sebenar di kaki menu sisi.
 
+### Laluan awal pantas dan tahan beban
+
+`init` ialah bacaan sahaja. Ia tidak boleh memanggil `sediakanLajurSahaja()`
+atau menjalankan kerja tulis; lajur hari ini hanya disediakan ketika guru
+menyimpan kehadiran. Respons `init` disimpan selama 15 saat dalam
+`CacheService` Apps Script untuk menyerap pembukaan serentak pada waktu pagi.
+Cache ini berada di pelayan, bukan dalam telefon atau Service Worker, dan
+dibuang selepas kehadiran atau data murid berubah.
+
+Frontend mengehadkan cubaan pertama kepada 12 saat dan mencuba sekali lagi
+secara automatik. Jika kedua-duanya gagal, punca sebenar dipaparkan bersama
+butang **Cuba semula** pada muka depan.
+
 ### Pemasangan berdaya tahan
 
 `cache.addAll()` menolak keseluruhan janji jika **satu** fail gagal diambil —
@@ -185,6 +198,9 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
 - [x] Menu Semak Kehadiran dibina dengan pilihan Semua Kelas dan setiap kelas.
 - [x] Semak Kehadiran menjadi muka depan. Kad kelas boleh ditekan untuk
   membuka pengisian kehadiran hari ini dengan kelas itu terus dipilih.
+- [x] Bacaan awal tidak lagi menyediakan lajur. Cache pelayan 15 saat dan
+  cubaan semula automatik mengelakkan barisan panjang apabila guru membuka
+  aplikasi serentak.
 - [x] Semak Kehadiran mempunyai pilihan tarikh bagi tahun semasa, boleh dibuka
   guru tanpa login, dan hanya menyenaraikan nama murid tidak hadir.
 - [x] Kehadiran hari ini dan Semak Kehadiran memaparkan bilangan murid RMT
@@ -228,6 +244,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 26 Ogos 2026 | 1.6.1 | Baiki kegagalan rawak waktu pagi: log produksi menunjukkan satu `doPost` mengambil 123.924 saat dan beberapa panggilan berikutnya 10–11 saat kerana `init` melakukan kerja penyediaan lajur. Keluarkan kerja tulis daripada `init`, tambah cache pelayan 15 saat dengan pembatalan selepas perubahan, cuba semula automatik dan butang Cuba semula; naikkan versi aset/cache PWA serentak | Cache berada dalam Apps Script dan singkat; Service Worker/telefon kekal tidak menyimpan nama, IC atau respons API |
 | 26 Ogos 2026 | 1.6.0 | Jadikan Semak Kehadiran muka depan bagi guru dan admin; setiap kad kelas kini boleh ditekan untuk membuka halaman pengisian dengan kelas berkenaan terus dipilih; padatkan kepala semakan, kawalan, statistik dan kad kelas pada telefon; tambah keadaan memuat/gagal pada muka depan; naikkan semua versi aset dan cache PWA serentak | Perubahan frontend sahaja; tiada rekod kehadiran atau data murid diubah semasa pembangunan |
 | 25 Ogos 2026 | 1.5.0 | Tambah Tetapan Murid mengikut kelas untuk status RMT dan jawatan; ubah Data Murid kepada kad nama boleh tekan dengan paparan baca sahaja sebelum Edit; lengkapkan tahun/jantina; pindah Log Keluar ke kaki menu; papar RMT sebagai nisbah hadir/jumlah; naikkan semua versi aset dan cache PWA serentak. GitHub commit `9e05fc4` dan Apps Script versi 101 diterbitkan. Produksi memuat 9 kelas dan Semak Kehadiran 24 Ogos memaparkan RMT `26/33` tanpa ralat konsol | Struktur menyimpan RMT dalam tab `rmt` dan jawatan pada lajur `JAWATAN MURID`; ujian automatik dan paparan tidak mengubah rekod murid sebenar |
 | 25 Ogos 2026 | 1.4.0 | Tambah pilihan tarikh baca sahaja dalam Semak Kehadiran untuk guru tanpa login. Semakan dihadkan kepada tahun semasa dan hanya menghantar nama murid tidak hadir. Tambah bilangan agregat RMT hadir pada aliran hari ini serta semakan kelas; status RMT individu tidak dihantar. Semua versi aset dan cache PWA dinaikkan serentak. GitHub commit `8641245` dan Apps Script versi 100 diterbitkan; produksi 24 Ogos memuat 9 kelas, 31 tidak hadir dan 26 RMT hadir tanpa ralat konsol | Ujian produksi hanya membaca rekod 24 Ogos dan menukar penapis kelas; tiada kehadiran disimpan |

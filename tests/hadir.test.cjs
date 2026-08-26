@@ -20,6 +20,10 @@ sah((sw.match(/'\.\//g) || []).length >= 10, 'Senarai aset PWA terlalu pendek');
 
 const backend = baca('apps-script/HadirWeb.gs');
 sah(backend.includes('hadirAdakahPermintaan_'), 'Penghala HADIR tiada');
+sah(backend.includes('CacheService.getScriptCache()') && backend.includes('HADIR_CACHE_INIT_SAAT = 15'), 'Cache pelayan init pantas tiada');
+sah(backend.includes('hadirPadamCacheInit_();'), 'Cache init tidak dibuang selepas perubahan data');
+const fungsiInit = backend.match(/function hadirInit_\(token\) \{([\s\S]*?)\n\}/);
+sah(fungsiInit && !fungsiInit[1].includes('sediakanLajurSahaja()'), 'Bacaan init tidak boleh menyediakan lajur atau menjalankan kerja tulis');
 sah(backend.includes('simpanSenaraiMuridUpload'), 'Sumber rasmi main tidak digunakan');
 sah(backend.includes("'importMurid'"), 'Penyelaras AKSI tiada');
 sah(backend.includes("'apiUploadMurid'"), 'Penyelaras SEMAK tiada');
@@ -67,6 +71,7 @@ sah(html.includes('id="classSelect"'), 'Dropdown kelas satu muka tiada');
 sah(!html.includes('id="menuClassName"') && !html.includes('id="menuClassCount"'), 'Kad kelas lama tidak sepatutnya berada dalam menu');
 sah(html.includes('id="adminLoginDialog"'), 'Login admin dalam menu tiada');
 sah(html.includes('id="reviewPane"') && html.includes('id="reviewClassSelect"'), 'Semak Kehadiran tiada');
+sah(html.includes('id="reviewRetryBtn"'), 'Muka depan tiada butang cuba semula');
 sah(html.includes('<section id="reviewPane" class="pane">') && html.includes('<section id="attendancePane" class="pane" hidden>'), 'Semak Kehadiran mesti menjadi muka depan');
 sah(html.includes('class="menu-link active" data-pane="reviewPane"'), 'Menu Semak Kehadiran mesti aktif pada mula');
 sah(html.includes('id="reviewDateSelect"') && html.includes('type="date"'), 'Pilihan tarikh Semak Kehadiran tiada');
@@ -98,15 +103,17 @@ sah(app.includes("mode === 'sync' && !window.confirm"), 'Sync penuh CSV mesti me
 sah(app.includes("panggil('simpanTetapanMurid'"), 'Frontend tidak menyimpan RMT atau jawatan murid');
 sah(app.includes("$('reviewRmtCount').textContent = jumlahRmtHadir + '/' + jumlahRmt"), 'Kotak RMT mesti memaparkan hadir/jumlah');
 sah(app.includes("paneAktif: 'reviewPane'") && app.includes("bukaKehadiranKelas(k.nama)"), 'Kad kelas semakan mesti membuka pengisian kehadiran');
+sah(app.includes("Sambungan lambat. Mencuba semula") && app.includes("panggilInit_('', 1)"), 'Init mesti cuba semula dan pulih daripada sesi lama');
+sah(app.includes("$('reviewRetryBtn').addEventListener('click', muatAwal)"), 'Butang cuba semula muka depan tidak disambungkan');
 sah(app.includes("bukaPane('attendancePane');") && app.includes('pilihKelas(kelas);'), 'Kelas yang ditekan mesti dipilih pada halaman kehadiran');
 sah(app.includes("$('saveStudentBtn').disabled = !aktif"), 'Butiran murid mesti baca sahaja sehingga Edit ditekan');
 sah(app.includes("m.tahunKod || m.tahun"), 'Tahun murid tidak dimasukkan ke dialog');
 
 const cfg = baca('config.js');
-sah(cfg.includes("versi: 'HADIR v1.6.0'"), 'Versi paparan bukan v1.6.0');
+sah(cfg.includes("versi: 'HADIR v1.6.1'"), 'Versi paparan bukan v1.6.1');
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
-sah(html.includes('styles.css?v=1.6.0') && html.includes('app.js?v=1.6.0') && html.includes('config.js?v=1.6.0'), 'Versi aset HTML tidak seragam');
-sah(sw.includes("hadir-shell-v1.6.0-20260826-1") && sw.includes('app.js?v=1.6.0'), 'Cache PWA belum dinaikkan bersama aset');
+sah(html.includes('styles.css?v=1.6.1') && html.includes('app.js?v=1.6.1') && html.includes('config.js?v=1.6.1'), 'Versi aset HTML tidak seragam');
+sah(sw.includes("hadir-shell-v1.6.1-20260826-1") && sw.includes('app.js?v=1.6.1'), 'Cache PWA belum dinaikkan bersama aset');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
@@ -125,4 +132,5 @@ console.log('✓ Guru boleh semak tarikh terdahulu; nama hadir dan status RMT in
 console.log('✓ Bilangan RMT hadir tersedia selepas simpan dan dalam semakan tarikh');
 console.log('✓ Nisbah RMT menggunakan format hadir/jumlah');
 console.log('✓ Semak Kehadiran ialah muka depan dan kad kelas membuka pengisian');
-console.log('✓ Tetapan Murid, paparan baca sahaja dan versi PWA v1.6.0 tersedia');
+console.log('✓ Init menggunakan cache pelayan pendek tanpa kerja tulis dan boleh cuba semula');
+console.log('✓ Tetapan Murid, paparan baca sahaja dan versi PWA v1.6.1 tersedia');

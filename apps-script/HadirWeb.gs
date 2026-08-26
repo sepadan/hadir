@@ -1,8 +1,9 @@
-// HADIR v1.5.0 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.6.1 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
 var HADIR_SESI_JAM = 8;
+var HADIR_CACHE_INIT_SAAT = 15;
 var HADIR_AKSI_URL_LALAI = 'https://script.google.com/macros/s/AKfycby0Td2p3zoAdBWXYbbKTqmVS4Xa8R42k0suzeDFTIjgwg-hVxIzYqNkEyTE75E_bukfLA/exec';
 var HADIR_SEMAK_URL_LALAI = 'https://script.google.com/macros/s/AKfycbx306dN8vd3HR3Mu4xdum8MpG0PkbbwbKgsu88jx-nMG2LnEWszU350S2ez8TU_kX_H/exec';
 
@@ -86,7 +87,25 @@ function hadirLogout_(token) {
 
 function hadirInit_(token) {
   var sesi = token ? hadirSesi_(token, true) : { peranan: 'guru' };
-  sediakanLajurSahaja();
+  var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
+  var sekarang = new Date();
+  var tarikhIso = Utilities.formatDate(sekarang, zona, 'yyyy-MM-dd');
+  var cache = CacheService.getScriptCache();
+  var kunciCache = hadirKunciCacheInit_(tarikhIso);
+  var mentah = cache.get(kunciCache);
+  var hasil = null;
+  if (mentah) {
+    try { hasil = JSON.parse(mentah); } catch (e) { hasil = null; }
+  }
+  if (!hasil) {
+    hasil = hadirBinaInit_(sekarang, zona, tarikhIso);
+    try { cache.put(kunciCache, JSON.stringify(hasil), HADIR_CACHE_INIT_SAAT); } catch (e) {}
+  }
+  hasil.peranan = sesi.peranan;
+  return hasil;
+}
+
+function hadirBinaInit_(sekarang, zona, tarikhIso) {
   var s = ss.getSheetByName('kehadiran');
   if (!s) throw new Error('Tab kehadiran tidak ditemui.');
   var data = s.getDataRange().getDisplayValues();
@@ -122,16 +141,26 @@ function hadirInit_(token) {
       sudahSimpan: murid.some(function (m) { return m.nilai === 0 || m.nilai === 1; })
     };
   });
-  var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
-  var tarikhIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
   return {
-    peranan: sesi.peranan, tarikh: tkh,
+    peranan: 'guru', tarikh: tkh,
     tarikhIso: tarikhIso,
     tarikhMinimum: tarikhIso.slice(0, 4) + '-01-01',
     tarikhMaksimum: tarikhIso,
-    tarikhPaparan: hadirTarikhPaparanMs_(new Date(), zona),
+    tarikhPaparan: hadirTarikhPaparanMs_(sekarang, zona),
     kelas: kelasHasil
   };
+}
+
+function hadirKunciCacheInit_(tarikhIso) {
+  return 'HADIR_INIT_V3_' + String(tarikhIso || '');
+}
+
+function hadirPadamCacheInit_() {
+  try {
+    var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
+    var tarikhIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
+    CacheService.getScriptCache().remove(hadirKunciCacheInit_(tarikhIso));
+  } catch (e) {}
 }
 
 /* Paparan baca sahaja untuk guru tanpa log masuk. Tab kehadiran menggunakan
@@ -265,6 +294,7 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
     }
     if (!jumlah) throw new Error('Tiada murid aktif ditemui untuk ' + kelas + '.');
     s.getRange(2, col, n, 1).setValues(nilai);
+    hadirPadamCacheInit_();
     hadirLog_('SIMPAN_KEHADIRAN', sesi.peranan, kelas, jumlah + ' murid; ' + bilTiada + ' tidak hadir');
     return { ok: true, jumlah: jumlah, tidakHadir: bilTiada,
       rmtHadir: rmtHadir, rmtJumlah: rmtJumlah,
@@ -354,6 +384,7 @@ function hadirSimpanMurid_(rekod, token) {
   if (asal && asal !== ic) throw new Error('IC/MyKid ialah kunci tetap dan tidak boleh ditukar. Arkibkan rekod lama dan tambah murid baharu.');
   rekod.ic = ic;
   var hasil = simpanSenaraiMuridUpload({ mode: 'merge', records: [rekod], kepala: [] });
+  hadirPadamCacheInit_();
   if (rekod.jantina && typeof simpanJantinaUpload === 'function') simpanJantinaUpload([rekod]);
   var sync = hadirSyncSemua_();
   hadirLog_('SIMPAN_MURID', sesi.peranan, '', '1 rekod; sync=' + sync.ok);
@@ -420,6 +451,7 @@ function hadirSimpanTetapanMurid_(tetapan, token) {
     }
     sRmt.getRange(barisRmt, 5).setNumberFormat('@');
     SpreadsheetApp.flush();
+    hadirPadamCacheInit_();
     if (typeof padamCacheSistem_ === 'function') padamCacheSistem_();
   } finally { lock.releaseLock(); }
 
@@ -453,6 +485,7 @@ function hadirUploadMuridCsv_(payload, token) {
   }).filter(function (r) { return r.nama && (r.ic || r.idMurid); });
   if (!rekod.length) throw new Error('Tiada rekod dengan nama dan IC/ID murid ditemui.');
   var hasil = simpanSenaraiMuridUpload({ mode: mode, records: rekod, kepala: kepala });
+  hadirPadamCacheInit_();
   var sync = hadirSyncSemua_();
   hadirLog_('UPLOAD_MURID_CSV', sesi.peranan, '', rekod.length + ' rekod; mode=' + mode + '; sync=' + sync.ok);
   var ringkasan = [];

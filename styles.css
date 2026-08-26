@@ -399,6 +399,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
   gap: 10px;
   margin: 12px 0;
 }
+.review-retry { margin: 9px 0 2px; }
 .review-overview > div {
   min-width: 0;
   padding: 15px 16px;
