@@ -6,7 +6,8 @@
     token: '', peranan: 'guru', data: null, reviewData: null, kelas: null,
     paneAktif: 'reviewPane',
     tidakHadir: new Set(), murid: [], sedangSimpan: false,
-    uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null
+    uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null,
+    cacheSementara: false
   };
 
   function $(id) { return document.getElementById(id); }
@@ -78,6 +79,49 @@
         if (nombor >= 2 || !bolehCubaSemula_(err)) throw err;
         return tunggu_(350).then(function () { return panggilInit_(token, nombor + 1); });
       });
+  }
+
+  var KUNCI_CACHE_INIT = 'hadir_init_cache_v1';
+
+  function tarikhMalaysiaHariIni_() {
+    try {
+      var bahagian = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kuala_Lumpur', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).formatToParts(new Date());
+      var peta = {};
+      bahagian.forEach(function (p) { peta[p.type] = p.value; });
+      return peta.year + '-' + peta.month + '-' + peta.day;
+    } catch (e) {
+      var kini = new Date();
+      return kini.getFullYear() + '-' + String(kini.getMonth() + 1).padStart(2, '0') + '-' +
+        String(kini.getDate()).padStart(2, '0');
+    }
+  }
+
+  function bacaCacheInit_() {
+    try {
+      var rekod = JSON.parse(localStorage.getItem(KUNCI_CACHE_INIT) || 'null');
+      if (!rekod || !rekod.data || rekod.tarikhIso !== tarikhMalaysiaHariIni_()) {
+        localStorage.removeItem(KUNCI_CACHE_INIT);
+        return null;
+      }
+      rekod.data.peranan = 'guru';
+      return rekod.data;
+    } catch (e) {
+      try { localStorage.removeItem(KUNCI_CACHE_INIT); } catch (abaikan) {}
+      return null;
+    }
+  }
+
+  function simpanCacheInit_(data) {
+    if (!data || !data.tarikhIso || !Array.isArray(data.kelas)) return;
+    try {
+      var salinan = JSON.parse(JSON.stringify(data));
+      salinan.peranan = 'guru';
+      localStorage.setItem(KUNCI_CACHE_INIT, JSON.stringify({
+        tarikhIso: data.tarikhIso, disimpanPada: Date.now(), data: salinan
+      }));
+    } catch (e) {}
   }
 
   function tetapkanModAdmin(aktif) {
@@ -293,7 +337,9 @@
         card.appendChild(absentBox);
       }
       var tarikhHariIni = state.data && state.reviewData && state.data.tarikhIso === state.reviewData.tarikhIso;
-      var buka = el('span', 'review-open', tarikhHariIni ? 'Isi kehadiran' : 'Isi kehadiran hari ini');
+      var labelBuka = state.cacheSementara ? 'Sedang menyegarkan…' :
+        (tarikhHariIni ? 'Isi kehadiran' : 'Isi kehadiran hari ini');
+      var buka = el('span', 'review-open', labelBuka);
       buka.setAttribute('aria-hidden', 'true');
       buka.appendChild(el('span', '', '→'));
       card.appendChild(buka);
@@ -309,6 +355,10 @@
   }
 
   function bukaKehadiranKelas(namaKelas) {
+    if (state.cacheSementara) {
+      status($('reviewStatus'), 'Tunggu sebentar. Data terkini sedang dimuatkan sebelum pengisian dibuka.', '');
+      return;
+    }
     var kelasHariIni = state.data && state.data.kelas ? state.data.kelas : [];
     var kelas = kelasHariIni.find(function (k) { return k.nama === namaKelas; });
     if (!kelas) {
@@ -348,14 +398,34 @@
     $('reviewRetryBtn').hidden = true;
     var tokenSimpan = sessionStorage.getItem('hadir_admin_token') || '';
     state.token = tokenSimpan;
+    var dataCache = bacaCacheInit_();
+    var cacheDipapar = false;
+    if (dataCache) {
+      state.cacheSementara = true;
+      bukaAplikasi(dataCache);
+      cacheDipapar = true;
+      status($('publicStatus'), 'Memaparkan data hari ini · sedang mengemas kini…', '');
+      status($('reviewStatus'), 'Memaparkan data hari ini · sedang mengemas kini…', '');
+    }
     var cubaan = panggilInit_(tokenSimpan, 1);
     cubaan.catch(function (err) {
       if (!tokenSimpan) throw err;
       state.token = '';
       sessionStorage.removeItem('hadir_admin_token');
       return panggilInit_('', 1);
-    }).then(bukaAplikasi).catch(function (err) {
+    }).then(function (data) {
+      state.cacheSementara = false;
+      simpanCacheInit_(data);
+      bukaAplikasi(data);
+    }).catch(function (err) {
       var mesej = err && err.message ? err.message : 'Gagal memuatkan data kehadiran.';
+      if (cacheDipapar) {
+        status($('publicStatus'), 'Data hari ini dipaparkan. Kemas kini terganggu: ' + mesej, 'err');
+        status($('reviewStatus'), 'Data hari ini dipaparkan. Kemas kini terganggu: ' + mesej, 'err');
+        $('retryBtn').hidden = false;
+        $('reviewRetryBtn').hidden = false;
+        return;
+      }
       status($('publicStatus'), mesej, 'err');
       status($('reviewStatus'), mesej, 'err');
       $('retryBtn').hidden = false;
@@ -384,6 +454,7 @@
         if (state.reviewData && state.data && state.reviewData.tarikhIso === state.data.tarikhIso) {
           state.reviewData = state.data;
         }
+        simpanCacheInit_(state.data);
         lukisSemakan();
       }).catch(function (err) {
         $('saveHint').textContent = 'Gagal: ' + err.message;
@@ -419,6 +490,7 @@
       sessionStorage.setItem('hadir_admin_token', r.token);
       return panggil('init', [state.token]);
     }).then(function (data) {
+      simpanCacheInit_(data);
       bukaAplikasi(data);
       $('adminLoginDialog').close();
       bukaPane('studentsPane');
@@ -720,6 +792,7 @@
       }).then(function (hasil) {
         state.murid = hasil[0] || [];
         lukisMuridAdmin();
+        simpanCacheInit_(hasil[1]);
         bukaAplikasi(hasil[1]);
         status($('studentAdminStatus'), state.murid.length + ' rekod murid', 'ok');
         setTimeout(function () { $('studentUploadDialog').close(); }, 900);
@@ -783,7 +856,10 @@
       lukisMuridAdmin();
       setTimeout(function () { $('studentDialog').close(); }, 650);
       return panggil('init', [state.token]);
-    }).then(bukaAplikasi).catch(function (err) {
+    }).then(function (data) {
+      simpanCacheInit_(data);
+      bukaAplikasi(data);
+    }).catch(function (err) {
       status($('studentFormStatus'), err.message, 'err');
     }).finally(siap);
   }
@@ -873,7 +949,7 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.6.1';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.6.2';
   sambungan();
   daftarPwa();
   muatAwal();

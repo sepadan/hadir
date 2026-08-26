@@ -1,9 +1,9 @@
-// HADIR v1.6.1 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.6.2 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
 var HADIR_SESI_JAM = 8;
-var HADIR_CACHE_INIT_SAAT = 15;
+var HADIR_CACHE_INIT_SAAT = 60;
 var HADIR_AKSI_URL_LALAI = 'https://script.google.com/macros/s/AKfycby0Td2p3zoAdBWXYbbKTqmVS4Xa8R42k0suzeDFTIjgwg-hVxIzYqNkEyTE75E_bukfLA/exec';
 var HADIR_SEMAK_URL_LALAI = 'https://script.google.com/macros/s/AKfycbx306dN8vd3HR3Mu4xdum8MpG0PkbbwbKgsu88jx-nMG2LnEWszU350S2ez8TU_kX_H/exec';
 

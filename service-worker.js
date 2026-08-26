@@ -1,5 +1,5 @@
 /* Service Worker HADIR
-   v1.6.1 — 26 Ogos 2026
+   v1.6.2 — 26 Ogos 2026
 
    PERUBAHAN PENTING berbanding versi sebelum ini:
    kod (.js/.css/.webmanifest) tidak lagi dihidangkan cache-first.
@@ -15,10 +15,10 @@
    dahulu; cache hanya menjadi sandaran bila internet tiada. Ikon kekal
    cache-first kerana ia besar dan tidak pernah berubah. */
 
-const CACHE_VERSION = 'hadir-shell-v1.6.1-20260826-1';
+const CACHE_VERSION = 'hadir-shell-v1.6.2-20260826-2';
 const APP_SHELL = [
-  './', './index.html', './styles.css?v=1.6.1', './config.js?v=1.6.1',
-  './app.js?v=1.6.1', './manifest.webmanifest?v=1.6.1', './offline.html',
+  './', './index.html', './styles.css?v=1.6.2', './config.js?v=1.6.2',
+  './app.js?v=1.6.2', './manifest.webmanifest?v=1.6.2', './offline.html',
   './icons/hadir-192.png', './icons/hadir-512.png',
   './icons/hadir-maskable-512.png', './icons/apple-touch-icon.png',
   './icons/favicon-32.png', './icons/favicon-48.png'
