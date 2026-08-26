@@ -1,4 +1,4 @@
-// HADIR v1.6.2 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.6.3 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
@@ -21,7 +21,7 @@ function hadirDoPost_(e) {
   var p = e.hadirPayload_ || JSON.parse(e.postData.contents || '{}');
   var dibenarkan = {
     login: hadirLogin_, logout: hadirLogout_, init: hadirInit_,
-    semakKehadiran: hadirSemakKehadiran_,
+    semakKehadiran: hadirSemakKehadiran_, bukaKehadiranTarikh: hadirBukaKehadiranTarikh_,
     simpanKehadiran: hadirSimpanKehadiran_, senaraiMurid: hadirSenaraiMurid_,
     simpanMurid: hadirSimpanMurid_, simpanTetapanMurid: hadirSimpanTetapanMurid_,
     uploadMuridCsv: hadirUploadMuridCsv_,
@@ -168,10 +168,10 @@ function hadirPadamCacheInit_() {
    satu tajuk lama disalah tafsir sebagai tahun yang berlainan. Respons awam
    hanya mengandungi nama murid tidak hadir, bilangan kelas dan jumlah RMT;
    nama murid hadir, IC serta status RMT individu tidak pernah dihantar. */
-function hadirSemakKehadiran_(tarikhIso) {
+function hadirSahkanTarikhIso_(tarikhIso) {
   var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
   var hariIniIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
-  tarikhIso = String(tarikhIso || '').trim();
+  tarikhIso = String(tarikhIso || hariIniIso).trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tarikhIso)) throw new Error('Tarikh tidak sah.');
   var bahagian = tarikhIso.split('-').map(Number);
   var semak = new Date(Date.UTC(bahagian[0], bahagian[1] - 1, bahagian[2]));
@@ -180,8 +180,18 @@ function hadirSemakKehadiran_(tarikhIso) {
   if (tarikhIso.slice(0, 4) !== hariIniIso.slice(0, 4))
     throw new Error('Semakan hanya tersedia bagi tahun semasa.');
   if (tarikhIso > hariIniIso) throw new Error('Tarikh akan datang belum boleh disemak.');
+  return {
+    iso: tarikhIso, hariIniIso: hariIniIso, tarikh: semak,
+    tkh: ('0' + bahagian[2]).slice(-2) + '/' + ('0' + bahagian[1]).slice(-2)
+  };
+}
 
-  var tkh = ('0' + bahagian[2]).slice(-2) + '/' + ('0' + bahagian[1]).slice(-2);
+function hadirSemakKehadiran_(tarikhIso) {
+  var pilihan = hadirSahkanTarikhIso_(tarikhIso);
+  tarikhIso = pilihan.iso;
+  var hariIniIso = pilihan.hariIniIso;
+  var semak = pilihan.tarikh;
+  var tkh = pilihan.tkh;
   var s = ss.getSheetByName('kehadiran');
   if (!s) throw new Error('Tab kehadiran tidak ditemui.');
   var data = s.getDataRange().getDisplayValues();
@@ -230,6 +240,50 @@ function hadirSemakKehadiran_(tarikhIso) {
   };
 }
 
+/* Muatan penuh hanya bagi satu kelas selepas guru menekan kad tarikh lama.
+   IC tidak dihantar; setiap murid mendapat kunci legap yang khusus kepada
+   tarikh tersebut. Ringkasan Semak Kehadiran kekal menghantar nama murid
+   tidak hadir sahaja. */
+function hadirBukaKehadiranTarikh_(kelas, tarikhIso) {
+  var pilihan = hadirSahkanTarikhIso_(tarikhIso);
+  kelas = String(kelas || '').trim().toUpperCase();
+  if (!kelas) throw new Error('Kelas tidak sah.');
+  var s = ss.getSheetByName('kehadiran');
+  if (!s) throw new Error('Tab kehadiran tidak ditemui.');
+  var data = s.getDataRange().getDisplayValues();
+  var idxTarikh = data.length ? data[0].indexOf(pilihan.tkh) : -1;
+  var intervalArkib = dapatkanIntervalArkib_();
+  var icMain = dapatkanIcAktifMain_();
+  var petaRmt = hadirPetaRmt_();
+  var murid = [];
+  for (var i = 1; i < data.length; i++) {
+    var nama = String(data[i][1] || '').trim();
+    var namaKelas = String(data[i][2] || '').trim().toUpperCase();
+    var ic = normalisasiIc_(data[i][3]);
+    if (!nama || namaKelas !== kelas || !ic ||
+        muridTiadaPadaTarikh_(ic, pilihan.tkh, intervalArkib, icMain)) continue;
+    var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
+    murid.push({
+      kunci: hadirKunciMurid_(ic, pilihan.tkh), nama: nama,
+      nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
+      _rmt: !!petaRmt[ic], _rmtHadir: nilai === '1' && !!petaRmt[ic]
+    });
+  }
+  murid.sort(function (a, b) { return a.nama.localeCompare(b.nama); });
+  if (!murid.length) throw new Error('Tiada murid ditemui untuk kelas dan tarikh ini.');
+  return {
+    nama: kelas,
+    murid: murid.map(function (m) { return { kunci: m.kunci, nama: m.nama, nilai: m.nilai }; }),
+    jumlah: murid.length,
+    tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
+    rmtJumlah: murid.filter(function (m) { return m._rmt; }).length,
+    rmtHadir: murid.filter(function (m) { return m._rmtHadir; }).length,
+    sudahSimpan: murid.some(function (m) { return m.nilai === 0 || m.nilai === 1; }),
+    tarikhIso: pilihan.iso,
+    tarikhPaparan: hadirTarikhPaparanMs_(pilihan.tarikh, 'UTC')
+  };
+}
+
 function hadirPetaRmt_() {
   var s = ss.getSheetByName('rmt');
   var peta = Object.create(null);
@@ -261,22 +315,28 @@ function hadirSusunKelas_(a, b) {
   return na - nb || a.localeCompare(b);
 }
 
-function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
+function hadirSimpanKehadiran_(kelas, senaraiTiada, token, tarikhIso) {
   var sesi = token ? hadirSesi_(token, true) : { peranan: 'guru' };
+  var pilihan = hadirSahkanTarikhIso_(tarikhIso);
   kelas = String(kelas || '').trim().toUpperCase();
   if (!kelas) throw new Error('Kelas tidak sah.');
   var tiada = Object.create(null);
   (senaraiTiada || []).forEach(function (kunci) { tiada[String(kunci || '').trim()] = true; });
-  // Sediakan lajur sebelum mengambil lock di bawah kerana fungsi asal turut
-  // menggunakan ScriptLock; ScriptLock tidak boleh dikunci dua kali.
-  sediakanLajurSahaja();
+  // Fungsi asal menyediakan lajur hari ini di bawah locknya sendiri. Tarikh
+  // lama dibuat di bawah lock simpanan di bawah supaya satu tarikh tidak boleh
+  // terhasil dua kali apabila dua guru menekan serentak.
+  if (pilihan.iso === pilihan.hariIniIso) sediakanLajurSahaja();
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var s = ss.getSheetByName('kehadiran');
-    var tkh = tarikhHariIni_();
+    var tkh = pilihan.tkh;
     var col = dapatkanKolTarikh_(s, tkh);
     var n = s.getLastRow() - 1;
-    if (col < 1 || n < 1) throw new Error('Lajur kehadiran hari ini belum tersedia.');
+    if (col < 1) {
+      col = s.getLastColumn() + 1;
+      s.getRange(1, col).setValue(tkh);
+    }
+    if (col < 1 || n < 1) throw new Error('Lajur kehadiran belum tersedia.');
     var asas = s.getRange(2, 2, n, 3).getDisplayValues();
     var nilai = s.getRange(2, col, n, 1).getValues();
     var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
@@ -285,7 +345,7 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
     for (var i = 0; i < n; i++) {
       var ic = normalisasiIc_(asas[i][2]);
       if (String(asas[i][1]).trim().toUpperCase() !== kelas ||
-          muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
+          muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)) continue;
       var tidakHadir = !!tiada[hadirKunciMurid_(ic, tkh)];
       nilai[i][0] = tidakHadir ? 0 : 1;
       jumlah++; if (tidakHadir) bilTiada++;
@@ -294,10 +354,12 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token) {
     }
     if (!jumlah) throw new Error('Tiada murid aktif ditemui untuk ' + kelas + '.');
     s.getRange(2, col, n, 1).setValues(nilai);
-    hadirPadamCacheInit_();
-    hadirLog_('SIMPAN_KEHADIRAN', sesi.peranan, kelas, jumlah + ' murid; ' + bilTiada + ' tidak hadir');
+    if (pilihan.iso === pilihan.hariIniIso) hadirPadamCacheInit_();
+    hadirLog_('SIMPAN_KEHADIRAN', sesi.peranan, kelas,
+      tkh + '; ' + jumlah + ' murid; ' + bilTiada + ' tidak hadir');
     return { ok: true, jumlah: jumlah, tidakHadir: bilTiada,
       rmtHadir: rmtHadir, rmtJumlah: rmtJumlah,
+      tarikhIso: pilihan.iso,
       masa: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'HH:mm') };
   } finally { lock.releaseLock(); }
 }

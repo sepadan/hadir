@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.2 · 26 Ogos 2026**
+**Versi 2.3 · 26 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -86,13 +86,21 @@ Semua permintaan POST berbentuk:
 {"mode":"hadir","kaedah":"init","argumen":[]}
 ```
 
-Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `simpanKehadiran`, `senaraiMurid`,
+Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `bukaKehadiranTarikh`,
+`simpanKehadiran`, `senaraiMurid`,
 `simpanMurid`, `simpanTetapanMurid`, `uploadMuridCsv`, `syncSemua`.
 
 `semakKehadiran(tarikhIso)` ialah bacaan awam bagi tahun semasa. Tarikh mesti
 berformat `YYYY-MM-DD`, tidak boleh melebihi hari ini, dan ditukar kepada tajuk
 `DD/MM` dalam tab `kehadiran`. Respons mengandungi statistik kelas, nisbah
 hadir/jumlah RMT dan nama murid tidak hadir sahaja.
+
+`bukaKehadiranTarikh(kelas, tarikhIso)` hanya dipanggil selepas guru menekan
+kad kelas bagi tarikh lama dan mengesahkan amaran. Ia menghantar senarai penuh
+satu kelas dengan kunci legap khusus tarikh, tanpa IC. `simpanKehadiran`
+menerima tarikh ISO pilihan sebagai argumen keempat; tarikh mesti dalam tahun
+semasa dan tidak melebihi hari ini. Ringkasan semakan biasa kekal menghantar
+nama murid tidak hadir sahaja.
 
 `simpanTetapanMurid(tetapan, token)` hanya untuk admin. Status RMT ditulis ke
 tab `rmt`; jawatan ditulis pada lajur tambahan bernama `JAWATAN MURID` dalam
@@ -129,7 +137,7 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.6.2`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.6.3`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -208,6 +216,12 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
 - [x] Menu Semak Kehadiran dibina dengan pilihan Semua Kelas dan setiap kelas.
 - [x] Semak Kehadiran menjadi muka depan. Kad kelas boleh ditekan untuk
   membuka pengisian kehadiran hari ini dengan kelas itu terus dipilih.
+- [x] Semak Kehadiran berada paling atas dalam menu dan kembali kepada hari
+  semasa setiap kali halaman dimuat semula atau menu itu dibuka. Kad tidak
+  mempunyai footer teks/anak panah; seluruh kad kekal sebagai sasaran tekan.
+- [x] Kad tarikh lama memaparkan amaran sebelum membuka senarai penuh kelas
+  bagi tarikh dipilih. Guru masih boleh mengubah dan menyimpan tarikh itu;
+  respons ringkasan tidak mendedahkan nama murid hadir atau IC.
 - [x] Bacaan awal tidak lagi menyediakan lajur. Cache pelayan 60 saat, salinan
   data hari ini pada peranti dan cubaan semula automatik mengelakkan barisan
   panjang serta memaparkan muka depan segera pada penggunaan seterusnya.
@@ -254,6 +268,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 26 Ogos 2026 | 1.6.3 | Kemaskan Semak Kehadiran: buang footer `Isi kehadiran` dan anak panah daripada kad, jadikan seluruh kad sasaran tekan, kekang input tarikh pada lebar telefon, susun Semak Kehadiran sebelum Kehadiran dan paksa semakan kembali ke hari semasa apabila dibuka semula. Tarikh lama kini memberi amaran, memuat satu kelas melalui kunci legap khusus tarikh dan boleh disimpan ke tarikh dipilih | Ringkasan sejarah kekal hanya menghantar nama murid tidak hadir. Muatan suntingan satu kelas tidak membawa IC; tiada rekod sebenar diubah semasa pembangunan dan ujian |
 | 26 Ogos 2026 | 1.6.2 | Konsistenkan muatan awal: cache pelayan dilanjutkan kepada 60 saat dan data `init` hari ini dipaparkan segera daripada `localStorage` sambil kemas kini rangkaian berjalan di latar. Cache peranti luput pada pertukaran tarikh dan sentiasa dipaksa ke mod guru. GitHub commit `6d02adf` dan Apps Script versi 103 diterbitkan. Lima muatan produksi berturut-turut memaparkan 9 kelas dalam 0.265–0.446 saat; lima eksekusi cache pelayan selesai dalam 0.505–0.866 saat | Salinan peranti mengandungi data paparan guru hari semasa sahaja; tiada IC, PIN, token atau hak admin disimpan. Kad kekal baca sahaja sehingga kemas kini latar selesai |
 | 26 Ogos 2026 | 1.6.1 | Baiki kegagalan rawak waktu pagi: log produksi menunjukkan satu `doPost` mengambil 123.924 saat dan beberapa panggilan berikutnya 10–11 saat kerana `init` melakukan kerja penyediaan lajur. Keluarkan kerja tulis daripada `init`, tambah cache pelayan 15 saat dengan pembatalan selepas perubahan, cuba semula automatik dan butang Cuba semula; naikkan versi aset/cache PWA serentak | Cache berada dalam Apps Script dan singkat; Service Worker/telefon kekal tidak menyimpan nama, IC atau respons API |
 | 26 Ogos 2026 | 1.6.0 | Jadikan Semak Kehadiran muka depan bagi guru dan admin; setiap kad kelas kini boleh ditekan untuk membuka halaman pengisian dengan kelas berkenaan terus dipilih; padatkan kepala semakan, kawalan, statistik dan kad kelas pada telefon; tambah keadaan memuat/gagal pada muka depan; naikkan semua versi aset dan cache PWA serentak | Perubahan frontend sahaja; tiada rekod kehadiran atau data murid diubah semasa pembangunan |

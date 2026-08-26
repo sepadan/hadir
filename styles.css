@@ -239,6 +239,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .status:empty { min-height: 0; margin-top: 0; }
 .status.ok { color: #087851; }
 .status.err { color: #b82f42; }
+.status.warn { color: #8a6000; font-weight: 750; }
 
 .empty-state {
   min-height: calc(100dvh - 190px);
@@ -387,11 +388,17 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .review-hero h1 { margin: 2px 0 0; font-size: 1.55rem; }
 .review-hero p { margin: 3px 0 0; color: var(--muted); }
 .review-heading small { display: block; margin-top: 7px; color: #52677e; font-size: .78rem; }
-.review-controls { display: grid; grid-template-columns: minmax(160px, .85fr) minmax(180px, 1.15fr); gap: 10px; }
-.review-picker { display: grid; gap: 6px; color: #40536b; font-size: .78rem; font-weight: 800; }
+.review-controls { min-width: 0; display: grid; grid-template-columns: minmax(160px, .85fr) minmax(180px, 1.15fr); gap: 10px; }
+.review-picker { min-width: 0; display: grid; gap: 6px; color: #40536b; font-size: .78rem; font-weight: 800; }
 .review-picker input, .review-picker select {
-  width: 100%; min-width: 0; height: 46px; padding: 0 12px; border: 1px solid var(--line);
+  width: 100%; min-width: 0; max-width: 100%; min-inline-size: 0; height: 46px; padding: 0 12px; border: 1px solid var(--line);
   border-radius: 13px; background: #fff; color: var(--ink); font: inherit;
+}
+.review-picker input[type="date"] {
+  display: block;
+  inline-size: 100%;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .review-overview {
   display: grid;
@@ -449,19 +456,6 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .review-absent ul { margin: 8px 0 0; padding-left: 20px; color: #a42f40; }
 .review-absent li { margin: 4px 0; }
 .review-message { margin: 0; padding: 0 15px 15px; color: #8a6000; font-size: .84rem; }
-.review-open {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 15px;
-  border-top: 1px solid var(--line);
-  color: #087bbd;
-  font-size: .78rem;
-  font-weight: 850;
-}
-.review-card.pending .review-open { border-color: #efd598; color: #8a6000; }
-.review-open > span { font-size: 1.05rem; line-height: 1; }
 .attendance-summary { display: grid; gap: 1px; }
 .attendance-summary #rmtPresentCount { color: #087851; font-weight: 750; }
 .empty-review { grid-column: 1 / -1; display: grid; gap: 3px; padding: 28px; border: 1px dashed var(--line); border-radius: 18px; background: #fff; color: var(--muted); text-align: center; }
@@ -600,7 +594,7 @@ dialog::backdrop { background: #061626aa; }
   .review-heading p { font-size: .8rem; text-align: right; }
   .review-heading small { margin-top: 4px; }
   .review-picker { gap: 4px; }
-  .review-picker input, .review-picker select { height: 43px; }
+  .review-picker input, .review-picker select { height: 43px; font-size: 16px; }
   .review-overview { gap: 7px; }
   .review-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .review-overview > div { padding: 11px 10px; }
@@ -612,7 +606,6 @@ dialog::backdrop { background: #061626aa; }
   .review-card-stats > div { padding: 9px 12px; }
   .review-absent { padding: 11px 13px 12px; }
   .review-message { padding: 0 13px 11px; }
-  .review-open { padding: 9px 13px; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .full { grid-column: auto; }
   #studentDialog .dialog-actions { padding: 12px; }

@@ -31,6 +31,11 @@ sah(!backend.includes("token: 'SISTEM_HADIR'"), 'AKSI tidak boleh menerima token
 sah(backend.includes("hadirAksiRpc_(url, 'importMurid', [csv, masuk.token], masuk.token)"), 'Token sesi AKSI mesti dihantar pada sampul import');
 sah(backend.includes('uploadMuridCsv: hadirUploadMuridCsv_'), 'API upload CSV murid tiada');
 sah(backend.includes('semakKehadiran: hadirSemakKehadiran_'), 'API semakan tarikh terdahulu tiada');
+sah(backend.includes('bukaKehadiranTarikh: hadirBukaKehadiranTarikh_'), 'API buka pengisian tarikh lama tiada');
+sah(backend.includes('function hadirSahkanTarikhIso_'), 'Pengesahan tarikh bersama tiada');
+sah(backend.includes('function hadirSimpanKehadiran_(kelas, senaraiTiada, token, tarikhIso)'), 'Simpanan tarikh dipilih tiada');
+sah(backend.includes('muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)'), 'Simpanan tarikh lama tidak menghormati tempoh murid aktif');
+sah(backend.includes("kunci: hadirKunciMurid_(ic, pilihan.tkh)"), 'Kunci murid tarikh lama mesti legap dan khusus tarikh');
 sah(backend.includes("throw new Error('Semakan hanya tersedia bagi tahun semasa.')"), 'Semakan tarikh mesti dihadkan kepada tahun semasa');
 sah(backend.includes('muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)'), 'Semakan sejarah mesti menghormati tempoh murid aktif');
 sah(backend.includes('function hadirPetaRmt_()'), 'Sumber status RMT tiada');
@@ -41,6 +46,20 @@ sah(backend.includes('tahunKod: tahunKod') && backend.includes('hadirJantinaKod_
 sah(backend.includes('murid.filter(function (m) { return m.nilai === 0; })'), 'Respons sejarah hanya boleh menghantar nama murid tidak hadir');
 sah(backend.includes('.map(function (m) { return { nama: m.nama, nilai: 0 }; })'), 'Respons sejarah mesti membuang IC dan status RMT individu');
 sah(!backend.includes("murid: murid, jumlah: murid.length"), 'Objek murid dalaman tidak boleh dihantar terus kepada paparan awam');
+
+const fungsiTarikhIso = backend.match(/function hadirSahkanTarikhIso_\(tarikhIso\) \{([\s\S]*?)\n\}/);
+sah(fungsiTarikhIso, 'Pengesah tarikh ISO tidak boleh diuji');
+const sahkanTarikhIso = new Function('tarikhIso', 'Session', 'Utilities', fungsiTarikhIso[1]);
+const sesiTarikh = { getScriptTimeZone: function () { return 'Asia/Kuala_Lumpur'; } };
+const utilitiIso = { formatDate: function () { return '2026-08-26'; } };
+const tarikhLamaSah = sahkanTarikhIso('2026-08-25', sesiTarikh, utilitiIso);
+sah(tarikhLamaSah.tkh === '25/08' && tarikhLamaSah.iso === '2026-08-25', 'Tarikh lama sah tidak dipetakan dengan betul');
+function tarikhDitolak(iso) {
+  try { sahkanTarikhIso(iso, sesiTarikh, utilitiIso); return false; }
+  catch (_) { return true; }
+}
+sah(tarikhDitolak('2026-08-27'), 'Tarikh akan datang mesti ditolak');
+sah(tarikhDitolak('2025-12-31'), 'Tarikh tahun lain mesti ditolak');
 sah(backend.includes("simpanSenaraiMuridUpload({ mode: mode, records: rekod, kepala: kepala })"), 'Upload CSV tidak menggunakan import rasmi KEHADIRAN');
 sah(!/HADIR_(?:AKSI|SEMAK)_PASSWORD\s*=/.test(backend), 'Kata laluan tidak boleh dihardcode');
 sah(backend.includes("token ? hadirSesi_(token, true) : { peranan: 'guru' }"), 'Guru tanpa log masuk belum disokong');
@@ -74,6 +93,7 @@ sah(html.includes('id="reviewPane"') && html.includes('id="reviewClassSelect"'),
 sah(html.includes('id="reviewRetryBtn"'), 'Muka depan tiada butang cuba semula');
 sah(html.includes('<section id="reviewPane" class="pane">') && html.includes('<section id="attendancePane" class="pane" hidden>'), 'Semak Kehadiran mesti menjadi muka depan');
 sah(html.includes('class="menu-link active" data-pane="reviewPane"'), 'Menu Semak Kehadiran mesti aktif pada mula');
+sah(html.indexOf('data-pane="reviewPane"') < html.indexOf('data-pane="attendancePane"'), 'Semak Kehadiran mesti berada paling atas sebelum Kehadiran');
 sah(html.includes('id="reviewDateSelect"') && html.includes('type="date"'), 'Pilihan tarikh Semak Kehadiran tiada');
 sah(html.includes('id="reviewRmtCount"') && html.includes('id="rmtPresentCount"'), 'Bilangan RMT hadir tiada');
 sah(html.includes('id="studentSettingsPane"') && html.includes('id="settingsClassSelect"'), 'Menu Tetapan Murid tiada');
@@ -96,6 +116,12 @@ sah(app.includes("$('scrim').addEventListener('click', tutupMenu)"), 'Latar gela
 sah(app.includes("e.key === 'Escape'"), 'Escape tidak menutup menu');
 sah(app.includes("id !== 'reviewPane'"), 'Semak Kehadiran mesti boleh dibuka tanpa login admin');
 sah(app.includes("panggil('semakKehadiran', [tarikhIso]"), 'Frontend tidak memuatkan tarikh kehadiran terdahulu');
+sah(app.includes("panggil('bukaKehadiranTarikh', [namaKelas, tarikhIso]"), 'Kad tarikh lama tidak memuatkan murid bagi tarikh dipilih');
+sah(app.includes("window.confirm('Anda akan mengisi atau mengubah kehadiran '"), 'Amaran sebelum mengedit tarikh lama tiada');
+sah(app.includes("state.reviewData = state.data") && app.includes("$('reviewDateSelect').value = state.tarikhEditIso"), 'Semak Kehadiran mesti kembali ke hari semasa apabila menu dibuka');
+sah(app.includes('var versiPermintaan = ++state.versiSemakan') && app.includes('versiPermintaan !== state.versiSemakan'), 'Respons tarikh lama tidak boleh menimpa paparan hari semasa selepas menu dibuka semula');
+sah(app.includes("var tarikhSimpan = state.tarikhEditIso") && app.includes("state.token || '', tarikhSimpan"), 'Simpanan tidak menghantar tarikh yang sedang diedit');
+sah(!app.includes("'review-open'") && !app.includes("'Isi kehadiran hari ini'"), 'Teks dan anak panah tindakan masih berada pada kad semakan');
 sah(app.includes('m.nilai === 0') && !app.includes('return Number(m.nilai) === 0'), 'Nilai kosong tidak boleh dibaca sebagai tidak hadir dalam semakan');
 sah(app.includes("'Murid tidak hadir' : 'Semua murid hadir'"), 'Semakan mesti menyenaraikan murid tidak hadir sahaja');
 sah(app.includes("panggil('uploadMuridCsv'"), 'Frontend tidak menghantar CSV melalui API admin');
@@ -114,15 +140,17 @@ sah(app.includes("$('saveStudentBtn').disabled = !aktif"), 'Butiran murid mesti 
 sah(app.includes("m.tahunKod || m.tahun"), 'Tahun murid tidak dimasukkan ke dialog');
 
 const cfg = baca('config.js');
-sah(cfg.includes("versi: 'HADIR v1.6.2'"), 'Versi paparan bukan v1.6.2');
+sah(cfg.includes("versi: 'HADIR v1.6.3'"), 'Versi paparan bukan v1.6.3');
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
-sah(html.includes('styles.css?v=1.6.2') && html.includes('app.js?v=1.6.2') && html.includes('config.js?v=1.6.2'), 'Versi aset HTML tidak seragam');
-sah(sw.includes("hadir-shell-v1.6.2-20260826-2") && sw.includes('app.js?v=1.6.2'), 'Cache PWA belum dinaikkan bersama aset');
+sah(html.includes('styles.css?v=1.6.3') && html.includes('app.js?v=1.6.3') && html.includes('config.js?v=1.6.3'), 'Versi aset HTML tidak seragam');
+sah(sw.includes("hadir-shell-v1.6.3-20260826-3") && sw.includes('app.js?v=1.6.3'), 'Cache PWA belum dinaikkan bersama aset');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
 sah(css.includes('@media (min-width: 901px)') && css.includes('transform: none'), 'Menu desktop belum kekal terbuka');
 sah(css.includes('calc(60px + env(safe-area-inset-top))') && css.includes('padding: env(safe-area-inset-top)'), 'Bar atas PWA tidak menghormati ruang selamat iPhone');
+sah(css.includes('min-inline-size: 0') && css.includes('.review-picker input[type="date"]'), 'Dropdown tarikh belum dikekang pada lebar telefon');
+sah(!css.includes('.review-open'), 'Gaya footer anak panah kad lama masih ada');
 
 console.log('✓ Sintaks JavaScript/Apps Script sah');
 console.log('✓ Manifest HADIR standalone + maskable');
@@ -137,4 +165,5 @@ console.log('✓ Bilangan RMT hadir tersedia selepas simpan dan dalam semakan ta
 console.log('✓ Nisbah RMT menggunakan format hadir/jumlah');
 console.log('✓ Semak Kehadiran ialah muka depan dan kad kelas membuka pengisian');
 console.log('✓ Init menggunakan cache pelayan tanpa kerja tulis, salinan segera dan cubaan semula');
-console.log('✓ Tetapan Murid, paparan baca sahaja dan versi PWA v1.6.2 tersedia');
+console.log('✓ Kad semakan bersih, tarikh kembali ke hari semasa dan tarikh lama boleh diedit selepas amaran');
+console.log('✓ Tetapan Murid, paparan baca sahaja dan versi PWA v1.6.3 tersedia');
