@@ -28,7 +28,7 @@ sah(backend.includes('simpanSenaraiMuridUpload'), 'Sumber rasmi main tidak digun
 sah(backend.includes("'importMurid'"), 'Penyelaras AKSI tiada');
 sah(backend.includes("'apiUploadMurid'"), 'Penyelaras SEMAK tiada');
 sah(!backend.includes("token: 'SISTEM_HADIR'"), 'AKSI tidak boleh menerima token sampul palsu');
-sah(backend.includes("hadirAksiRpc_(url, 'importMurid', [csv, masuk.token], masuk.token)"), 'Token sesi AKSI mesti dihantar pada sampul import');
+sah(backend.includes("hadirAksiRpc_(url, 'importMurid', [csv, masuk.token, 'HADIR'], masuk.token)"), 'Token sesi dan penanda asal AKSI mesti dihantar pada import');
 sah(backend.includes('uploadMuridCsv: hadirUploadMuridCsv_'), 'API upload CSV murid tiada');
 sah(backend.includes('semakKehadiran: hadirSemakKehadiran_'), 'API semakan tarikh terdahulu tiada');
 sah(backend.includes('bukaKehadiranTarikh: hadirBukaKehadiranTarikh_'), 'API buka pengisian tarikh lama tiada');
@@ -45,6 +45,11 @@ sah(backend.includes('senaraiGuru: hadirSenaraiGuru_') && backend.includes('uplo
 sah(backend.includes("getSheetByName('HADIR_GURU')") && backend.includes("['NAMA GURU', 'JAWATAN', 'DIKEMAS KINI']"), 'Sumber guru HADIR tiada');
 sah(backend.includes("hadirAksiRpc_(url, 'importGuru'") && backend.includes("hadirSemakRpc_(url, 'apiImportGuru'"), 'Penyelarasan guru AKSI/SEMAK tiada');
 sah(backend.includes("hadirAksiRpc_(url, 'pastikanAkaunGuru'"), 'Akaun guru AKSI tidak dipastikan selepas import');
+sah(backend.includes('terimaSyncMurid: hadirTerimaSyncMurid_') && backend.includes('terimaSyncGuru: hadirTerimaSyncGuru_'), 'Endpoint relay AKSI/SEMAK ke HADIR tiada');
+sah(backend.includes("getProperty('SEPADAN_SYNC_SECRET')") && backend.includes('hadirSahRahsiaSync_'), 'Relay masuk mesti disahkan dengan rahsia Script Properties');
+sah(backend.includes("mode: 'merge', records: rekod, kepala: []"), 'Murid dari sistem lain mesti digabung tanpa mengarkib kumpulan yang tidak diliputi');
+sah(backend.includes("sumber === 'AKSI'") && backend.includes('dilangkau: true'), 'Relay mesti melangkau sistem asal bagi mencegah gelung');
+sah(backend.includes("'apiUploadMurid', [senarai, kata, 'HADIR']") && backend.includes("'apiImportGuru', [guru, kata, 'HADIR']"), 'Panggilan SEMAK mesti membawa penanda asal HADIR');
 sah(!backend.includes('padamGuru') && !backend.includes('hapusGuru'), 'Import guru tidak boleh memadam rekod sedia ada');
 sah(backend.includes('rmtHadir: rmtHadir, rmtJumlah: rmtJumlah'), 'Simpanan kehadiran mesti pulangkan nisbah RMT');
 sah(backend.includes('tahunKod: tahunKod') && backend.includes('hadirJantinaKod_'), 'Tahun atau jantina admin tidak dilengkapkan');
@@ -171,10 +176,10 @@ sah(guruCsv.length === 2 && guruCsv[0].nama === 'Cikgu A' && guruCsv[1].jawatan 
   'CSV guru mesti menyokong titik koma, jawatan pilihan dan membuang nama pendua');
 
 const cfg = baca('config.js');
-sah(cfg.includes("versi: 'HADIR v1.7.0'"), 'Versi paparan bukan v1.7.0');
+sah(cfg.includes("versi: 'HADIR v1.8.0'"), 'Versi paparan bukan v1.8.0');
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
-sah(html.includes('styles.css?v=1.7.0') && html.includes('app.js?v=1.7.0') && html.includes('config.js?v=1.7.0'), 'Versi aset HTML tidak seragam');
-sah(sw.includes("hadir-shell-v1.7.0-20260828-1") && sw.includes('app.js?v=1.7.0'), 'Cache PWA belum dinaikkan bersama aset');
+sah(html.includes('styles.css?v=1.8.0') && html.includes('app.js?v=1.8.0') && html.includes('config.js?v=1.8.0'), 'Versi aset HTML tidak seragam');
+sah(sw.includes("hadir-shell-v1.8.0-20260828-2") && sw.includes('app.js?v=1.8.0'), 'Cache PWA belum dinaikkan bersama aset');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
@@ -199,4 +204,5 @@ console.log('✓ Init menggunakan cache pelayan tanpa kerja tulis, salinan seger
 console.log('✓ Kad semakan bersih, tarikh kembali ke hari semasa dan tarikh lama boleh diedit selepas amaran');
 console.log('✓ Tetapan Murid dan paparan baca sahaja tersedia');
 console.log('✓ Tetapan Guru merge-only, upload CSV dan sync AKSI/SEMAK tersedia');
-console.log('✓ Versi PWA v1.7.0 dan cache aset dinaikkan serentak');
+console.log('✓ Upload murid/guru dari mana-mana sistem menggunakan relay tanpa gelung');
+console.log('✓ Versi PWA v1.8.0 dan cache aset dinaikkan serentak');

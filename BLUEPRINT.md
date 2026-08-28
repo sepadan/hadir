@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.4 · 28 Ogos 2026**
+**Versi 2.5 · 28 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -35,8 +35,7 @@ Guru → sepadan.github.io/hadir (isi dan semak tanpa log masuk)
 Admin → menu sisi → log masuk PIN → tetapan murid · tetapan guru · import/sync
            → doPost mode=hadir (Apps Script KEHADIRAN)
            → tab main / kehadiran
-           → API rasmi AKSI importMurid
-           → API rasmi SEMAK apiUploadMurid
+AKSI/SEMAK ↔ relay HADIR berahsia ↔ API rasmi sasaran
 ```
 
 `doPost` Telegram kekal. Baris penghala sahaja ditambah sebelum logik Telegram:
@@ -65,6 +64,13 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
 10. Penyelarasan guru ialah `merge/upsert` sahaja. Guru yang tiada dalam CSV,
     kata laluan dan kemas kini tempatan dalam AKSI/SEMAK tidak boleh dipadam
     atau ditindih.
+11. Hanya data induk murid dan guru diselaraskan. Kehadiran, markah, tugasan,
+    kata laluan, keahlian dan rekod kokurikulum kekal milik sistem masing-masing.
+12. Upload dari AKSI atau SEMAK diterima oleh HADIR sebagai `merge` sahaja.
+    Pengarkiban/pembuangan murid aktif hanya boleh dibuat daripada HADIR kerana
+    AKSI/SEMAK mungkin sengaja tidak membawa PRA, PPKI atau kumpulan lain.
+13. Setiap penghantaran membawa penanda asal `HADIR`/`AKSI`/`SEMAK`; penerima
+    tidak menghantar semula ke asal. Ini mencegah gelung penyelarasan.
 
 ## 4. Keselamatan
 
@@ -72,6 +78,8 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
 - Sesi rawak admin lapan jam disimpan dalam Script Properties.
 - PIN admin disimpan sebagai SHA-256 (`HADIR_ADMIN_PIN_HASH`).
 - Kata laluan perkhidmatan AKSI/SEMAK berada dalam Script Properties sahaja.
+- Rahsia relay bersama `SEPADAN_SYNC_SECRET` berada dalam Script Properties
+  ketiga-tiga projek dan tidak boleh dimasukkan ke repo atau log.
 - Hanya admin boleh melihat/mengemas kini murid atau menjalankan sync penuh.
 - Paparan guru menerima nama dan kunci harian legap; IC/MyKid tidak dihantar.
 - Semakan tarikh dalam tahun semasa terbuka kepada guru tanpa login atas
@@ -92,7 +100,8 @@ Semua permintaan POST berbentuk:
 Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `bukaKehadiranTarikh`,
 `simpanKehadiran`, `senaraiMurid`,
 `simpanMurid`, `simpanTetapanMurid`, `uploadMuridCsv`, `syncSemua`,
-`senaraiGuru`, `simpanGuru`, `uploadGuruCsv`, `syncGuru`.
+`senaraiGuru`, `simpanGuru`, `uploadGuruCsv`, `syncGuru`, `terimaSyncMurid`,
+`terimaSyncGuru`.
 
 `semakKehadiran(tarikhIso)` ialah bacaan awam bagi tahun semasa. Tarikh mesti
 berformat `YYYY-MM-DD`, tidak boleh melebihi hari ini, dan ditukar kepada tajuk
@@ -132,6 +141,12 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
   mengesahkan `sumber` serta ID respons sebelum menggunakan hasil. Markah kekal.
 - Jika salah satu sasaran gagal, perubahan tab `main` tidak dibatalkan. UI
   memaparkan sasaran yang gagal dan admin boleh tekan **Selaras Semua Aplikasi**.
+- Upload daripada AKSI/SEMAK masuk melalui relay berahsia. HADIR menggabungkan
+  data asas itu ke `main`, kemudian menghantar senarai aktif penuh kepada sistem
+  ketiga. Pembuangan murid tidak disebarkan dari sumber luar HADIR.
+- Semua sasaran tetap menjalankan API rasmi sendiri. Oleh itu AKSI terus
+  mengecualikan kumpulan yang tidak layak kokurikulum dan SEMAK terus membina
+  calon/cache mengikut peraturannya; hanya data asas yang menjadi sama.
 - Data Murid memaparkan kelas sebagai `1 Bijak`, bukan `TAHUN SATU · BIJAK`.
   Seluruh kad nama boleh ditekan untuk membuka butiran baca sahaja. Butang
   **Edit** mengaktifkan medan sebelum **Simpan & Selaras** boleh ditekan.
@@ -154,12 +169,15 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 - SEMAK menerima `apiImportGuru`, menambah nama yang belum ada dengan kata
   laluan lalai SEMAK serta mengekalkan semua guru dan kata laluan sedia ada.
 - Setiap aplikasi masih mengekalkan kawalan kemas kini gurunya sendiri.
+- Tambah/upload guru dalam AKSI atau SEMAK turut dihantar kepada HADIR dan
+  aplikasi ketiga secara gabung-sahaja. Kata laluan/tugasan tempatan tidak ikut
+  penyelarasan.
 - Respons RPC SEMAK kadangkala menukar padding Base64 `=` kepada `\x3d`.
   Pembaca HADIR menormalkan kedua-dua bentuk sebelum menyemak sumber dan ID.
 
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.7.0`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.8.0`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -292,6 +310,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 28 Ogos 2026 | 1.8.0 | Jadikan upload murid dan guru dua hala melalui relay HADIR berahsia. Upload pada HADIR, AKSI atau SEMAK menyelaraskan data asas ke aplikasi lain menggunakan API rasmi, penanda asal mencegah gelung, murid sumber luar digabung tanpa mengarkib kumpulan yang tiada, dan syarat domain setiap sistem kekal | Ujian kontrak, rahsia Script Properties, merge-only dan pencegahan gelung lulus; tiada nama, IC atau rahsia dimasukkan ke repo/log |
 | 28 Ogos 2026 | 1.7.0 | Tambah Tetapan Guru admin: senarai/carian, tambah seorang, upload CSV dan selaras semula. Backend menyimpan sumber `HADIR_GURU`, menggabung tanpa memadam, mengekalkan kata laluan/tempatan AKSI dan SEMAK, serta menulis secara pukal di bawah kunci. Pembaikan tambahan menerima padding Base64 Google `\x3d`. Apps Script Version 106 diterbitkan pada URL sama; AKSI Version 9 dan SEMAK Version 59 menerima kontrak import guru baharu. Aset dan cache PWA dinaikkan serentak | Ujian sintaks, parser CSV, kontrak merge-only, kunci dan penghala lulus. Produksi diuji dengan token/kata laluan palsu sahaja; penolakan berlaku sebelum tulisan, maka tiada data guru sebenar diubah |
 | 26 Ogos 2026 | 1.6.3 | Kemaskan Semak Kehadiran: buang footer `Isi kehadiran` dan anak panah daripada kad, jadikan seluruh kad sasaran tekan, kekang input tarikh pada lebar telefon, susun Semak Kehadiran sebelum Kehadiran dan paksa semakan kembali ke hari semasa apabila dibuka semula. Tarikh lama kini memberi amaran, memuat satu kelas melalui kunci legap khusus tarikh dan boleh disimpan ke tarikh dipilih. GitHub commit `4cf3c0a` dan Apps Script versi 104 diterbitkan pada URL sedia ada; produksi disahkan memuat aset/cache v1.6.3 dan mengenali laluan tarikh lama | Ringkasan sejarah kekal hanya menghantar nama murid tidak hadir. Muatan suntingan satu kelas tidak membawa IC; pengesahan produksi menggunakan permintaan tidak sah yang baca sahaja, maka tiada rekod sebenar diubah semasa pembangunan dan ujian |
 | 26 Ogos 2026 | 1.6.2 | Konsistenkan muatan awal: cache pelayan dilanjutkan kepada 60 saat dan data `init` hari ini dipaparkan segera daripada `localStorage` sambil kemas kini rangkaian berjalan di latar. Cache peranti luput pada pertukaran tarikh dan sentiasa dipaksa ke mod guru. GitHub commit `6d02adf` dan Apps Script versi 103 diterbitkan. Lima muatan produksi berturut-turut memaparkan 9 kelas dalam 0.265–0.446 saat; lima eksekusi cache pelayan selesai dalam 0.505–0.866 saat | Salinan peranti mengandungi data paparan guru hari semasa sahaja; tiada IC, PIN, token atau hak admin disimpan. Kad kekal baca sahaja sehingga kemas kini latar selesai |

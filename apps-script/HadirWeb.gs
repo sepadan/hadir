@@ -1,4 +1,4 @@
-// HADIR v1.7.0 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.8.0 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
@@ -27,6 +27,7 @@ function hadirDoPost_(e) {
     uploadMuridCsv: hadirUploadMuridCsv_,
     senaraiGuru: hadirSenaraiGuru_, simpanGuru: hadirSimpanGuru_,
     uploadGuruCsv: hadirUploadGuruCsv_, syncGuru: hadirSyncGuruApi_,
+    terimaSyncMurid: hadirTerimaSyncMurid_, terimaSyncGuru: hadirTerimaSyncGuru_,
     syncSemua: hadirSyncSemuaApi_
   };
   try {
@@ -105,6 +106,14 @@ function hadirInit_(token) {
   }
   hasil.peranan = sesi.peranan;
   return hasil;
+}
+
+function hadirSahRahsiaSync_(rahsia) {
+  var betul = PropertiesService.getScriptProperties().getProperty('SEPADAN_SYNC_SECRET');
+  if (!betul) throw new Error('Rahsia penyelarasan SePadan belum ditetapkan.');
+  if (!rahsia || hadirHash_(rahsia) !== hadirHash_(betul))
+    throw new Error('Akses penyelarasan SePadan ditolak.');
+  return true;
 }
 
 function hadirBinaInit_(sekarang, zona, tarikhIso) {
@@ -563,6 +572,56 @@ function hadirUploadMuridCsv_(payload, token) {
   };
 }
 
+/**
+ * Terima upload murid daripada AKSI/SEMAK. Input luar sentiasa merge-only
+ * kerana kedua-dua sistem boleh melangkau kumpulan tertentu (contohnya PRA).
+ * Selepas merge, HADIR menghantar senarai aktif lengkap kepada sasaran lain.
+ */
+function hadirTerimaSyncMurid_(senarai, sumber, rahsia) {
+  hadirSahRahsiaSync_(rahsia);
+  sumber = String(sumber || '').trim().toUpperCase();
+  if (['AKSI', 'SEMAK'].indexOf(sumber) < 0) throw new Error('Sumber penyelarasan murid tidak sah.');
+  if (!Array.isArray(senarai) || !senarai.length) throw new Error('Tiada rekod murid diterima.');
+  if (senarai.length > 3000) throw new Error('Muatan murid melebihi had 3,000 rekod.');
+
+  var rekod = senarai.map(function (asal) {
+    asal = asal || {};
+    var tahun = String(asal.tahun || '').trim().slice(0, 100);
+    var kelasPenuh = String(asal.kelas || asal.namaKelas || '').trim().slice(0, 200);
+    var namaKelas = String(asal.namaKelas || asal.kelas || '').trim().slice(0, 200);
+    if (/^[1-6]\s+/i.test(namaKelas)) namaKelas = namaKelas.replace(/^[1-6]\s+/i, '');
+    return {
+      idMurid: String(asal.idMurid || '').trim().slice(0, 500),
+      nama: String(asal.nama || '').trim().slice(0, 500),
+      ic: normalisasiIc_(asal.ic),
+      tahun: tahun,
+      namaKelas: namaKelas,
+      kelas: kelasPenuh,
+      jantina: String(asal.jantina || '').trim().slice(0, 50),
+      agama: String(asal.agama || '').trim().slice(0, 100),
+      kaum: String(asal.kaum || '').trim().slice(0, 100)
+    };
+  }).filter(function (m) { return m.nama && m.ic; });
+  if (!rekod.length) throw new Error('Tiada rekod murid yang sah diterima.');
+
+  var hasil = simpanSenaraiMuridUpload({ mode: 'merge', records: rekod, kepala: [] });
+  if (typeof simpanJantinaUpload === 'function') simpanJantinaUpload(rekod);
+  hadirPadamCacheInit_();
+  var murid = hadirMuridAktif_();
+  var sync = sumber === 'AKSI'
+    ? { ok: true, aksi: { ok: true, dilangkau: true }, semak: hadirSyncSemak_(murid) }
+    : { ok: true, aksi: hadirSyncAksi_(murid), semak: { ok: true, dilangkau: true } };
+  sync.ok = sync.aksi.ok && sync.semak.ok;
+  hadirLog_('SYNC_MURID_MASUK', 'sistem', '',
+    rekod.length + ' rekod; sumber=' + sumber + '; sync=' + sync.ok);
+  return {
+    ok: true, syncOk: sync.ok, sumber: sumber, jumlah: rekod.length,
+    hasil: hasil, sync: sync,
+    mesej: sync.ok ? 'Data murid diterima dan semua sistem diselaraskan.' :
+      'Data murid diterima, tetapi satu sasaran perlu diselaraskan semula.'
+  };
+}
+
 function hadirSyncSemuaApi_(token) {
   hadirSesi_(token, true);
   var hasil = hadirSyncSemua_();
@@ -617,7 +676,7 @@ function hadirSyncAksi_(murid) {
     var csv = 'IC,NAMA,TAHUN,NAMA KELAS,JANTINA,AGAMA,KAUM\n' + murid.map(function (m) {
       return [m.ic, m.nama, m.tahun, m.namaKelas, m.jantina, m.agama, m.kaum].map(hadirCsv_).join(',');
     }).join('\n');
-    var hasil = hadirAksiRpc_(url, 'importMurid', [csv, masuk.token], masuk.token);
+    var hasil = hadirAksiRpc_(url, 'importMurid', [csv, masuk.token, 'HADIR'], masuk.token);
     try { hadirAksiRpc_(url, 'logout', [masuk.token], masuk.token); } catch (abaikan) {}
     if (!hasil || hasil.berjaya === false) throw new Error((hasil && hasil.mesej) || 'Import AKSI gagal.');
     return { ok: true, mesej: murid.length + ' murid diselaraskan.', hasil: hasil };
@@ -645,7 +704,7 @@ function hadirSyncSemak_(murid) {
       nama: m.nama, ic: m.ic, tahun: m.tahun, kelas: m.namaKelas,
       jantina: m.jantina, agama: m.agama
     }; });
-    var hasil = hadirSemakRpc_(url, 'apiUploadMurid', [senarai, kata]);
+    var hasil = hadirSemakRpc_(url, 'apiUploadMurid', [senarai, kata, 'HADIR']);
     if (!hasil || hasil.ok === false) throw new Error((hasil && hasil.mesej) || 'Import SEMAK gagal.');
     return { ok: true, mesej: murid.length + ' murid diselaraskan.', hasil: hasil };
   } catch (e) { return { ok: false, mesej: e.message }; }
@@ -782,6 +841,40 @@ function hadirUploadGuruCsv_(payload, token) {
   };
 }
 
+function hadirTerimaSyncGuru_(senarai, sumber, rahsia) {
+  hadirSahRahsiaSync_(rahsia);
+  sumber = String(sumber || '').trim().toUpperCase();
+  if (['AKSI', 'SEMAK'].indexOf(sumber) < 0) throw new Error('Sumber penyelarasan guru tidak sah.');
+  if (!Array.isArray(senarai) || !senarai.length) throw new Error('Tiada rekod guru diterima.');
+  if (senarai.length > 1000) throw new Error('Muatan guru melebihi had 1,000 rekod.');
+  var rekod = senarai.map(function (asal) {
+    return {
+      nama: hadirNamaGuru_(typeof asal === 'string' ? asal : asal && asal.nama),
+      jawatan: hadirJawatanGuru_(typeof asal === 'string' ? '' : asal && asal.jawatan)
+    };
+  }).filter(function (g) { return !!g.nama; });
+  if (!rekod.length) throw new Error('Tiada nama guru yang sah diterima.');
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var hasil;
+  try { hasil = hadirGabungGuru_(rekod); }
+  finally { lock.releaseLock(); }
+  var guru = hadirBacaGuru_();
+  var sync = sumber === 'AKSI'
+    ? { ok: true, aksi: { ok: true, dilangkau: true }, semak: hadirSyncGuruSemak_(guru) }
+    : { ok: true, aksi: hadirSyncGuruAksi_(guru), semak: { ok: true, dilangkau: true } };
+  sync.ok = sync.aksi.ok && sync.semak.ok;
+  hadirLog_('SYNC_GURU_MASUK', 'sistem', '',
+    rekod.length + ' rekod; sumber=' + sumber + '; sync=' + sync.ok);
+  return {
+    ok: true, syncOk: sync.ok, sumber: sumber, jumlah: rekod.length,
+    hasil: hasil, sync: sync,
+    mesej: sync.ok ? 'Data guru diterima dan semua sistem diselaraskan.' :
+      'Data guru diterima, tetapi satu sasaran perlu diselaraskan semula.'
+  };
+}
+
 function hadirSyncGuruApi_(token) {
   hadirSesi_(token, true);
   var guru = hadirBacaGuru_();
@@ -806,7 +899,7 @@ function hadirSyncGuruAksi_(guru) {
   try {
     var masuk = hadirAksiRpc_(url, 'login', [id, kata], '');
     if (!masuk || !masuk.berjaya || !masuk.token) throw new Error((masuk && masuk.mesej) || 'Login AKSI gagal.');
-    var hasil = hadirAksiRpc_(url, 'importGuru', [guru, masuk.token], masuk.token);
+    var hasil = hadirAksiRpc_(url, 'importGuru', [guru, masuk.token, 'HADIR'], masuk.token);
     if (!hasil || hasil.berjaya === false) throw new Error((hasil && hasil.mesej) || 'Import guru AKSI gagal.');
     var akaun = hadirAksiRpc_(url, 'pastikanAkaunGuru', [masuk.token], masuk.token);
     try { hadirAksiRpc_(url, 'logout', [masuk.token], masuk.token); } catch (abaikan) {}
@@ -821,7 +914,7 @@ function hadirSyncGuruSemak_(guru) {
   var kata = props.getProperty('HADIR_SEMAK_PASSWORD');
   if (!kata) return { ok: false, mesej: 'Kata laluan perkhidmatan SEMAK belum ditetapkan.' };
   try {
-    var hasil = hadirSemakRpc_(url, 'apiImportGuru', [guru, kata]);
+    var hasil = hadirSemakRpc_(url, 'apiImportGuru', [guru, kata, 'HADIR']);
     if (!hasil || hasil.ok === false) throw new Error((hasil && hasil.mesej) || 'Import guru SEMAK gagal.');
     return { ok: true, mesej: guru.length + ' guru digabung; kata laluan sedia ada dikekalkan.', hasil: hasil };
   } catch (e) { return { ok: false, mesej: e.message }; }

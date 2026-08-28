@@ -13,6 +13,9 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Admin boleh menambah atau upload CSV guru melalui **Tetapan Guru**. Rekod
   digabungkan ke AKSI dan SEMAK tanpa memadam guru, kata laluan atau kemas kini
   sedia ada; kawalan guru dalam kedua-dua sistem itu kekal boleh digunakan.
+- Upload murid atau guru di HADIR, AKSI atau SEMAK disalurkan ke sistem lain.
+  Hanya data asas dikongsi; markah, kehadiran, kokurikulum, tugasan dan kata
+  laluan kekal mengikut peraturan aplikasi masing-masing.
 - Pada desktop, menu sisi kekal terbuka seperti AKSI; pada telefon menu boleh
   dibuka dan ditutup. Nama kelas semasa turut dipaparkan dalam menu.
 - Senarai murid mempunyai scroll sendiri dan nama panjang dipendekkan dengan
@@ -30,7 +33,9 @@ tidak mengarkibkan murid yang tiada dalam fail.
 
 Import menggunakan fungsi rasmi KEHADIRAN yang sama seperti halaman upload
 sedia ada, kemudian meminta penyelarasan AKSI dan SEMAK. Pratonton bilangan
-rekod dipaparkan sebelum admin mengesahkan import.
+rekod dipaparkan sebelum admin mengesahkan import. Upload dari AKSI/SEMAK
+digabung ke sumber induk tanpa mengarkib murid yang tidak dibawa oleh fail;
+pengarkiban senarai penuh hanya dibuat dari HADIR.
 
 ## PWA
 

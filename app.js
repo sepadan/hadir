@@ -1181,7 +1181,7 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.7.0';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.8.0';
   sambungan();
   daftarPwa();
   muatAwal();
