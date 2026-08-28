@@ -10,6 +10,9 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Log masuk admin berada di sebelah nombor versi dalam menu sisi.
 - Admin boleh mengemas kini senarai murid secara kelompok menggunakan CSV idME
   atau terus mengedit satu rekod murid seperti biasa.
+- Admin boleh menambah atau upload CSV guru melalui **Tetapan Guru**. Rekod
+  digabungkan ke AKSI dan SEMAK tanpa memadam guru, kata laluan atau kemas kini
+  sedia ada; kawalan guru dalam kedua-dua sistem itu kekal boleh digunakan.
 - Pada desktop, menu sisi kekal terbuka seperti AKSI; pada telefon menu boleh
   dibuka dan ditutup. Nama kelas semasa turut dipaparkan dalam menu.
 - Senarai murid mempunyai scroll sendiri dan nama panjang dipendekkan dengan

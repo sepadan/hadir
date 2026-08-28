@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.6.3">
+  <link rel="manifest" href="manifest.webmanifest?v=1.7.0">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.6.3">
+  <link rel="stylesheet" href="styles.css?v=1.7.0">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -37,6 +37,7 @@
         <button class="menu-link" data-pane="attendancePane"><span>✓</span><div><strong>Kehadiran</strong><small>Isi kehadiran murid</small></div></button>
         <div id="adminMenu" hidden>
           <button class="menu-link" data-pane="studentSettingsPane"><span>⚙</span><div><strong>Tetapan Murid</strong><small>RMT dan jawatan murid</small></div></button>
+          <button class="menu-link" data-pane="teacherSettingsPane"><span>♟</span><div><strong>Tetapan Guru</strong><small>Senarai dan penyelarasan guru</small></div></button>
           <button class="menu-link" data-pane="studentsPane"><span>♙</span><div><strong>Data Murid</strong><small>Tambah dan kemas kini</small></div></button>
           <button class="menu-link" data-pane="syncPane"><span>↻</span><div><strong>Penyelarasan</strong><small>AKSI dan SEMAK</small></div></button>
         </div>
@@ -44,7 +45,7 @@
       <div class="side-foot">
         <span id="roleLabel" hidden>Mod guru</span>
         <div class="side-version-row">
-          <small id="sideVersion">HADIR v1.6.3</small>
+          <small id="sideVersion">HADIR v1.7.0</small>
           <button id="adminLoginMenu" class="side-admin-btn" type="button">🔐 Admin</button>
           <button id="adminLogoutMenu" class="side-admin-btn side-logout-btn" type="button" hidden>↪ Log Keluar</button>
         </div>
@@ -106,6 +107,22 @@
         </div>
         <div id="studentSettingsStatus" class="status" aria-live="polite"></div>
         <div id="studentSettingsList" class="admin-list settings-list"></div>
+      </section>
+
+      <section id="teacherSettingsPane" class="pane" hidden>
+        <div class="page-head teacher-head">
+          <div><span class="eyebrow">ADMIN</span><h2>Tetapan Guru</h2><p>Tambah atau import guru. Rekod digabungkan ke AKSI dan SEMAK tanpa memadam guru atau kata laluan sedia ada.</p></div>
+          <div class="head-actions">
+            <button id="uploadTeachersBtn" class="soft" type="button">↑ Upload CSV</button>
+            <button id="addTeacherBtn" class="primary" type="button">+ Tambah Guru</button>
+          </div>
+        </div>
+        <div class="teacher-tools">
+          <label class="search"><span>⌕</span><input id="teacherSearch" type="search" placeholder="Cari nama atau jawatan guru"></label>
+          <button id="syncTeachersBtn" class="soft" type="button">↻ Selaras semula</button>
+        </div>
+        <div id="teacherSettingsStatus" class="status" aria-live="polite"></div>
+        <div id="teacherList" class="admin-list teacher-list"></div>
       </section>
 
       <section id="studentsPane" class="pane" hidden>
@@ -197,7 +214,37 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.6.3"></script>
-  <script src="app.js?v=1.6.3"></script>
+  <dialog id="teacherDialog" class="settings-dialog">
+    <form id="teacherForm" method="dialog">
+      <div class="dialog-head"><div><span class="eyebrow">TETAPAN GURU</span><h2>Tambah Guru</h2></div><button type="button" class="icon-btn cancel-teacher-dialog">×</button></div>
+      <div class="dialog-body teacher-form">
+        <label>Nama guru<input id="teacherName" required maxlength="200" autocomplete="off" placeholder="Nama penuh guru"></label>
+        <label>Jawatan / peranan<input id="teacherRole" maxlength="120" autocomplete="off" placeholder="Contoh: Guru Kelas 1 Bijak"></label>
+        <p class="form-note">Jika nama sudah ada, hanya jawatan yang diisi akan dikemas kini. Kata laluan AKSI dan SEMAK tidak berubah.</p>
+        <div id="teacherFormStatus" class="status" aria-live="polite"></div>
+      </div>
+      <div class="dialog-actions"><button type="button" class="soft cancel-teacher-dialog">Batal</button><button id="saveTeacherBtn" type="submit" class="primary">Simpan &amp; Selaras</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="teacherUploadDialog" class="upload-dialog">
+    <form id="teacherUploadForm" method="dialog">
+      <div class="dialog-head"><div><span class="eyebrow">ADMIN · CSV</span><h2>Upload Senarai Guru</h2></div><button type="button" class="icon-btn cancel-teacher-upload">×</button></div>
+      <div class="dialog-body upload-body">
+        <p>Pilih fail CSV yang mempunyai lajur <b>NAMA GURU</b> atau <b>NAMA</b>. Lajur <b>JAWATAN</b> adalah pilihan.</p>
+        <label class="file-drop">Fail CSV guru
+          <input id="teacherCsvFile" type="file" accept=".csv,text/csv,text/plain">
+          <span>Pilih fail .csv</span>
+        </label>
+        <div class="merge-note"><strong>Gabung sahaja</strong><span>Guru yang tiada dalam fail tidak dipadam. Kata laluan dan kemas kini sedia ada dalam AKSI/SEMAK dikekalkan.</span></div>
+        <div id="teacherUploadSummary" class="upload-summary" hidden></div>
+        <div id="teacherUploadStatus" class="status" aria-live="polite"></div>
+      </div>
+      <div class="dialog-actions"><button type="button" class="soft cancel-teacher-upload">Batal</button><button id="confirmTeacherUploadBtn" type="submit" class="primary" disabled>Upload &amp; Selaras</button></div>
+    </form>
+  </dialog>
+
+  <script src="config.js?v=1.7.0"></script>
+  <script src="app.js?v=1.7.0"></script>
 </body>
 </html>

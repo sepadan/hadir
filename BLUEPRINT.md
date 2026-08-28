@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.3 · 26 Ogos 2026**
+**Versi 2.4 · 28 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -32,7 +32,7 @@ sandaran apabila Telegram lambat atau tidak sesuai digunakan.
 
 ```text
 Guru → sepadan.github.io/hadir (isi dan semak tanpa log masuk)
-Admin → menu sisi → log masuk PIN → tetapan RMT/jawatan · edit/import CSV idME/sync
+Admin → menu sisi → log masuk PIN → tetapan murid · tetapan guru · import/sync
            → doPost mode=hadir (Apps Script KEHADIRAN)
            → tab main / kehadiran
            → API rasmi AKSI importMurid
@@ -62,6 +62,9 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
    sistem KEHADIRAN sedia ada.
 9. Log `HADIR_LOG` hanya menyimpan masa, tindakan, peranan, kelas dan bilangan;
    tiada nama atau IC.
+10. Penyelarasan guru ialah `merge/upsert` sahaja. Guru yang tiada dalam CSV,
+    kata laluan dan kemas kini tempatan dalam AKSI/SEMAK tidak boleh dipadam
+    atau ditindih.
 
 ## 4. Keselamatan
 
@@ -88,7 +91,8 @@ Semua permintaan POST berbentuk:
 
 Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `bukaKehadiranTarikh`,
 `simpanKehadiran`, `senaraiMurid`,
-`simpanMurid`, `simpanTetapanMurid`, `uploadMuridCsv`, `syncSemua`.
+`simpanMurid`, `simpanTetapanMurid`, `uploadMuridCsv`, `syncSemua`,
+`senaraiGuru`, `simpanGuru`, `uploadGuruCsv`, `syncGuru`.
 
 `semakKehadiran(tarikhIso)` ialah bacaan awam bagi tahun semasa. Tarikh mesti
 berformat `YYYY-MM-DD`, tidak boleh melebihi hari ini, dan ditukar kepada tajuk
@@ -135,9 +139,27 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
   lajur bertajuk `JANTINA`/`JENIS KELAMIN`, tab `jantina`, kemudian pariti digit
   akhir IC Malaysia sebagai sandaran.
 
+### 6.1 Penyelarasan guru
+
+- Tab `HADIR_GURU` menyimpan `NAMA GURU`, `JAWATAN` dan masa kemas kini.
+- Tetapan Guru hanya untuk admin. Admin boleh menambah seorang guru, mencari
+  senarai, mengimport CSV atau menjalankan penyelarasan semula.
+- CSV menerima `NAMA GURU`/`NAMA`; `JAWATAN` adalah pilihan, maksimum 1,000
+  rekod dan 4 MB. Nama pendua dalam fail diproses sekali.
+- Import sentiasa gabung-sahaja. Nama yang tiada dalam fail tidak dipadam;
+  jawatan kosong tidak menindih jawatan sedia ada.
+- AKSI menerima objek `{nama,jawatan}` melalui `importGuru`, kemudian
+  `pastikanAkaunGuru` mencipta akaun yang belum ada tanpa mengubah kata laluan
+  akaun lama.
+- SEMAK menerima `apiImportGuru`, menambah nama yang belum ada dengan kata
+  laluan lalai SEMAK serta mengekalkan semua guru dan kata laluan sedia ada.
+- Setiap aplikasi masih mengekalkan kawalan kemas kini gurunya sendiri.
+- Respons RPC SEMAK kadangkala menukar padding Base64 `=` kepada `\x3d`.
+  Pembaca HADIR menormalkan kedua-dua bentuk sebelum menyemak sumber dan ID.
+
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.6.3`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.7.0`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -231,6 +253,8 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
   hadir/jumlah sebagai agregat, contohnya `27/30`; status RMT individu tidak
   dihantar ke paparan guru.
 - [x] Admin mempunyai Tetapan Murid mengikut kelas untuk RMT dan jawatan.
+- [x] Admin mempunyai Tetapan Guru untuk tambah seorang, upload CSV, carian dan
+  sync gabung-sahaja ke AKSI/SEMAK tanpa memadam kata laluan sedia ada.
 - [x] Data Murid menggunakan kad nama boleh tekan, paparan awal baca sahaja,
   kelas `1 Bijak`, serta tahun dan jantina yang dilengkapkan daripada data sedia ada.
 - [x] Log keluar admin dipindahkan ke kaki menu di sebelah versi HADIR.
@@ -268,6 +292,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 28 Ogos 2026 | 1.7.0 | Tambah Tetapan Guru admin: senarai/carian, tambah seorang, upload CSV dan selaras semula. Backend menyimpan sumber `HADIR_GURU`, menggabung tanpa memadam, mengekalkan kata laluan/tempatan AKSI dan SEMAK, serta menulis secara pukal di bawah kunci. Pembaikan tambahan menerima padding Base64 Google `\x3d`. Apps Script Version 106 diterbitkan pada URL sama; AKSI Version 9 dan SEMAK Version 59 menerima kontrak import guru baharu. Aset dan cache PWA dinaikkan serentak | Ujian sintaks, parser CSV, kontrak merge-only, kunci dan penghala lulus. Produksi diuji dengan token/kata laluan palsu sahaja; penolakan berlaku sebelum tulisan, maka tiada data guru sebenar diubah |
 | 26 Ogos 2026 | 1.6.3 | Kemaskan Semak Kehadiran: buang footer `Isi kehadiran` dan anak panah daripada kad, jadikan seluruh kad sasaran tekan, kekang input tarikh pada lebar telefon, susun Semak Kehadiran sebelum Kehadiran dan paksa semakan kembali ke hari semasa apabila dibuka semula. Tarikh lama kini memberi amaran, memuat satu kelas melalui kunci legap khusus tarikh dan boleh disimpan ke tarikh dipilih. GitHub commit `4cf3c0a` dan Apps Script versi 104 diterbitkan pada URL sedia ada; produksi disahkan memuat aset/cache v1.6.3 dan mengenali laluan tarikh lama | Ringkasan sejarah kekal hanya menghantar nama murid tidak hadir. Muatan suntingan satu kelas tidak membawa IC; pengesahan produksi menggunakan permintaan tidak sah yang baca sahaja, maka tiada rekod sebenar diubah semasa pembangunan dan ujian |
 | 26 Ogos 2026 | 1.6.2 | Konsistenkan muatan awal: cache pelayan dilanjutkan kepada 60 saat dan data `init` hari ini dipaparkan segera daripada `localStorage` sambil kemas kini rangkaian berjalan di latar. Cache peranti luput pada pertukaran tarikh dan sentiasa dipaksa ke mod guru. GitHub commit `6d02adf` dan Apps Script versi 103 diterbitkan. Lima muatan produksi berturut-turut memaparkan 9 kelas dalam 0.265–0.446 saat; lima eksekusi cache pelayan selesai dalam 0.505–0.866 saat | Salinan peranti mengandungi data paparan guru hari semasa sahaja; tiada IC, PIN, token atau hak admin disimpan. Kad kekal baca sahaja sehingga kemas kini latar selesai |
 | 26 Ogos 2026 | 1.6.1 | Baiki kegagalan rawak waktu pagi: log produksi menunjukkan satu `doPost` mengambil 123.924 saat dan beberapa panggilan berikutnya 10–11 saat kerana `init` melakukan kerja penyediaan lajur. Keluarkan kerja tulis daripada `init`, tambah cache pelayan 15 saat dengan pembatalan selepas perubahan, cuba semula automatik dan butang Cuba semula; naikkan versi aset/cache PWA serentak | Cache berada dalam Apps Script dan singkat; Service Worker/telefon kekal tidak menyimpan nama, IC atau respons API |

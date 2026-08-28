@@ -7,6 +7,7 @@
     paneAktif: 'reviewPane',
     tidakHadir: new Set(), murid: [], sedangSimpan: false,
     uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null,
+    guru: [], guruUploadRecords: [], guruUploadFileName: '',
     cacheSementara: false, tarikhEditIso: '', versiSemakan: 0
   };
 
@@ -562,13 +563,14 @@
       return;
     }
     state.paneAktif = id;
-    ['attendancePane', 'reviewPane', 'studentSettingsPane', 'studentsPane', 'syncPane'].forEach(function (x) { $(x).hidden = x !== id; });
+    ['attendancePane', 'reviewPane', 'studentSettingsPane', 'teacherSettingsPane', 'studentsPane', 'syncPane'].forEach(function (x) { $(x).hidden = x !== id; });
     document.querySelectorAll('.menu-link[data-pane]').forEach(function (b) {
       b.classList.toggle('active', b.dataset.pane === id);
     });
     tutupMenu();
     if (id === 'studentsPane') muatMuridAdmin();
     if (id === 'studentSettingsPane') muatTetapanMurid();
+    if (id === 'teacherSettingsPane') muatGuruAdmin();
     if (id === 'reviewPane') {
       state.versiSemakan++;
       state.reviewData = state.data;
@@ -717,6 +719,161 @@
       setTimeout(function () { $('studentSettingsDialog').close(); }, 500);
     }).catch(function (err) {
       status($('studentSettingsFormStatus'), err.message, 'err');
+    }).finally(siap);
+  }
+
+  function muatGuruAdmin() {
+    status($('teacherSettingsStatus'), 'Memuatkan senarai guru…', '');
+    panggil('senaraiGuru', [state.token]).then(function (r) {
+      state.guru = Array.isArray(r) ? r : [];
+      status($('teacherSettingsStatus'), state.guru.length + ' rekod guru', 'ok');
+      lukisGuruAdmin();
+    }).catch(function (e) {
+      status($('teacherSettingsStatus'), e.message, 'err');
+    });
+  }
+
+  function lukisGuruAdmin() {
+    var q = norm($('teacherSearch').value), box = $('teacherList');
+    box.textContent = '';
+    var senarai = state.guru.filter(function (g) {
+      return !q || norm(g.nama).indexOf(q) > -1 || norm(g.jawatan).indexOf(q) > -1;
+    });
+    senarai.forEach(function (g) {
+      var row = el('div', 'admin-item teacher-item');
+      var copy = el('span');
+      copy.appendChild(el('strong', '', g.nama));
+      copy.appendChild(el('small', '', g.jawatan || 'Jawatan belum ditetapkan'));
+      row.appendChild(copy);
+      row.appendChild(el('span', 'mini-tag teacher-tag', 'Guru'));
+      box.appendChild(row);
+    });
+    if (!senarai.length) {
+      box.appendChild(el('div', 'empty-review', q ? 'Tiada guru sepadan dengan carian.' : 'Senarai guru masih kosong.'));
+    }
+  }
+
+  function bukaDialogGuru() {
+    $('teacherName').value = '';
+    $('teacherRole').value = '';
+    status($('teacherFormStatus'), '', '');
+    $('teacherDialog').showModal();
+    setTimeout(function () { $('teacherName').focus(); }, 30);
+  }
+
+  function simpanGuru(e) {
+    e.preventDefault();
+    var rekod = { nama: $('teacherName').value.trim(), jawatan: $('teacherRole').value.trim() };
+    if (!rekod.nama) {
+      status($('teacherFormStatus'), 'Nama guru diperlukan.', 'err');
+      return;
+    }
+    var siap = mulaButang($('saveTeacherBtn'), 'Menyimpan…');
+    status($('teacherFormStatus'), 'Menyimpan dan menyelaraskan semua aplikasi…', '');
+    panggil('simpanGuru', [rekod, state.token], 120000).then(function (r) {
+      status($('teacherFormStatus'), r.mesej || 'Guru berjaya disimpan.', r.syncOk === false ? 'err' : 'ok');
+      return panggil('senaraiGuru', [state.token]);
+    }).then(function (senarai) {
+      state.guru = Array.isArray(senarai) ? senarai : [];
+      lukisGuruAdmin();
+      status($('teacherSettingsStatus'), state.guru.length + ' rekod guru', 'ok');
+      setTimeout(function () { $('teacherDialog').close(); }, 800);
+    }).catch(function (err) {
+      status($('teacherFormStatus'), err.message, 'err');
+    }).finally(siap);
+  }
+
+  function rekodGuruDaripadaCsv(matrix) {
+    var aliasNama = ['NAMA GURU', 'NAMA', 'NAMA PENUH', 'TEACHER NAME'];
+    var aliasJawatan = ['JAWATAN', 'PERANAN', 'JAWATAN GURU', 'ROLE'];
+    var barisTajuk = -1, indeksNama = -1, indeksJawatan = -1;
+    for (var i = 0; i < Math.min(matrix.length, 30); i++) {
+      var kepala = (matrix[i] || []).map(normHeaderCsv);
+      indeksNama = kepala.findIndex(function (h) { return aliasNama.indexOf(h) > -1; });
+      if (indeksNama >= 0) {
+        indeksJawatan = kepala.findIndex(function (h) { return aliasJawatan.indexOf(h) > -1; });
+        barisTajuk = i;
+        break;
+      }
+    }
+    if (barisTajuk < 0) throw new Error('Baris tajuk tidak ditemui. Gunakan lajur NAMA GURU atau NAMA.');
+    var hasil = [], dilihat = Object.create(null);
+    for (var r = barisTajuk + 1; r < matrix.length; r++) {
+      var row = matrix[r] || [];
+      var nama = teks(row[indeksNama]).trim().replace(/\s+/g, ' ');
+      var jawatan = indeksJawatan >= 0 ? teks(row[indeksJawatan]).trim().replace(/\s+/g, ' ') : '';
+      var kunci = norm(nama);
+      if (!nama || dilihat[kunci]) continue;
+      dilihat[kunci] = true;
+      hasil.push({ nama: nama, jawatan: jawatan });
+    }
+    if (!hasil.length) throw new Error('Tiada nama guru yang sah ditemui dalam fail.');
+    if (hasil.length > 1000) throw new Error('Fail melebihi had 1,000 rekod guru.');
+    return hasil;
+  }
+
+  function bukaDialogUploadGuru() {
+    state.guruUploadRecords = [];
+    state.guruUploadFileName = '';
+    $('teacherCsvFile').value = '';
+    $('teacherUploadSummary').hidden = true;
+    $('teacherUploadSummary').textContent = '';
+    $('confirmTeacherUploadBtn').disabled = true;
+    status($('teacherUploadStatus'), '', '');
+    $('teacherUploadDialog').showModal();
+  }
+
+  function bacaFailUploadGuru() {
+    var fail = $('teacherCsvFile').files && $('teacherCsvFile').files[0];
+    state.guruUploadRecords = [];
+    $('confirmTeacherUploadBtn').disabled = true;
+    $('teacherUploadSummary').hidden = true;
+    if (!fail) return;
+    if (fail.size > 4 * 1024 * 1024) {
+      status($('teacherUploadStatus'), 'Fail terlalu besar. Had maksimum ialah 4 MB.', 'err');
+      return;
+    }
+    status($('teacherUploadStatus'), 'Membaca fail CSV…', '');
+    fail.text().then(function (text) {
+      var rekod = rekodGuruDaripadaCsv(huraiCsv(text, kesanPemisahCsv(text)));
+      state.guruUploadRecords = rekod;
+      state.guruUploadFileName = fail.name;
+      $('teacherUploadSummary').textContent = fail.name + ' · ' + rekod.length + ' rekod guru sah';
+      $('teacherUploadSummary').hidden = false;
+      $('confirmTeacherUploadBtn').disabled = false;
+      status($('teacherUploadStatus'), 'Fail sedia. Import ini tidak memadam rekod sedia ada.', 'ok');
+    }).catch(function (err) {
+      status($('teacherUploadStatus'), err.message || 'Fail CSV tidak dapat dibaca.', 'err');
+    });
+  }
+
+  function uploadGuruCsv(e) {
+    e.preventDefault();
+    if (!state.guruUploadRecords.length) return;
+    var siap = mulaButang($('confirmTeacherUploadBtn'), 'Mengimport…');
+    status($('teacherUploadStatus'), 'Menggabungkan senarai dan menyelaraskan AKSI serta SEMAK…', '');
+    panggil('uploadGuruCsv', [{ records: state.guruUploadRecords }, state.token], 150000).then(function (r) {
+      status($('teacherUploadStatus'), r.mesej || 'Senarai guru berjaya diimport.', r.syncOk === false ? 'err' : 'ok');
+      return panggil('senaraiGuru', [state.token]);
+    }).then(function (senarai) {
+      state.guru = Array.isArray(senarai) ? senarai : [];
+      lukisGuruAdmin();
+      status($('teacherSettingsStatus'), state.guru.length + ' rekod guru', 'ok');
+      setTimeout(function () { $('teacherUploadDialog').close(); }, 900);
+    }).catch(function (err) {
+      status($('teacherUploadStatus'), err.message, 'err');
+    }).finally(siap);
+  }
+
+  function syncGuru() {
+    var siap = mulaButang($('syncTeachersBtn'), 'Menyelaras…');
+    status($('teacherSettingsStatus'), 'Menyelaraskan guru ke AKSI dan SEMAK…', '');
+    panggil('syncGuru', [state.token], 120000).then(function (r) {
+      var ayat = (r.aksi && r.aksi.mesej ? 'AKSI: ' + r.aksi.mesej : 'AKSI selesai') + ' · ' +
+        (r.semak && r.semak.mesej ? 'SEMAK: ' + r.semak.mesej : 'SEMAK selesai');
+      status($('teacherSettingsStatus'), ayat, r.ok ? 'ok' : 'err');
+    }).catch(function (err) {
+      status($('teacherSettingsStatus'), err.message, 'err');
     }).finally(siap);
   }
 
@@ -987,6 +1144,13 @@
   $('editStudentBtn').addEventListener('click', function () { tetapkanEditMurid(true); });
   $('settingsClassSelect').addEventListener('change', lukisTetapanMurid);
   $('studentSettingsForm').addEventListener('submit', simpanTetapanMurid);
+  $('teacherSearch').addEventListener('input', lukisGuruAdmin);
+  $('addTeacherBtn').addEventListener('click', bukaDialogGuru);
+  $('uploadTeachersBtn').addEventListener('click', bukaDialogUploadGuru);
+  $('syncTeachersBtn').addEventListener('click', syncGuru);
+  $('teacherForm').addEventListener('submit', simpanGuru);
+  $('teacherCsvFile').addEventListener('change', bacaFailUploadGuru);
+  $('teacherUploadForm').addEventListener('submit', uploadGuruCsv);
   $('syncAllBtn').addEventListener('click', syncSemua);
   document.querySelectorAll('.cancel-admin-login').forEach(function (b) {
     b.addEventListener('click', function () { $('adminLoginDialog').close(); });
@@ -1000,6 +1164,12 @@
   document.querySelectorAll('.cancel-student-settings').forEach(function (b) {
     b.addEventListener('click', function () { $('studentSettingsDialog').close(); });
   });
+  document.querySelectorAll('.cancel-teacher-dialog').forEach(function (b) {
+    b.addEventListener('click', function () { $('teacherDialog').close(); });
+  });
+  document.querySelectorAll('.cancel-teacher-upload').forEach(function (b) {
+    b.addEventListener('click', function () { $('teacherUploadDialog').close(); });
+  });
   document.querySelectorAll('.menu-link[data-pane]').forEach(function (b) {
     b.addEventListener('click', function () {
       if (b.dataset.pane === 'attendancePane') bukaKehadiranHariIni_();
@@ -1011,13 +1181,14 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.6.3';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.7.0';
   sambungan();
   daftarPwa();
   muatAwal();
 
   window.HADIR_UTIL = {
     norm: norm, teks: teks,
-    huraiCsv: huraiCsv, rekodDaripadaCsv: rekodDaripadaCsv
+    huraiCsv: huraiCsv, rekodDaripadaCsv: rekodDaripadaCsv,
+    rekodGuruDaripadaCsv: rekodGuruDaripadaCsv
   };
 })();

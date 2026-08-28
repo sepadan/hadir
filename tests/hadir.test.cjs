@@ -41,6 +41,11 @@ sah(backend.includes('muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)'), '
 sah(backend.includes('function hadirPetaRmt_()'), 'Sumber status RMT tiada');
 sah(backend.includes('simpanTetapanMurid: hadirSimpanTetapanMurid_'), 'API Tetapan Murid tiada');
 sah(backend.includes("'JAWATAN MURID'"), 'Simpanan jawatan murid tiada');
+sah(backend.includes('senaraiGuru: hadirSenaraiGuru_') && backend.includes('uploadGuruCsv: hadirUploadGuruCsv_'), 'API Tetapan Guru tiada');
+sah(backend.includes("getSheetByName('HADIR_GURU')") && backend.includes("['NAMA GURU', 'JAWATAN', 'DIKEMAS KINI']"), 'Sumber guru HADIR tiada');
+sah(backend.includes("hadirAksiRpc_(url, 'importGuru'") && backend.includes("hadirSemakRpc_(url, 'apiImportGuru'"), 'Penyelarasan guru AKSI/SEMAK tiada');
+sah(backend.includes("hadirAksiRpc_(url, 'pastikanAkaunGuru'"), 'Akaun guru AKSI tidak dipastikan selepas import');
+sah(!backend.includes('padamGuru') && !backend.includes('hapusGuru'), 'Import guru tidak boleh memadam rekod sedia ada');
 sah(backend.includes('rmtHadir: rmtHadir, rmtJumlah: rmtJumlah'), 'Simpanan kehadiran mesti pulangkan nisbah RMT');
 sah(backend.includes('tahunKod: tahunKod') && backend.includes('hadirJantinaKod_'), 'Tahun atau jantina admin tidak dilengkapkan');
 sah(backend.includes('murid.filter(function (m) { return m.nilai === 0; })'), 'Respons sejarah hanya boleh menghantar nama murid tidak hadir');
@@ -80,6 +85,7 @@ sah(fungsiMuatan, 'Pembaca muatan RPC SEMAK tiada');
 const bacaMuatanSemak = new Function('html', fungsiMuatan[1]);
 sah(bacaMuatanSemak("<script>atob('YWJj')</script>") === 'YWJj', 'Respons SEMAK langsung tidak boleh dibaca');
 sah(bacaMuatanSemak('userHtml\\x22:\\x22...atob(\\x27YWJjZA==\\x27)...') === 'YWJjZA==', 'Pembungkus HtmlService Google tidak boleh dibaca');
+sah(bacaMuatanSemak('userHtml\\x22:\\x22...atob(\\x27YWJjZA\\x3d\\x3d\\x27)...') === 'YWJjZA==', 'Padding Base64 yang dihex oleh HtmlService Google tidak boleh dibaca');
 
 const html = baca('index.html');
 sah(html.includes('Simpan Kehadiran'), 'Butang simpan kehadiran tiada');
@@ -98,6 +104,9 @@ sah(html.includes('id="reviewDateSelect"') && html.includes('type="date"'), 'Pil
 sah(html.includes('id="reviewRmtCount"') && html.includes('id="rmtPresentCount"'), 'Bilangan RMT hadir tiada');
 sah(html.includes('id="studentSettingsPane"') && html.includes('id="settingsClassSelect"'), 'Menu Tetapan Murid tiada');
 sah(html.indexOf('data-pane="studentSettingsPane"') < html.indexOf('data-pane="studentsPane"'), 'Tetapan Murid mesti berada di atas Data Murid');
+sah(html.includes('id="teacherSettingsPane"') && html.includes('id="teacherCsvFile"'), 'Paparan Tetapan Guru atau upload CSV tiada');
+sah(html.indexOf('data-pane="teacherSettingsPane"') < html.indexOf('data-pane="studentsPane"'), 'Tetapan Guru mesti berada di atas Data Murid');
+sah(html.includes('Guru yang tiada dalam fail tidak dipadam') && html.includes('kata laluan sedia ada'), 'Paparan mesti menerangkan import guru gabung-sahaja');
 sah(html.includes('id="editStudentBtn"') && html.indexOf('id="editStudentBtn"') < html.indexOf('id="saveStudentBtn"'), 'Butang Edit mesti sebelum Simpan & Selaras');
 sah(html.includes('id="adminLogoutMenu"') && html.indexOf('id="sideVersion"') < html.indexOf('id="adminLogoutMenu"'), 'Log keluar mesti berada di sebelah versi');
 sah(!html.includes('· PWA'), 'Label versi tidak perlu memaparkan PWA');
@@ -127,6 +136,9 @@ sah(app.includes("'Murid tidak hadir' : 'Semua murid hadir'"), 'Semakan mesti me
 sah(app.includes("panggil('uploadMuridCsv'"), 'Frontend tidak menghantar CSV melalui API admin');
 sah(app.includes("mode === 'sync' && !window.confirm"), 'Sync penuh CSV mesti meminta pengesahan');
 sah(app.includes("panggil('simpanTetapanMurid'"), 'Frontend tidak menyimpan RMT atau jawatan murid');
+sah(app.includes("panggil('senaraiGuru'") && app.includes("panggil('simpanGuru'") && app.includes("panggil('uploadGuruCsv'"), 'Frontend Tetapan Guru tidak lengkap');
+sah(app.includes('function rekodGuruDaripadaCsv') && app.includes("aliasNama = ['NAMA GURU', 'NAMA'"), 'Pembaca CSV guru tiada');
+sah(app.includes("panggil('syncGuru'"), 'Butang selaras semula guru tidak disambungkan');
 sah(app.includes("$('reviewRmtCount').textContent = jumlahRmtHadir + '/' + jumlahRmt"), 'Kotak RMT mesti memaparkan hadir/jumlah');
 sah(app.includes("paneAktif: 'reviewPane'") && app.includes("bukaKehadiranKelas(k.nama)"), 'Kad kelas semakan mesti membuka pengisian kehadiran');
 sah(app.includes("Sambungan lambat. Mencuba semula") && app.includes("panggilInit_('', 1)"), 'Init mesti cuba semula dan pulih daripada sesi lama');
@@ -139,11 +151,30 @@ sah(app.includes("bukaPane('attendancePane');") && app.includes('pilihKelas(kela
 sah(app.includes("$('saveStudentBtn').disabled = !aktif"), 'Butiran murid mesti baca sahaja sehingga Edit ditekan');
 sah(app.includes("m.tahunKod || m.tahun"), 'Tahun murid tidak dimasukkan ke dialog');
 
+function fungsiApp(nama) {
+  const padan = app.match(new RegExp(`function ${nama}\\([^]*?(?=\\n  function |\\n  var aliasCsvMurid)`));
+  sah(padan, `Fungsi ${nama} tidak boleh diuji`);
+  return padan[0];
+}
+const konteksGuruCsv = {};
+const sumberGuruCsv = [
+  fungsiApp('teks'), fungsiApp('norm'), fungsiApp('normHeaderCsv'),
+  fungsiApp('kesanPemisahCsv'), fungsiApp('huraiCsv'),
+  fungsiApp('rekodGuruDaripadaCsv')
+].join('\n');
+require('vm').runInNewContext(sumberGuruCsv, konteksGuruCsv);
+const csvGuru = 'NAMA GURU;JAWATAN\nCikgu A;Guru Kelas\nCikgu A;Nilai pendua\nCikgu B;';
+const guruCsv = konteksGuruCsv.rekodGuruDaripadaCsv(
+  konteksGuruCsv.huraiCsv(csvGuru, konteksGuruCsv.kesanPemisahCsv(csvGuru))
+);
+sah(guruCsv.length === 2 && guruCsv[0].nama === 'Cikgu A' && guruCsv[1].jawatan === '',
+  'CSV guru mesti menyokong titik koma, jawatan pilihan dan membuang nama pendua');
+
 const cfg = baca('config.js');
-sah(cfg.includes("versi: 'HADIR v1.6.3'"), 'Versi paparan bukan v1.6.3');
+sah(cfg.includes("versi: 'HADIR v1.7.0'"), 'Versi paparan bukan v1.7.0');
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
-sah(html.includes('styles.css?v=1.6.3') && html.includes('app.js?v=1.6.3') && html.includes('config.js?v=1.6.3'), 'Versi aset HTML tidak seragam');
-sah(sw.includes("hadir-shell-v1.6.3-20260826-3") && sw.includes('app.js?v=1.6.3'), 'Cache PWA belum dinaikkan bersama aset');
+sah(html.includes('styles.css?v=1.7.0') && html.includes('app.js?v=1.7.0') && html.includes('config.js?v=1.7.0'), 'Versi aset HTML tidak seragam');
+sah(sw.includes("hadir-shell-v1.7.0-20260828-1") && sw.includes('app.js?v=1.7.0'), 'Cache PWA belum dinaikkan bersama aset');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
@@ -166,4 +197,6 @@ console.log('✓ Nisbah RMT menggunakan format hadir/jumlah');
 console.log('✓ Semak Kehadiran ialah muka depan dan kad kelas membuka pengisian');
 console.log('✓ Init menggunakan cache pelayan tanpa kerja tulis, salinan segera dan cubaan semula');
 console.log('✓ Kad semakan bersih, tarikh kembali ke hari semasa dan tarikh lama boleh diedit selepas amaran');
-console.log('✓ Tetapan Murid, paparan baca sahaja dan versi PWA v1.6.3 tersedia');
+console.log('✓ Tetapan Murid dan paparan baca sahaja tersedia');
+console.log('✓ Tetapan Guru merge-only, upload CSV dan sync AKSI/SEMAK tersedia');
+console.log('✓ Versi PWA v1.7.0 dan cache aset dinaikkan serentak');

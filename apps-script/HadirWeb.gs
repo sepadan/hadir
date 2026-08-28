@@ -1,4 +1,4 @@
-// HADIR v1.6.3 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.7.0 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
@@ -25,6 +25,8 @@ function hadirDoPost_(e) {
     simpanKehadiran: hadirSimpanKehadiran_, senaraiMurid: hadirSenaraiMurid_,
     simpanMurid: hadirSimpanMurid_, simpanTetapanMurid: hadirSimpanTetapanMurid_,
     uploadMuridCsv: hadirUploadMuridCsv_,
+    senaraiGuru: hadirSenaraiGuru_, simpanGuru: hadirSimpanGuru_,
+    uploadGuruCsv: hadirUploadGuruCsv_, syncGuru: hadirSyncGuruApi_,
     syncSemua: hadirSyncSemuaApi_
   };
   try {
@@ -665,11 +667,171 @@ function hadirSemakRpc_(url, kaedah, argumen) {
   return data.hasil;
 }
 
+function hadirNamaGuru_(nilai) {
+  return String(nilai == null ? '' : nilai).trim().replace(/\s+/g, ' ').toUpperCase().slice(0, 200);
+}
+
+function hadirJawatanGuru_(nilai) {
+  return String(nilai == null ? '' : nilai).trim().replace(/\s+/g, ' ').toUpperCase().slice(0, 120);
+}
+
+function hadirSheetGuru_() {
+  var s = ss.getSheetByName('HADIR_GURU');
+  if (!s) {
+    s = ss.insertSheet('HADIR_GURU');
+    s.getRange(1, 1, 1, 3).setValues([['NAMA GURU', 'JAWATAN', 'DIKEMAS KINI']]);
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function hadirBacaGuru_() {
+  var s = ss.getSheetByName('HADIR_GURU');
+  if (!s || s.getLastRow() < 2) return [];
+  return s.getRange(2, 1, s.getLastRow() - 1, 3).getDisplayValues()
+    .map(function (r) {
+      return { nama: hadirNamaGuru_(r[0]), jawatan: hadirJawatanGuru_(r[1]), dikemasKini: r[2] || '' };
+    }).filter(function (g) { return !!g.nama; })
+    .sort(function (a, b) { return a.nama.localeCompare(b.nama, 'ms'); });
+}
+
+function hadirSenaraiGuru_(token) {
+  hadirSesi_(token, true);
+  return hadirBacaGuru_();
+}
+
+function hadirGabungGuru_(senarai) {
+  var s = hadirSheetGuru_();
+  var data = s.getLastRow() > 1
+    ? s.getRange(2, 1, s.getLastRow() - 1, 3).getDisplayValues() : [];
+  var peta = Object.create(null);
+  data.forEach(function (r, i) {
+    var nama = hadirNamaGuru_(r[0]);
+    if (nama && peta[nama] === undefined) peta[nama] = i;
+  });
+  var tambah = 0, kemasKini = 0, langkau = 0, dilihat = Object.create(null);
+  (senarai || []).forEach(function (asal) {
+    asal = asal || {};
+    var nama = hadirNamaGuru_(typeof asal === 'string' ? asal : asal.nama);
+    var jawatan = hadirJawatanGuru_(typeof asal === 'string' ? '' : asal.jawatan);
+    if (!nama || dilihat[nama]) { langkau++; return; }
+    dilihat[nama] = true;
+    var masa = new Date();
+    if (peta[nama] === undefined) {
+      peta[nama] = data.length;
+      data.push([nama, jawatan, masa]);
+      tambah++;
+    } else {
+      var indeks = peta[nama];
+      var berubah = jawatan && hadirJawatanGuru_(data[indeks][1]) !== jawatan;
+      if (berubah) data[indeks][1] = jawatan;
+      if (berubah) {
+        data[indeks][2] = masa;
+        kemasKini++;
+      } else langkau++;
+    }
+  });
+  if (data.length) s.getRange(2, 1, data.length, 3).setValues(data);
+  return { tambah: tambah, kemasKini: kemasKini, langkau: langkau, jumlah: data.length };
+}
+
+function hadirSimpanGuru_(rekod, token) {
+  var sesi = hadirSesi_(token, true);
+  rekod = rekod || {};
+  var nama = hadirNamaGuru_(rekod.nama);
+  if (!nama) throw new Error('Nama guru diperlukan.');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var hasil;
+  try {
+    hasil = hadirGabungGuru_([{ nama: nama, jawatan: rekod.jawatan }]);
+  } finally { lock.releaseLock(); }
+  var guru = hadirBacaGuru_();
+  var sync = hadirSyncGuruSemua_(guru);
+  hadirLog_('SIMPAN_GURU', sesi.peranan, '', '1 rekod; sync=' + sync.ok);
+  return {
+    ok: true, syncOk: sync.ok, hasil: hasil, sync: sync,
+    mesej: sync.ok ? 'Guru disimpan dan semua aplikasi diselaraskan.' :
+      'Guru disimpan dalam HADIR, tetapi sebahagian penyelarasan perlu diperiksa.'
+  };
+}
+
+function hadirUploadGuruCsv_(payload, token) {
+  var sesi = hadirSesi_(token, true);
+  payload = payload || {};
+  var mentah = Array.isArray(payload.records) ? payload.records : [];
+  if (!mentah.length) throw new Error('Fail CSV tidak mengandungi nama guru yang sah.');
+  if (mentah.length > 1000) throw new Error('Fail CSV melebihi had 1,000 rekod guru.');
+  var rekod = mentah.map(function (g) {
+    return { nama: hadirNamaGuru_(g && g.nama), jawatan: hadirJawatanGuru_(g && g.jawatan) };
+  }).filter(function (g) { return !!g.nama; });
+  if (!rekod.length) throw new Error('Tiada nama guru yang sah ditemui.');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var hasil;
+  try { hasil = hadirGabungGuru_(rekod); }
+  finally { lock.releaseLock(); }
+  var guru = hadirBacaGuru_();
+  var sync = hadirSyncGuruSemua_(guru);
+  hadirLog_('UPLOAD_GURU_CSV', sesi.peranan, '', rekod.length + ' rekod; sync=' + sync.ok);
+  return {
+    ok: true, syncOk: sync.ok, hasil: hasil, sync: sync,
+    mesej: 'Selesai: ' + hasil.tambah + ' ditambah, ' + hasil.kemasKini +
+      ' dikemas kini, ' + hasil.langkau + ' tanpa perubahan.' +
+      (sync.ok ? ' AKSI dan SEMAK telah diselaraskan.' : ' Semak status penyelarasan AKSI/SEMAK.')
+  };
+}
+
+function hadirSyncGuruApi_(token) {
+  hadirSesi_(token, true);
+  var guru = hadirBacaGuru_();
+  if (!guru.length) throw new Error('Senarai guru HADIR masih kosong.');
+  var hasil = hadirSyncGuruSemua_(guru);
+  hadirLog_('SYNC_GURU', 'admin', '', guru.length + ' rekod; sync=' + hasil.ok);
+  return hasil;
+}
+
+function hadirSyncGuruSemua_(guru) {
+  var aksi = hadirSyncGuruAksi_(guru || []);
+  var semak = hadirSyncGuruSemak_(guru || []);
+  return { ok: aksi.ok && semak.ok, jumlah: (guru || []).length, aksi: aksi, semak: semak };
+}
+
+function hadirSyncGuruAksi_(guru) {
+  var props = PropertiesService.getScriptProperties();
+  var url = props.getProperty('HADIR_AKSI_URL') || HADIR_AKSI_URL_LALAI;
+  var id = props.getProperty('HADIR_AKSI_ID') || 'admin';
+  var kata = props.getProperty('HADIR_AKSI_PASSWORD');
+  if (!kata) return { ok: false, mesej: 'Kata laluan perkhidmatan AKSI belum ditetapkan.' };
+  try {
+    var masuk = hadirAksiRpc_(url, 'login', [id, kata], '');
+    if (!masuk || !masuk.berjaya || !masuk.token) throw new Error((masuk && masuk.mesej) || 'Login AKSI gagal.');
+    var hasil = hadirAksiRpc_(url, 'importGuru', [guru, masuk.token], masuk.token);
+    if (!hasil || hasil.berjaya === false) throw new Error((hasil && hasil.mesej) || 'Import guru AKSI gagal.');
+    var akaun = hadirAksiRpc_(url, 'pastikanAkaunGuru', [masuk.token], masuk.token);
+    try { hadirAksiRpc_(url, 'logout', [masuk.token], masuk.token); } catch (abaikan) {}
+    if (!akaun || akaun.berjaya === false) throw new Error((akaun && akaun.mesej) || 'Akaun guru AKSI gagal diselaraskan.');
+    return { ok: true, mesej: guru.length + ' guru digabung; akaun sedia ada dikekalkan.', hasil: hasil };
+  } catch (e) { return { ok: false, mesej: e.message }; }
+}
+
+function hadirSyncGuruSemak_(guru) {
+  var props = PropertiesService.getScriptProperties();
+  var url = props.getProperty('HADIR_SEMAK_URL') || HADIR_SEMAK_URL_LALAI;
+  var kata = props.getProperty('HADIR_SEMAK_PASSWORD');
+  if (!kata) return { ok: false, mesej: 'Kata laluan perkhidmatan SEMAK belum ditetapkan.' };
+  try {
+    var hasil = hadirSemakRpc_(url, 'apiImportGuru', [guru, kata]);
+    if (!hasil || hasil.ok === false) throw new Error((hasil && hasil.mesej) || 'Import guru SEMAK gagal.');
+    return { ok: true, mesej: guru.length + ' guru digabung; kata laluan sedia ada dikekalkan.', hasil: hasil };
+  } catch (e) { return { ok: false, mesej: e.message }; }
+}
+
 function hadirSemakMuatan64_(html) {
   var padan = String(html || '').match(
-    /atob\((?:['"]|\\x(?:27|22))([A-Za-z0-9+/=]+)(?:['"]|\\x(?:27|22))\)/
+    /atob\((?:['"]|\\x(?:27|22))((?:[A-Za-z0-9+/=]|\\x3d)+)(?:['"]|\\x(?:27|22))\)/i
   );
-  return padan ? padan[1] : '';
+  return padan ? padan[1].replace(/\\x3d/gi, '=') : '';
 }
 
 function hadirCsv_(nilai) {

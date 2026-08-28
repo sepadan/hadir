@@ -34,3 +34,11 @@ itu mesti kekal dalam projek Apps Script yang sama.
 
 PIN dan kata laluan tidak boleh dimasukkan ke repo ini. Cache PWA juga tidak
 menyimpan sesi, nama murid, IC atau jawapan API.
+
+## Tetapan Guru
+
+Apps Script Version **106** menambah API admin `senaraiGuru`, `simpanGuru`,
+`uploadGuruCsv` dan `syncGuru`. Sumber setempat ialah tab `HADIR_GURU`.
+Penyelarasan menggunakan `importGuru` + `pastikanAkaunGuru` dalam AKSI dan
+`apiImportGuru` dalam SEMAK. Semua import ialah gabung-sahaja: guru yang tiada
+dalam fail serta kata laluan sedia ada tidak dipadam atau ditindih.
