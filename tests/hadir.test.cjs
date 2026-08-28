@@ -45,6 +45,11 @@ sah(backend.includes('senaraiGuru: hadirSenaraiGuru_') && backend.includes('uplo
 sah(backend.includes("getSheetByName('HADIR_GURU')") && backend.includes("['NAMA GURU', 'JAWATAN', 'DIKEMAS KINI']"), 'Sumber guru HADIR tiada');
 sah(backend.includes("hadirAksiRpc_(url, 'importGuru'") && backend.includes("hadirSemakRpc_(url, 'apiImportGuru'"), 'Penyelarasan guru AKSI/SEMAK tiada');
 sah(backend.includes("hadirAksiRpc_(url, 'pastikanAkaunGuru'"), 'Akaun guru AKSI tidak dipastikan selepas import');
+sah(backend.includes('function hadirTarikGuruSediaAda_()') && backend.includes("hadirAksiRpc_(urlAksi, 'getSenaraiGuru', [tokenAksi], tokenAksi)") &&
+  backend.includes("hadirSemakRpc_(urlSemak, 'apiInit', [])"),
+  'Migrasi awal guru mesti menggabungkan AKSI dan SEMAK menggunakan API rasmi');
+sah(backend.includes("if (!guru.length) {\n    migrasi = hadirTarikGuruSediaAda_();"),
+  'Migrasi guru awal mesti berlaku hanya apabila HADIR_GURU kosong');
 sah(backend.includes('terimaSyncMurid: hadirTerimaSyncMurid_') && backend.includes('terimaSyncGuru: hadirTerimaSyncGuru_'), 'Endpoint relay AKSI/SEMAK ke HADIR tiada');
 sah(backend.includes("getProperty('SEPADAN_SYNC_SECRET')") && backend.includes('hadirSahRahsiaSync_'), 'Relay masuk mesti disahkan dengan rahsia Script Properties');
 sah(backend.includes("mode: 'merge', records: rekod, kepala: []"), 'Murid dari sistem lain mesti digabung tanpa mengarkib kumpulan yang tidak diliputi');
@@ -176,10 +181,10 @@ sah(guruCsv.length === 2 && guruCsv[0].nama === 'Cikgu A' && guruCsv[1].jawatan 
   'CSV guru mesti menyokong titik koma, jawatan pilihan dan membuang nama pendua');
 
 const cfg = baca('config.js');
-sah(cfg.includes("versi: 'HADIR v1.8.0'"), 'Versi paparan bukan v1.8.0');
+sah(cfg.includes("versi: 'HADIR v1.8.1'"), 'Versi paparan bukan v1.8.1');
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
-sah(html.includes('styles.css?v=1.8.0') && html.includes('app.js?v=1.8.0') && html.includes('config.js?v=1.8.0'), 'Versi aset HTML tidak seragam');
-sah(sw.includes("hadir-shell-v1.8.0-20260828-2") && sw.includes('app.js?v=1.8.0'), 'Cache PWA belum dinaikkan bersama aset');
+sah(html.includes('styles.css?v=1.8.1') && html.includes('app.js?v=1.8.1') && html.includes('config.js?v=1.8.1'), 'Versi aset HTML tidak seragam');
+sah(sw.includes("hadir-shell-v1.8.1-20260828-3") && sw.includes('app.js?v=1.8.1'), 'Cache PWA belum dinaikkan bersama aset');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
@@ -205,4 +210,5 @@ console.log('✓ Kad semakan bersih, tarikh kembali ke hari semasa dan tarikh la
 console.log('✓ Tetapan Murid dan paparan baca sahaja tersedia');
 console.log('✓ Tetapan Guru merge-only, upload CSV dan sync AKSI/SEMAK tersedia');
 console.log('✓ Upload murid/guru dari mana-mana sistem menggunakan relay tanpa gelung');
-console.log('✓ Versi PWA v1.8.0 dan cache aset dinaikkan serentak');
+console.log('✓ Migrasi awal guru AKSI + SEMAK → HADIR tersedia apabila sumber HADIR kosong');
+console.log('✓ Versi PWA v1.8.1 dan cache aset dinaikkan serentak');
