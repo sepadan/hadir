@@ -869,7 +869,7 @@
     var siap = mulaButang($('syncTeachersBtn'), 'Menyelaras…');
     status($('teacherSettingsStatus'), 'Menyelaraskan guru ke AKSI dan SEMAK…', '');
     panggil('syncGuru', [state.token], 120000).then(function (r) {
-      var ayat = (r.ditarik ? r.ditarik + ' guru sedia ada ditarik daripada AKSI/SEMAK · ' : '') +
+      var ayat = (r.ditarik ? r.ditarik + ' guru sedia ada ditarik daripada ' + r.sumberAwal + ' · ' : '') +
         (r.aksi && r.aksi.mesej ? 'AKSI: ' + r.aksi.mesej : 'AKSI selesai') + ' · ' +
         (r.semak && r.semak.mesej ? 'SEMAK: ' + r.semak.mesej : 'SEMAK selesai');
       status($('teacherSettingsStatus'), ayat, r.ok ? 'ok' : 'err');
@@ -1182,7 +1182,7 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.8.1';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.8.2';
   sambungan();
   daftarPwa();
   muatAwal();

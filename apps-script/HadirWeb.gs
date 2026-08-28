@@ -1,4 +1,4 @@
-// HADIR v1.8.1 — backend web untuk projek Apps Script KEHADIRAN.
+// HADIR v1.8.2 — backend web untuk projek Apps Script KEHADIRAN.
 // Fail ini tidak menggantikan bot Telegram. doPost sedia ada hanya perlu
 // menyerahkan permintaan mode="hadir" kepada hadirDoPost_() terlebih dahulu.
 
@@ -883,17 +883,17 @@ function hadirSyncGuruApi_(token) {
     migrasi = hadirTarikGuruSediaAda_();
     guru = hadirBacaGuru_();
   }
-  if (!guru.length) throw new Error('Senarai guru HADIR masih kosong dan tiada guru dapat ditarik daripada AKSI/SEMAK.');
+  if (!guru.length) throw new Error('Senarai guru HADIR masih kosong dan tiada guru dapat ditarik daripada SEMAK/AKSI.');
   var hasil = hadirSyncGuruSemua_(guru);
   hasil.ditarik = migrasi ? migrasi.jumlah : 0;
-  hasil.sumberAwal = migrasi ? 'AKSI+SEMAK' : 'HADIR';
+  hasil.sumberAwal = migrasi ? migrasi.sumber : 'HADIR';
   hadirLog_('SYNC_GURU', 'admin', '', guru.length + ' rekod; sumber=' + hasil.sumberAwal + '; sync=' + hasil.ok);
   return hasil;
 }
 
 /**
- * Migrasi awal sahaja: jika HADIR_GURU masih kosong, gabungkan senarai guru
- * sedia ada AKSI dan SEMAK sebagai benih. Selepas itu aliran biasa merge-only.
+ * Migrasi awal sahaja: SEMAK ialah sumber senarai guru yang disahkan pengguna.
+ * AKSI digunakan sebagai sandaran hanya jika SEMAK gagal atau kosong.
  */
 function hadirTarikGuruSediaAda_() {
   var props = PropertiesService.getScriptProperties();
@@ -901,46 +901,48 @@ function hadirTarikGuruSediaAda_() {
   var id = props.getProperty('HADIR_AKSI_ID') || 'admin';
   var kata = props.getProperty('HADIR_AKSI_PASSWORD');
   var urlSemak = props.getProperty('HADIR_SEMAK_URL') || HADIR_SEMAK_URL_LALAI;
-  var gabung = Object.create(null), bilAksi = 0, bilSemak = 0, ralat = [];
+  var rekod = [], dilihat = Object.create(null), ralatSemak = '';
   function tambah(item) {
     var nama = hadirNamaGuru_(typeof item === 'string' ? item : item && item.nama);
     var jawatan = hadirJawatanGuru_(typeof item === 'string' ? '' : item && item.jawatan);
-    if (!nama) return;
-    if (!gabung[nama]) gabung[nama] = { nama: nama, jawatan: jawatan };
-    else if (!gabung[nama].jawatan && jawatan) gabung[nama].jawatan = jawatan;
-  }
-  var tokenAksi = '';
-  try {
-    if (!kata) throw new Error('Kata laluan perkhidmatan AKSI belum ditetapkan.');
-    var masuk = hadirAksiRpc_(urlAksi, 'login', [id, kata], '');
-    if (!masuk || !masuk.berjaya || !masuk.token)
-      throw new Error((masuk && masuk.mesej) || 'Login AKSI gagal.');
-    tokenAksi = masuk.token;
-    var senaraiAksi = hadirAksiRpc_(urlAksi, 'getSenaraiGuru', [tokenAksi], tokenAksi);
-    (Array.isArray(senaraiAksi) ? senaraiAksi : []).forEach(function (g) { tambah(g); bilAksi++; });
-  } catch (eAksi) {
-    ralat.push('AKSI: ' + eAksi.message);
-  } finally {
-    if (tokenAksi) {
-      try { hadirAksiRpc_(urlAksi, 'logout', [tokenAksi], tokenAksi); } catch (abaikan) {}
-    }
+    if (!nama || dilihat[nama]) return;
+    dilihat[nama] = true;
+    rekod.push({ nama: nama, jawatan: jawatan });
   }
   try {
     var initSemak = hadirSemakRpc_(urlSemak, 'apiInit', []);
     var senaraiSemak = initSemak && Array.isArray(initSemak.guru) ? initSemak.guru : [];
-    senaraiSemak.forEach(function (g) { tambah(g); bilSemak++; });
+    senaraiSemak.forEach(tambah);
   } catch (eSemak) {
-    ralat.push('SEMAK: ' + eSemak.message);
+    ralatSemak = eSemak.message;
   }
-  var rekod = Object.keys(gabung).map(function (nama) { return gabung[nama]; });
-  if (!rekod.length) throw new Error('Tiada senarai guru dapat ditarik. ' + ralat.join(' · '));
+  var sumber = 'SEMAK';
+  if (!rekod.length) {
+    sumber = 'AKSI';
+    var tokenAksi = '';
+    try {
+      if (!kata) throw new Error('Kata laluan perkhidmatan AKSI belum ditetapkan.');
+      var masuk = hadirAksiRpc_(urlAksi, 'login', [id, kata], '');
+      if (!masuk || !masuk.berjaya || !masuk.token)
+        throw new Error((masuk && masuk.mesej) || 'Login AKSI gagal.');
+      tokenAksi = masuk.token;
+      var senaraiAksi = hadirAksiRpc_(urlAksi, 'getSenaraiGuru', [tokenAksi], tokenAksi);
+      (Array.isArray(senaraiAksi) ? senaraiAksi : []).forEach(tambah);
+    } finally {
+      if (tokenAksi) {
+        try { hadirAksiRpc_(urlAksi, 'logout', [tokenAksi], tokenAksi); } catch (abaikan) {}
+      }
+    }
+  }
+  if (!rekod.length) throw new Error('Tiada senarai guru dapat ditarik.' +
+    (ralatSemak ? ' SEMAK: ' + ralatSemak : ''));
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try { hadirGabungGuru_(rekod); }
   finally { lock.releaseLock(); }
   hadirLog_('MIGRASI_GURU_SISTEM', 'admin', '',
-    rekod.length + ' unik; AKSI=' + bilAksi + '; SEMAK=' + bilSemak);
-  return { ok: true, jumlah: rekod.length, aksi: bilAksi, semak: bilSemak };
+    rekod.length + ' rekod; sumber=' + sumber);
+  return { ok: true, jumlah: rekod.length, sumber: sumber };
 }
 
 function hadirSyncGuruSemua_(guru) {

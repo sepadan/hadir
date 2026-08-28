@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.6 · 28 Ogos 2026**
+**Versi 2.7 · 28 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -172,17 +172,17 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 - Tambah/upload guru dalam AKSI atau SEMAK turut dihantar kepada HADIR dan
   aplikasi ketiga secara gabung-sahaja. Kata laluan/tugasan tempatan tidak ikut
   penyelarasan.
-- Bagi pemasangan lama yang sudah mempunyai guru dalam AKSI/SEMAK tetapi tab
-  `HADIR_GURU` masih kosong, **Selaras** menarik kedua-dua senarai sekali dan
-  membina kesatuan nama sebagai benih. Senarai itu digabung di HADIR, kemudian
-  dihantar semula melalui API rasmi. Selepas benih wujud, aliran dua hala biasa
-  digunakan.
+- Bagi pemasangan lama, pengguna mengesahkan senarai SEMAK ialah yang paling
+  baharu. Jika `HADIR_GURU` kosong, **Selaras** mengambil SEMAK sebagai benih;
+  AKSI hanya menjadi sandaran apabila SEMAK gagal atau kosong. Senarai itu
+  digabung di HADIR dan dihantar melalui API rasmi. Selepas benih wujud, aliran
+  dua hala biasa digunakan.
 - Respons RPC SEMAK kadangkala menukar padding Base64 `=` kepada `\x3d`.
   Pembaca HADIR menormalkan kedua-dua bentuk sebelum menyemak sumber dan ID.
 
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.8.1`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.8.2`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -315,6 +315,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 28 Ogos 2026 | 1.8.2 | Tetapkan SEMAK sebagai sumber migrasi guru paling baharu seperti disahkan pengguna; AKSI hanya sandaran jika SEMAK gagal/kosong. Paparan menerangkan sumber ini dan cache PWA dinaikkan serentak | Penyelarasan kekal nama/jawatan sahaja; kata laluan, tugasan dan rekod sistem tidak dipadam |
 | 28 Ogos 2026 | 1.8.1 | Baiki migrasi awal guru: jika `HADIR_GURU` kosong, butang Selaras membina kesatuan senarai sedia ada daripada AKSI dan SEMAK, menggabung nama/jawatan di bawah `ScriptLock`, kemudian menyebarkannya melalui aliran rasmi. Kata laluan dan tetapan tempatan tidak disentuh | Ujian kontrak memastikan tarikan hanya berlaku ketika HADIR kosong, AKSI menggunakan token sesi sebenar, dan SEMAK hanya menghantar nama tanpa kata laluan |
 | 28 Ogos 2026 | 1.8.0 | Jadikan upload murid dan guru dua hala melalui relay HADIR berahsia. Upload pada HADIR, AKSI atau SEMAK menyelaraskan data asas ke aplikasi lain menggunakan API rasmi, penanda asal mencegah gelung, murid sumber luar digabung tanpa mengarkib kumpulan yang tiada, dan syarat domain setiap sistem kekal | Ujian kontrak, rahsia Script Properties, merge-only dan pencegahan gelung lulus; tiada nama, IC atau rahsia dimasukkan ke repo/log |
 | 28 Ogos 2026 | 1.7.0 | Tambah Tetapan Guru admin: senarai/carian, tambah seorang, upload CSV dan selaras semula. Backend menyimpan sumber `HADIR_GURU`, menggabung tanpa memadam, mengekalkan kata laluan/tempatan AKSI dan SEMAK, serta menulis secara pukal di bawah kunci. Pembaikan tambahan menerima padding Base64 Google `\x3d`. Apps Script Version 106 diterbitkan pada URL sama; AKSI Version 9 dan SEMAK Version 59 menerima kontrak import guru baharu. Aset dan cache PWA dinaikkan serentak | Ujian sintaks, parser CSV, kontrak merge-only, kunci dan penghala lulus. Produksi diuji dengan token/kata laluan palsu sahaja; penolakan berlaku sebelum tulisan, maka tiada data guru sebenar diubah |
