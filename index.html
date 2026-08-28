@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.8.2">
+  <link rel="manifest" href="manifest.webmanifest?v=1.9.0">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.8.2">
+  <link rel="stylesheet" href="styles.css?v=1.9.0">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -45,7 +45,7 @@
       <div class="side-foot">
         <span id="roleLabel" hidden>Mod guru</span>
         <div class="side-version-row">
-          <small id="sideVersion">HADIR v1.8.2</small>
+          <small id="sideVersion">HADIR v1.9.0</small>
           <button id="adminLoginMenu" class="side-admin-btn" type="button">🔐 Admin</button>
           <button id="adminLogoutMenu" class="side-admin-btn side-logout-btn" type="button" hidden>↪ Log Keluar</button>
         </div>
@@ -111,7 +111,7 @@
 
       <section id="teacherSettingsPane" class="pane" hidden>
         <div class="page-head teacher-head">
-          <div><span class="eyebrow">ADMIN</span><h2>Tetapan Guru</h2><p>Tambah atau import guru. Jika HADIR masih kosong, Selaras akan mengambil senarai guru yang disahkan daripada SEMAK; AKSI hanya sandaran.</p></div>
+          <div><span class="eyebrow">ADMIN</span><h2>Tetapan Guru</h2><p>Tambah, kemas kini atau nyahaktif guru. Perubahan data asas diselaraskan ke AKSI dan SEMAK; sejarah dan kata laluan kekal.</p></div>
           <div class="head-actions">
             <button id="uploadTeachersBtn" class="soft" type="button">↑ Upload CSV</button>
             <button id="addTeacherBtn" class="primary" type="button">+ Tambah Guru</button>
@@ -236,7 +236,13 @@
           <input id="teacherCsvFile" type="file" accept=".csv,text/csv,text/plain">
           <span>Pilih fail .csv</span>
         </label>
-        <div class="merge-note"><strong>Gabung sahaja</strong><span>Guru yang tiada dalam fail tidak dipadam; kata laluan sedia ada dan kemas kini dalam AKSI/SEMAK dikekalkan.</span></div>
+        <label>Kaedah kemas kini
+          <select id="teacherUploadMode">
+            <option value="merge">Gabung — tambah dan kemas kini sahaja</option>
+            <option value="sync">Sync penuh — nyahaktif guru yang tiada dalam fail</option>
+          </select>
+        </label>
+        <div class="merge-note"><strong>Rekod dilindungi</strong><span>Sync penuh hanya menyahaktifkan guru yang tiada. Kata laluan, tugasan, markah dan sejarah tidak dipadam.</span></div>
         <div id="teacherUploadSummary" class="upload-summary" hidden></div>
         <div id="teacherUploadStatus" class="status" aria-live="polite"></div>
       </div>
@@ -244,7 +250,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.8.2"></script>
-  <script src="app.js?v=1.8.2"></script>
+  <script src="config.js?v=1.9.0"></script>
+  <script src="app.js?v=1.9.0"></script>
 </body>
 </html>

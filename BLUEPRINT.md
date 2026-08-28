@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.7 · 28 Ogos 2026**
+**Versi 2.8 · 29 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -61,16 +61,22 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
    sistem KEHADIRAN sedia ada.
 9. Log `HADIR_LOG` hanya menyimpan masa, tindakan, peranan, kelas dan bilangan;
    tiada nama atau IC.
-10. Penyelarasan guru ialah `merge/upsert` sahaja. Guru yang tiada dalam CSV,
-    kata laluan dan kemas kini tempatan dalam AKSI/SEMAK tidak boleh dipadam
-    atau ditindih.
+10. Penyelarasan guru mempunyai dua mod: `merge` menambah/mengemas kini sahaja;
+    `sync` menjadikan muatan itu senarai aktif penuh. Guru yang tiada dalam
+    `sync` ditanda `TIDAK AKTIF`, bukan dipadam secara fizikal. Kata laluan,
+    tugasan dan sejarah sistem kekal.
 11. Hanya data induk murid dan guru diselaraskan. Kehadiran, markah, tugasan,
     kata laluan, keahlian dan rekod kokurikulum kekal milik sistem masing-masing.
-12. Upload dari AKSI atau SEMAK diterima oleh HADIR sebagai `merge` sahaja.
-    Pengarkiban/pembuangan murid aktif hanya boleh dibuat daripada HADIR kerana
-    AKSI/SEMAK mungkin sengaja tidak membawa PRA, PPKI atau kumpulan lain.
+12. Upload murid dari AKSI atau SEMAK diterima oleh HADIR sebagai `merge`
+    sahaja. Bagi guru, simpan/tambah menggunakan `merge` manakala operasi
+    padam/nyahaktif menghantar snapshot aktif `sync`. Pengarkiban murid aktif
+    hanya boleh dibuat daripada HADIR kerana AKSI/SEMAK mungkin sengaja tidak
+    membawa PRA, PPKI atau kumpulan lain.
 13. Setiap penghantaran membawa penanda asal `HADIR`/`AKSI`/`SEMAK`; penerima
     tidak menghantar semula ke asal. Ini mencegah gelung penyelarasan.
+14. HADIR ialah penyelaras pusat. Operasi guru dipegang oleh satu `ScriptLock`
+    sehingga kemas kini tempatan dan penghantaran ke aplikasi lain selesai;
+    operasi yang selesai paling akhir menjadi keadaan aktif yang terkini.
 
 ## 4. Keselamatan
 
@@ -100,7 +106,7 @@ Semua permintaan POST berbentuk:
 Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `bukaKehadiranTarikh`,
 `simpanKehadiran`, `senaraiMurid`,
 `simpanMurid`, `simpanTetapanMurid`, `uploadMuridCsv`, `syncSemua`,
-`senaraiGuru`, `simpanGuru`, `uploadGuruCsv`, `syncGuru`, `terimaSyncMurid`,
+`senaraiGuru`, `simpanGuru`, `nyahaktifGuru`, `uploadGuruCsv`, `syncGuru`, `terimaSyncMurid`,
 `terimaSyncGuru`.
 
 `semakKehadiran(tarikhIso)` ialah bacaan awam bagi tahun semasa. Tarikh mesti
@@ -156,21 +162,26 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ### 6.1 Penyelarasan guru
 
-- Tab `HADIR_GURU` menyimpan `NAMA GURU`, `JAWATAN` dan masa kemas kini.
+- Tab `HADIR_GURU` menyimpan `NAMA GURU`, `JAWATAN`, masa kemas kini dan
+  `STATUS` (`AKTIF`/`TIDAK AKTIF`). Skema lama dinaik taraf tanpa membuang baris.
 - Tetapan Guru hanya untuk admin. Admin boleh menambah seorang guru, mencari
   senarai, mengimport CSV atau menjalankan penyelarasan semula.
 - CSV menerima `NAMA GURU`/`NAMA`; `JAWATAN` adalah pilihan, maksimum 1,000
   rekod dan 4 MB. Nama pendua dalam fail diproses sekali.
-- Import sentiasa gabung-sahaja. Nama yang tiada dalam fail tidak dipadam;
-  jawatan kosong tidak menindih jawatan sedia ada.
-- AKSI menerima objek `{nama,jawatan}` melalui `importGuru`, kemudian
-  `pastikanAkaunGuru` mencipta akaun yang belum ada tanpa mengubah kata laluan
-  akaun lama.
-- SEMAK menerima `apiImportGuru`, menambah nama yang belum ada dengan kata
-  laluan lalai SEMAK serta mengekalkan semua guru dan kata laluan sedia ada.
+- Import menawarkan `merge` dan `sync`. `merge` tidak menyentuh guru yang tiada;
+  `sync` menyahaktifkan guru yang tiada selepas pratonton dan pengesahan admin.
+  Nyahaktif bukan padam fizikal, dan guru boleh diaktifkan semula oleh import
+  atau tambah berikutnya. Jawatan kosong tidak menindih jawatan sedia ada.
+- AKSI menerima objek `{nama,jawatan}` melalui `importGuru`. Mod `sync`
+  menyamakan status aktif pada tab `GURU`; akaun, kata laluan, tugasan dan
+  sejarah kokurikulum lama dikekalkan.
+- SEMAK menerima `apiImportGuru`, menyimpan status dalam tab `GURU`, menambah
+  nama baharu dengan kata laluan lalai serta mengekalkan kata laluan, tugasan,
+  markah dan sejarah guru yang dinyahaktifkan.
 - Setiap aplikasi masih mengekalkan kawalan kemas kini gurunya sendiri.
 - Tambah/upload guru dalam AKSI atau SEMAK turut dihantar kepada HADIR dan
-  aplikasi ketiga secara gabung-sahaja. Kata laluan/tugasan tempatan tidak ikut
+  aplikasi ketiga. Tambah/edit menggunakan `merge`; nyahaktif atau sync penuh
+  menggunakan snapshot aktif `sync`. Kata laluan/tugasan tempatan tidak ikut
   penyelarasan.
 - Bagi pemasangan lama, pengguna mengesahkan senarai SEMAK ialah yang paling
   baharu. Jika `HADIR_GURU` kosong, **Selaras** mengambil SEMAK sebagai benih;
@@ -182,7 +193,7 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.8.2`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.9.0`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -276,8 +287,9 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
   hadir/jumlah sebagai agregat, contohnya `27/30`; status RMT individu tidak
   dihantar ke paparan guru.
 - [x] Admin mempunyai Tetapan Murid mengikut kelas untuk RMT dan jawatan.
-- [x] Admin mempunyai Tetapan Guru untuk tambah seorang, upload CSV, carian dan
-  sync gabung-sahaja ke AKSI/SEMAK tanpa memadam kata laluan sedia ada.
+- [x] Admin mempunyai Tetapan Guru untuk tambah, nyahaktif, carian dan upload
+  CSV mod gabung/sync penuh dengan pratonton; AKSI/SEMAK disamakan tanpa
+  memadam kata laluan, tugasan atau sejarah.
 - [x] Data Murid menggunakan kad nama boleh tekan, paparan awal baca sahaja,
   kelas `1 Bijak`, serta tahun dan jantina yang dilengkapkan daripada data sedia ada.
 - [x] Log keluar admin dipindahkan ke kaki menu di sebelah versi HADIR.
@@ -315,6 +327,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 29 Ogos 2026 | 1.9.0 | Penyelarasan guru autoritatif dari mana-mana sistem: tambah/edit `merge`, nyahaktif/sync penuh menghantar snapshot aktif, status disimpan tanpa padam fizikal, dan satu kunci pusat HADIR menyusun operasi bertindih. CSV HADIR mempunyai pratonton serta pengesahan sebelum menyahaktifkan nama yang tiada. Apps Script Version 110 diterbitkan pada URL sama; AKSI v1.5.0 Version 11 dan SEMAK v1.2.0 Version 61 menerima kontrak yang sama | Kata laluan, tugasan, markah, kokurikulum dan sejarah tidak dipindah atau dipadam. Pengesahan teknikal tidak menambah/menyahaktif guru produksi |
 | 28 Ogos 2026 | 1.8.2 | Tetapkan SEMAK sebagai sumber migrasi guru paling baharu seperti disahkan pengguna; AKSI hanya sandaran jika SEMAK gagal/kosong. Paparan menerangkan sumber ini dan cache PWA dinaikkan serentak | Penyelarasan kekal nama/jawatan sahaja; kata laluan, tugasan dan rekod sistem tidak dipadam |
 | 28 Ogos 2026 | 1.8.1 | Baiki migrasi awal guru: jika `HADIR_GURU` kosong, butang Selaras membina kesatuan senarai sedia ada daripada AKSI dan SEMAK, menggabung nama/jawatan di bawah `ScriptLock`, kemudian menyebarkannya melalui aliran rasmi. Kata laluan dan tetapan tempatan tidak disentuh | Ujian kontrak memastikan tarikan hanya berlaku ketika HADIR kosong, AKSI menggunakan token sesi sebenar, dan SEMAK hanya menghantar nama tanpa kata laluan |
 | 28 Ogos 2026 | 1.8.0 | Jadikan upload murid dan guru dua hala melalui relay HADIR berahsia. Upload pada HADIR, AKSI atau SEMAK menyelaraskan data asas ke aplikasi lain menggunakan API rasmi, penanda asal mencegah gelung, murid sumber luar digabung tanpa mengarkib kumpulan yang tiada, dan syarat domain setiap sistem kekal | Ujian kontrak, rahsia Script Properties, merge-only dan pencegahan gelung lulus; tiada nama, IC atau rahsia dimasukkan ke repo/log |

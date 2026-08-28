@@ -371,6 +371,8 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .settings-item { grid-template-columns: minmax(0, 1fr) auto; }
 .settings-badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; max-width: 230px; }
 .mini-tag { padding: 4px 7px; border-radius: 999px; background: #edf3f7; color: #40536b; font-size: .67rem; font-weight: 850; }
+.teacher-actions { display: flex; align-items: center; gap: 8px; }
+.admin-item .teacher-archive { background: #fff0f1; color: #b52b42; }
 .rmt-tag { background: #e5f7ef; color: #087851; }
 .teacher-tag { background: #e7f4fb; color: #087bbd; }
 .teacher-form { display: grid; gap: 12px; padding-top: 18px; }

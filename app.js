@@ -745,12 +745,30 @@
       copy.appendChild(el('strong', '', g.nama));
       copy.appendChild(el('small', '', g.jawatan || 'Jawatan belum ditetapkan'));
       row.appendChild(copy);
-      row.appendChild(el('span', 'mini-tag teacher-tag', 'Guru'));
+      var tindakan = el('span', 'teacher-actions');
+      tindakan.appendChild(el('span', 'mini-tag teacher-tag', 'Aktif'));
+      var buang = el('button', 'teacher-archive', 'Nyahaktif');
+      buang.type = 'button';
+      buang.addEventListener('click', function () { nyahaktifGuru(g.nama); });
+      tindakan.appendChild(buang);
+      row.appendChild(tindakan);
       box.appendChild(row);
     });
     if (!senarai.length) {
       box.appendChild(el('div', 'empty-review', q ? 'Tiada guru sepadan dengan carian.' : 'Senarai guru masih kosong.'));
     }
+  }
+
+  function nyahaktifGuru(nama) {
+    if (!window.confirm('Nyahaktifkan ' + nama + ' dalam HADIR, AKSI dan SEMAK?\n\nKata laluan, tugasan dan sejarah lama akan dikekalkan.')) return;
+    status($('teacherSettingsStatus'), 'Menyahaktif dan menyelaraskan semua aplikasi…', '');
+    panggil('nyahaktifGuru', [nama, state.token], 120000).then(function (r) {
+      status($('teacherSettingsStatus'), r.mesej, r.syncOk === false ? 'err' : 'ok');
+      return panggil('senaraiGuru', [state.token]);
+    }).then(function (senarai) {
+      state.guru = Array.isArray(senarai) ? senarai : [];
+      lukisGuruAdmin();
+    }).catch(function (err) { status($('teacherSettingsStatus'), err.message, 'err'); });
   }
 
   function bukaDialogGuru() {
@@ -816,6 +834,7 @@
     state.guruUploadRecords = [];
     state.guruUploadFileName = '';
     $('teacherCsvFile').value = '';
+    $('teacherUploadMode').value = 'merge';
     $('teacherUploadSummary').hidden = true;
     $('teacherUploadSummary').textContent = '';
     $('confirmTeacherUploadBtn').disabled = true;
@@ -841,7 +860,13 @@
       $('teacherUploadSummary').textContent = fail.name + ' · ' + rekod.length + ' rekod guru sah';
       $('teacherUploadSummary').hidden = false;
       $('confirmTeacherUploadBtn').disabled = false;
-      status($('teacherUploadStatus'), 'Fail sedia. Import ini tidak memadam rekod sedia ada.', 'ok');
+      var mod = $('teacherUploadMode').value;
+      var aktif = Object.create(null);
+      rekod.forEach(function (g) { aktif[norm(g.nama)] = true; });
+      var bakalNyahaktif = state.guru.filter(function (g) { return !aktif[norm(g.nama)]; }).length;
+      status($('teacherUploadStatus'), mod === 'sync' ?
+        'Pratonton sync penuh: ' + bakalNyahaktif + ' guru semasa akan dinyahaktifkan jika tiada dalam fail.' :
+        'Pratonton gabung: tiada guru semasa akan dinyahaktifkan.', 'ok');
     }).catch(function (err) {
       status($('teacherUploadStatus'), err.message || 'Fail CSV tidak dapat dibaca.', 'err');
     });
@@ -850,9 +875,16 @@
   function uploadGuruCsv(e) {
     e.preventDefault();
     if (!state.guruUploadRecords.length) return;
+    var mod = $('teacherUploadMode').value === 'sync' ? 'sync' : 'merge';
+    if (mod === 'sync') {
+      var aktif = Object.create(null);
+      state.guruUploadRecords.forEach(function (g) { aktif[norm(g.nama)] = true; });
+      var bakalNyahaktif = state.guru.filter(function (g) { return !aktif[norm(g.nama)]; }).length;
+      if (!window.confirm('Sync penuh akan menyahaktifkan ' + bakalNyahaktif + ' guru yang tiada dalam fail.\n\nSejarah, tugasan dan kata laluan kekal. Teruskan?')) return;
+    }
     var siap = mulaButang($('confirmTeacherUploadBtn'), 'Mengimport…');
     status($('teacherUploadStatus'), 'Menggabungkan senarai dan menyelaraskan AKSI serta SEMAK…', '');
-    panggil('uploadGuruCsv', [{ records: state.guruUploadRecords }, state.token], 150000).then(function (r) {
+    panggil('uploadGuruCsv', [{ records: state.guruUploadRecords, mode: mod }, state.token], 150000).then(function (r) {
       status($('teacherUploadStatus'), r.mesej || 'Senarai guru berjaya diimport.', r.syncOk === false ? 'err' : 'ok');
       return panggil('senaraiGuru', [state.token]);
     }).then(function (senarai) {
@@ -1182,7 +1214,7 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.8.2';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.9.0';
   sambungan();
   daftarPwa();
   muatAwal();

@@ -38,16 +38,20 @@ menyimpan sesi, nama murid, IC atau jawapan API.
 
 ## Tetapan Guru
 
-Apps Script Version **107** mengekalkan API admin `senaraiGuru`, `simpanGuru`,
-`uploadGuruCsv` dan `syncGuru`. Sumber setempat ialah tab `HADIR_GURU`.
+Apps Script Version **110** mengekalkan API admin `senaraiGuru`, `simpanGuru`,
+`nyahaktifGuru`, `uploadGuruCsv` dan `syncGuru`. Sumber setempat ialah tab
+`HADIR_GURU` dengan lajur status.
 Penyelarasan menggunakan `importGuru` + `pastikanAkaunGuru` dalam AKSI dan
-`apiImportGuru` dalam SEMAK. Semua import ialah gabung-sahaja: guru yang tiada
-dalam fail serta kata laluan sedia ada tidak dipadam atau ditindih.
+`apiImportGuru` dalam SEMAK. Import `merge` menambah/mengemas kini sahaja;
+`sync` menyamakan senarai aktif dan menanda nama yang tiada sebagai tidak aktif.
+Baris, kata laluan, tugasan dan sejarah tidak dipadam atau ditindih.
 
 ## Relay tiga sistem
 
 `terimaSyncMurid` dan `terimaSyncGuru` menerima data daripada AKSI/SEMAK hanya
 selepas `SEPADAN_SYNC_SECRET` disahkan. Data murid luar sentiasa `merge` dan
-data guru sentiasa gabung-sahaja. Penanda asal menghalang gelung. API rasmi
+data guru membawa mod `merge` atau `sync`. Penanda asal menghalang gelung dan
+`ScriptLock` HADIR menyusun operasi supaya operasi selesai terakhir menjadi
+keadaan terkini. API rasmi
 setiap sasaran masih menentukan kelas layak, cache, calon dan medan tempatan;
 markah, kehadiran, kokurikulum, tugasan serta kata laluan tidak diselaraskan.

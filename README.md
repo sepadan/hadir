@@ -10,12 +10,16 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Log masuk admin berada di sebelah nombor versi dalam menu sisi.
 - Admin boleh mengemas kini senarai murid secara kelompok menggunakan CSV idME
   atau terus mengedit satu rekod murid seperti biasa.
-- Admin boleh menambah atau upload CSV guru melalui **Tetapan Guru**. Rekod
-  digabungkan ke AKSI dan SEMAK tanpa memadam guru, kata laluan atau kemas kini
-  sedia ada; kawalan guru dalam kedua-dua sistem itu kekal boleh digunakan.
+- Admin boleh menambah, nyahaktif atau upload CSV guru melalui **Tetapan Guru**.
+  Mod **Gabung** tidak menyentuh nama yang tiada; mod **Sync penuh** menjadikan
+  fail sebagai senarai aktif dan menyahaktifkan nama yang tiada selepas
+  pratonton/pengesahan. Rekod tidak dipadam secara fizikal, jadi kata laluan,
+  tugasan dan sejarah kekal.
   Jika sumber `HADIR_GURU` masih kosong, butang penyelarasan mengambil senarai
   guru paling baharu daripada SEMAK; AKSI digunakan sebagai sandaran sahaja.
 - Upload murid atau guru di HADIR, AKSI atau SEMAK disalurkan ke sistem lain.
+  Bagi guru, tambah/edit menggunakan gabung manakala nyahaktif/sync penuh
+  menyamakan senarai aktif pada ketiga-tiga sistem.
   Hanya data asas dikongsi; markah, kehadiran, kokurikulum, tugasan dan kata
   laluan kekal mengikut peraturan aplikasi masing-masing.
 - Pada desktop, menu sisi kekal terbuka seperti AKSI; pada telefon menu boleh
