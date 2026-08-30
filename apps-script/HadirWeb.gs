@@ -4,6 +4,8 @@
 
 var HADIR_SESI_JAM = 8;
 var HADIR_CACHE_INIT_SAAT = 60;
+var HADIR_LOGIN_MAKS_CUBAAN = 5;
+var HADIR_LOGIN_SEKAT_SAAT = 15 * 60;
 var HADIR_AKSI_URL_LALAI = 'https://script.google.com/macros/s/AKfycby0Td2p3zoAdBWXYbbKTqmVS4Xa8R42k0suzeDFTIjgwg-hVxIzYqNkEyTE75E_bukfLA/exec';
 var HADIR_SEMAK_URL_LALAI = 'https://script.google.com/macros/s/AKfycbx306dN8vd3HR3Mu4xdum8MpG0PkbbwbKgsu88jx-nMG2LnEWszU350S2ez8TU_kX_H/exec';
 
@@ -51,19 +53,67 @@ function hadirHash_(nilai) {
     .map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('');
 }
 
+function hadirLoginKunci_() { return 'HADIR_LOGIN_GAGAL_ADMIN'; }
+function hadirLoginStatus_(props) {
+  var mentah = props.getProperty(hadirLoginKunci_());
+  if (!mentah) return { gagal: 0, sekatHingga: 0 };
+  try {
+    var status = JSON.parse(mentah);
+    return {
+      gagal: Number(status.gagal) || 0,
+      sekatHingga: Number(status.sekatHingga) || 0
+    };
+  } catch (e) {
+    // Keserasian defensif jika nilai lama berupa nombor tunggal.
+    return { gagal: Number(mentah) || 0, sekatHingga: 0 };
+  }
+}
+function hadirLoginDisekat_(status, sekarang) {
+  return status.sekatHingga > sekarang;
+}
+function hadirCatatLoginGagal_(props, status, sekarang) {
+  if (status.sekatHingga && status.sekatHingga <= sekarang) {
+    status = { gagal: 0, sekatHingga: 0 };
+  }
+  status.gagal = (Number(status.gagal) || 0) + 1;
+  status.sekatHingga = status.gagal >= HADIR_LOGIN_MAKS_CUBAAN
+    ? sekarang + HADIR_LOGIN_SEKAT_SAAT * 1000 : 0;
+  props.setProperty(hadirLoginKunci_(), JSON.stringify(status));
+  return status.gagal;
+}
+function hadirKosongkanLoginGagal_(props) {
+  props.deleteProperty(hadirLoginKunci_());
+}
+
 function hadirLogin_(peranan, pin) {
   if (peranan !== 'admin') throw new Error('Log masuk hanya diperlukan untuk admin.');
-  var props = PropertiesService.getScriptProperties();
-  var kunci = 'HADIR_ADMIN_PIN_HASH';
-  var betul = props.getProperty(kunci);
-  if (!betul) throw new Error('PIN admin belum ditetapkan oleh pentadbir.');
-  if (hadirHash_(pin) !== betul) throw new Error('PIN tidak betul.');
-  var token = Utilities.getUuid() + Utilities.getUuid();
-  props.setProperty('HADIR_SESI_' + token, JSON.stringify({
-    peranan: peranan, luput: Date.now() + HADIR_SESI_JAM * 3600000
-  }));
-  hadirLog_('LOGIN', peranan, '', 'berjaya');
-  return { token: token, peranan: peranan };
+  var lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var sekarang = Date.now();
+    var status = hadirLoginStatus_(props);
+    if (hadirLoginDisekat_(status, sekarang))
+      throw new Error('Terlalu banyak cubaan gagal. Cuba lagi dalam 15 minit.');
+    var kunci = 'HADIR_ADMIN_PIN_HASH';
+    var betul = props.getProperty(kunci);
+    if (!betul) throw new Error('PIN admin belum ditetapkan oleh pentadbir.');
+    if (hadirHash_(pin) !== betul) {
+      var cubaan = hadirCatatLoginGagal_(props, status, sekarang);
+      if (cubaan >= HADIR_LOGIN_MAKS_CUBAAN)
+        throw new Error('Terlalu banyak cubaan gagal. Cuba lagi dalam 15 minit.');
+      throw new Error('PIN tidak betul.');
+    }
+    hadirKosongkanLoginGagal_(props);
+    var token = Utilities.getUuid() + Utilities.getUuid();
+    props.setProperty('HADIR_SESI_' + token, JSON.stringify({
+      peranan: peranan, luput: sekarang + HADIR_SESI_JAM * 3600000
+    }));
+    hadirLog_('LOGIN', peranan, '', 'berjaya');
+    return { token: token, peranan: peranan };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function hadirSesi_(token, wajibAdmin) {

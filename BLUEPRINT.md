@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.8 · 29 Ogos 2026**
+**Versi 2.9 · 30 Ogos 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -327,6 +327,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 30 Ogos 2026 | audit repo | Login admin kini dihadkan kepada lima cubaan PIN gagal dan disekat 15 minit. `ScriptProperties` ialah sumber benar yang tahan pelucutan cache; semak, tambah, sekat, reset dan cipta sesi dilaksanakan sebagai satu peralihan atomik di bawah `ScriptLock`. Suite HADIR menjalankan simulasi tingkah laku lima kegagalan, penolakan ketika sekatan dan pemulihan selepas luput | Tiada PIN/token/data sekolah sebenar dibaca atau diubah; Apps Script produksi kekal Version 110 sehingga perubahan diterbitkan |
 | 29 Ogos 2026 | 1.9.0 | Penyelarasan guru autoritatif dari mana-mana sistem: tambah/edit `merge`, nyahaktif/sync penuh menghantar snapshot aktif, status disimpan tanpa padam fizikal, dan satu kunci pusat HADIR menyusun operasi bertindih. CSV HADIR mempunyai pratonton serta pengesahan sebelum menyahaktifkan nama yang tiada. Apps Script Version 110 diterbitkan pada URL sama; AKSI v1.5.0 Version 11 dan SEMAK v1.2.0 Version 61 menerima kontrak yang sama | Kata laluan, tugasan, markah, kokurikulum dan sejarah tidak dipindah atau dipadam. Pengesahan teknikal tidak menambah/menyahaktif guru produksi |
 | 28 Ogos 2026 | 1.8.2 | Tetapkan SEMAK sebagai sumber migrasi guru paling baharu seperti disahkan pengguna; AKSI hanya sandaran jika SEMAK gagal/kosong. Paparan menerangkan sumber ini dan cache PWA dinaikkan serentak | Penyelarasan kekal nama/jawatan sahaja; kata laluan, tugasan dan rekod sistem tidak dipadam |
 | 28 Ogos 2026 | 1.8.1 | Baiki migrasi awal guru: jika `HADIR_GURU` kosong, butang Selaras membina kesatuan senarai sedia ada daripada AKSI dan SEMAK, menggabung nama/jawatan di bawah `ScriptLock`, kemudian menyebarkannya melalui aliran rasmi. Kata laluan dan tetapan tempatan tidak disentuh | Ujian kontrak memastikan tarikan hanya berlaku ketika HADIR kosong, AKSI menggunakan token sesi sebenar, dan SEMAK hanya menghantar nama tanpa kata laluan |

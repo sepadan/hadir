@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const root = path.resolve(__dirname, '..');
 function baca(n) { return fs.readFileSync(path.join(root, n), 'utf8').replace(/\r\n/g, '\n'); }
 function sah(syarat, mesej) { if (!syarat) throw new Error(mesej); }
@@ -20,6 +21,21 @@ sah((sw.match(/'\.\//g) || []).length >= 10, 'Senarai aset PWA terlalu pendek');
 
 const backend = baca('apps-script/HadirWeb.gs');
 sah(backend.includes('hadirAdakahPermintaan_'), 'Penghala HADIR tiada');
+sah(backend.includes('HADIR_LOGIN_MAKS_CUBAAN') && backend.includes('HADIR_LOGIN_SEKAT_SAAT'),
+  'Login admin mesti mempunyai had cubaan dan tempoh sekatan');
+const blokLogin = backend.match(/function hadirLogin_\([\s\S]*?(?=\nfunction |$)/)[0];
+sah(blokLogin.includes('LockService.getScriptLock()') &&
+    /finally[\s\S]*releaseLock\(\)/.test(blokLogin),
+  'Keseluruhan peralihan login mesti atomik di bawah ScriptLock');
+sah(blokLogin.includes('hadirLoginDisekat_(status, sekarang)'),
+  'Login admin mesti menolak cubaan ketika sekatan aktif');
+sah(blokLogin.includes('hadirCatatLoginGagal_(props, status, sekarang)'),
+  'PIN admin salah mesti direkod untuk had cubaan');
+sah(blokLogin.includes('hadirKosongkanLoginGagal_(props)'),
+  'Login berjaya mesti mengosongkan kiraan gagal');
+sah(backend.includes("getProperty(hadirLoginKunci_())") &&
+    backend.includes("setProperty(hadirLoginKunci_()"),
+  'Status sekatan login mesti menggunakan Script Properties sebagai sumber benar');
 sah(backend.includes('CacheService.getScriptCache()') && backend.includes('HADIR_CACHE_INIT_SAAT = 60'), 'Cache pelayan init pantas tiada');
 sah(backend.includes('hadirPadamCacheInit_();'), 'Cache init tidak dibuang selepas perubahan data');
 const fungsiInit = backend.match(/function hadirInit_\(token\) \{([\s\S]*?)\n\}/);
@@ -190,6 +206,52 @@ sah(cfg.includes("versi: 'HADIR v1.9.0'"), 'Versi paparan bukan v1.9.0');
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
 sah(html.includes('styles.css?v=1.9.0') && html.includes('app.js?v=1.9.0') && html.includes('config.js?v=1.9.0'), 'Versi aset HTML tidak seragam');
 sah(sw.includes("hadir-shell-v1.9.0-20260828-5") && sw.includes('app.js?v=1.9.0'), 'Cache PWA belum dinaikkan bersama aset');
+
+// Ujian tingkah laku sebenar bagi had cubaan dan luput sekatan.
+let sekarang = 1_000_000;
+let kunciDipegang = false;
+let nomborUuid = 0;
+const stor = new Map([['HADIR_ADMIN_PIN_HASH', 'betul']]);
+const propsMock = {
+  getProperty(k) { return stor.has(k) ? stor.get(k) : null; },
+  setProperty(k, v) { stor.set(k, String(v)); },
+  deleteProperty(k) { stor.delete(k); }
+};
+const konteks = {
+  Date: { now: () => sekarang },
+  console,
+  PropertiesService: { getScriptProperties: () => propsMock },
+  LockService: { getScriptLock: () => ({
+    waitLock() { sah(!kunciDipegang, 'Kunci login tidak boleh diambil bersarang'); kunciDipegang = true; },
+    releaseLock() { sah(kunciDipegang, 'Kunci login dilepaskan tanpa dipegang'); kunciDipegang = false; }
+  }) },
+  Utilities: {
+    DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' },
+    computeDigest: () => [], getUuid: () => `uuid-${++nomborUuid}`
+  }
+};
+vm.createContext(konteks);
+vm.runInContext(backend, konteks);
+konteks.hadirHash_ = nilai => String(nilai || '');
+konteks.hadirLog_ = () => {};
+for (let i = 1; i <= 4; i++) {
+  try { konteks.hadirLogin_('admin', 'salah'); throw new Error('PIN salah diterima'); }
+  catch (e) { sah(/PIN tidak betul/.test(e.message), `Cubaan gagal ${i} salah: ${e.message}`); }
+  sah(!kunciDipegang, 'Kunci mesti dilepas selepas PIN salah');
+}
+try { konteks.hadirLogin_('admin', 'salah'); throw new Error('Cubaan kelima diterima'); }
+catch (e) { sah(/Terlalu banyak/.test(e.message), `Cubaan kelima mesti menyekat: ${e.message}`); }
+const statusSekat = JSON.parse(stor.get('HADIR_LOGIN_GAGAL_ADMIN'));
+sah(statusSekat.gagal === 5 && statusSekat.sekatHingga === sekarang + 900000,
+  'Cubaan kelima mesti menyimpan kiraan dan cap masa sekatan');
+try { konteks.hadirLogin_('admin', 'betul'); throw new Error('Login ketika sekatan diterima'); }
+catch (e) { sah(/Terlalu banyak/.test(e.message), 'PIN betul mesti ditolak ketika sekatan aktif'); }
+sekarang += 900001;
+const loginPulih = konteks.hadirLogin_('admin', 'betul');
+sah(loginPulih.peranan === 'admin' && loginPulih.token,
+  'Login mesti pulih selepas tempoh sekatan tamat');
+sah(!stor.has('HADIR_LOGIN_GAGAL_ADMIN'), 'Login berjaya mesti mengosongkan status gagal');
+sah(!kunciDipegang, 'Kunci mesti dilepas selepas login berjaya');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
