@@ -49,7 +49,7 @@ sah(backend.includes('uploadMuridCsv: hadirUploadMuridCsv_'), 'API upload CSV mu
 sah(backend.includes('semakKehadiran: hadirSemakKehadiran_'), 'API semakan tarikh terdahulu tiada');
 sah(backend.includes('bukaKehadiranTarikh: hadirBukaKehadiranTarikh_'), 'API buka pengisian tarikh lama tiada');
 sah(backend.includes('function hadirSahkanTarikhIso_'), 'Pengesahan tarikh bersama tiada');
-sah(backend.includes('function hadirSimpanKehadiran_(kelas, senaraiTiada, token, tarikhIso)'), 'Simpanan tarikh dipilih tiada');
+sah(backend.includes('function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso)'), 'Simpanan tarikh dipilih tiada');
 sah(backend.includes('muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)'), 'Simpanan tarikh lama tidak menghormati tempoh murid aktif');
 sah(backend.includes("kunci: hadirKunciMurid_(ic, pilihan.tkh)"), 'Kunci murid tarikh lama mesti legap dan khusus tarikh');
 sah(backend.includes("throw new Error('Semakan hanya tersedia bagi tahun semasa.')"), 'Semakan tarikh mesti dihadkan kepada tahun semasa');
@@ -201,11 +201,102 @@ const guruCsv = konteksGuruCsv.rekodGuruDaripadaCsv(
 sah(guruCsv.length === 2 && guruCsv[0].nama === 'Cikgu A' && guruCsv[1].jawatan === '',
   'CSV guru mesti menyokong titik koma, jawatan pilihan dan membuang nama pendua');
 
+// Ciri MOEIS: Kategori + Sebab tidak hadir dan giliran "Hantar ke MOEIS".
+sah(backend.includes('moeisSenaraiKelas: hadirMoeisSenaraiKelas_') &&
+    backend.includes('moeisJobBuat: hadirMoeisJobBuat_') &&
+    backend.includes('moeisJobSenarai: hadirMoeisJobSenarai_') &&
+    backend.includes('moeisJobSelesai: hadirMoeisJobSelesai_') &&
+    backend.includes('moeisSimpanSebab: hadirMoeisSimpanSebab_'),
+  'API Hantar ke MOEIS tiada');
+sah(backend.includes("getSheetByName('HADIR_MOEIS_SEBAB')") && backend.includes("getSheetByName('HADIR_MOEIS_JOB')"),
+  'Sumber data MOEIS (sebab dan giliran tugasan) tiada');
+sah(backend.includes('hadirGantiMoeisSebabKelas_(pilihan.iso, kelas, sebabUntukSimpan)'),
+  'Simpanan kehadiran mesti menyimpan kategori/sebab bersama rekod kehadiran');
+sah(backend.includes('HADIR_MOEIS_ENGINE_SECRET') && backend.includes('function hadirSahRahsiaMoeis_'),
+  'Rahsia enjin MOEIS untuk moeis_job_senarai/moeis_job_selesai tiada');
+sah(!/HADIR_MOEIS_ENGINE_SECRET\s*=\s*['"]/.test(backend), 'Rahsia enjin MOEIS tidak boleh dihardcode');
+sah(backend.includes("if (tarikhIso !== hariIniIso) throw new Error('Penghantaran MOEIS hanya tersedia bagi kehadiran hari ini.')"),
+  'Penciptaan tugasan MOEIS mesti dihadkan kepada hari ini');
+const badanJobBuat = backend.match(/function hadirMoeisJobBuat_[\s\S]*?(?=\nfunction |$)/)[0];
+sah(!/UrlFetchApp|hadirAksiRpc_|hadirSemakRpc_/.test(badanJobBuat),
+  'HADIR tidak boleh menghubungi MOEIS secara langsung daripada job_buat; ia hanya mencipta tugasan');
+
+sah(html.includes('id="moeisPane"') && html.includes('id="moeisList"'), 'Skrin Hantar ke MOEIS tiada');
+sah(html.includes('data-pane="moeisPane"'), 'Menu Hantar ke MOEIS tiada dalam sisi admin');
+sah(html.includes('id="sebabDialog"') && html.includes('id="sebabKategori"') && html.includes('id="sebabSebab"'),
+  'Dialog Kategori/Sebab tiada');
+sah(html.includes('id="sebabHadirBtn"'), 'Pilihan Tandakan Hadir dalam dialog sebab tiada');
+
+sah(app.includes('var MOEIS_SEBAB = {'), 'Senarai Kategori/Sebab MOEIS tiada pada frontend');
+sah(app.includes("bukaDialogSebab({ kunci: kunci, nama: m.nama }, 'tanda');"),
+  'Menandakan tidak hadir mesti membuka dialog Kategori/Sebab');
+sah(app.includes('function simpanSebabDialog'), 'Pengesahan dialog sebab tiada');
+sah(app.includes("panggil('simpanKehadiran', [state.kelas.nama, senaraiSebab, state.token || '', tarikhSimpan]"),
+  'Simpanan kehadiran mesti menghantar kategori/sebab, bukan sekadar senarai kunci');
+sah(app.includes('senaraiSebab.some(function (s) { return !s.kategori || !s.sebab; })'),
+  'Simpanan mesti disekat di sisi pelanggan jika kategori/sebab belum lengkap');
+sah(app.includes("panggil('moeisSenaraiKelas'") && app.includes("panggil('moeisJobBuat'") && app.includes("panggil('moeisSimpanSebab'"),
+  'Frontend skrin Hantar ke MOEIS tidak lengkap');
+sah(app.includes('hantarBtn.disabled = !lengkap'), 'Butang Hantar mesti disekat apabila kategori/sebab belum lengkap');
+
+function fungsiBackend(nama) {
+  const re = new RegExp('function ' + nama + '\\([^)]*\\)\\s*\\{[\\s\\S]*?(?=\\nfunction |$)');
+  const padan = backend.match(re);
+  sah(padan, `Fungsi ${nama} tidak boleh diuji`);
+  return padan[0];
+}
+const konteksMoeis = {};
+const sumberMoeis = [
+  'hadirMoeisSebabData_', 'hadirMoeisSebabSah_', 'hadirMoeisBelumLengkap_',
+  'hadirMoeisBolehCiptaJob_', 'hadirMoeisSahkanLengkap_'
+].map(fungsiBackend).join('\n');
+vm.runInNewContext(sumberMoeis, konteksMoeis);
+
+// Pengesahan wajib kategori+sebab terhadap senarai rasmi MOEIS.
+sah(konteksMoeis.hadirMoeisSebabSah_('D', 'DEMAM') === true, 'Pasangan kategori/sebab sah mesti diterima');
+sah(konteksMoeis.hadirMoeisSebabSah_('D', 'TIDAK WUJUD') === false, 'Sebab tidak sah mesti ditolak');
+sah(konteksMoeis.hadirMoeisSebabSah_('Z', 'DEMAM') === false, 'Kategori tidak sah mesti ditolak');
+sah(konteksMoeis.hadirMoeisSebabSah_('', '') === false, 'Kategori dan sebab kosong mesti ditolak');
+
+// Pengiraan "belum lengkap".
+const senaraiCampurMoeis = [
+  { nama: 'Ali', kategori: 'D', sebab: 'DEMAM' },
+  { nama: 'Siti', kategori: '', sebab: '' },
+  { nama: 'Ah Kow', kategori: 'N', sebab: 'BANGUN LEWAT' },
+  { nama: 'Muthu', kategori: 'D', sebab: 'TIDAK WUJUD' }
+];
+const belumLengkapMoeis = konteksMoeis.hadirMoeisBelumLengkap_(senaraiCampurMoeis);
+sah(belumLengkapMoeis.length === 2 && belumLengkapMoeis[0].nama === 'Siti' && belumLengkapMoeis[1].nama === 'Muthu',
+  'Pengiraan belum lengkap mesti mengesan kategori/sebab kosong atau tidak sah');
+
+// Penolakan hantar (moeis_job_buat) apabila tidak lengkap atau tiada murid.
+try {
+  konteksMoeis.hadirMoeisSahkanLengkap_(senaraiCampurMoeis, '1 BIJAK');
+  throw new Error('Sepatutnya ditolak kerana belum lengkap');
+} catch (e) {
+  sah(/Siti/.test(e.message) && /Muthu/.test(e.message),
+    'Penolakan hantar mesti menyenaraikan murid yang belum lengkap: ' + e.message);
+}
+try {
+  konteksMoeis.hadirMoeisSahkanLengkap_([], '1 BIJAK');
+  throw new Error('Sepatutnya ditolak kerana tiada murid tidak hadir');
+} catch (e) {
+  sah(/Tiada murid/.test(e.message), 'Kelas tanpa murid tidak hadir mesti ditolak: ' + e.message);
+}
+sah(konteksMoeis.hadirMoeisSahkanLengkap_([{ nama: 'Ali', kategori: 'D', sebab: 'DEMAM' }], '1 BIJAK') === true,
+  'Senarai lengkap mesti diterima untuk penghantaran');
+
+// Elak pendua tugasan bagi kelas+tarikh yang sama.
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_(undefined) === true, 'Tiada tugasan sedia ada mesti boleh dicipta');
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_('gagal') === true, 'Tugasan gagal mesti boleh dicuba semula');
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_('menunggu') === false, 'Tugasan menunggu mesti mengelak pendua');
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_('berjaya') === false, 'Tugasan berjaya mesti mengelak pendua');
+
 const cfg = baca('config.js');
-sah(cfg.includes("versi: 'HADIR v1.9.0'"), 'Versi paparan bukan v1.9.0');
+sah(cfg.includes("versi: 'HADIR v1.10.0'"), 'Versi paparan bukan v1.10.0');
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
-sah(html.includes('styles.css?v=1.9.0') && html.includes('app.js?v=1.9.0') && html.includes('config.js?v=1.9.0'), 'Versi aset HTML tidak seragam');
-sah(sw.includes("hadir-shell-v1.9.0-20260828-5") && sw.includes('app.js?v=1.9.0'), 'Cache PWA belum dinaikkan bersama aset');
+sah(html.includes('styles.css?v=1.10.0') && html.includes('app.js?v=1.10.0') && html.includes('config.js?v=1.10.0'), 'Versi aset HTML tidak seragam');
+sah(sw.includes("hadir-shell-v1.10.0-20260917-1") && sw.includes('app.js?v=1.10.0'), 'Cache PWA belum dinaikkan bersama aset');
 
 // Ujian tingkah laku sebenar bagi had cubaan dan luput sekatan.
 let sekarang = 1_000_000;
@@ -278,4 +369,6 @@ console.log('✓ Tetapan Murid dan paparan baca sahaja tersedia');
 console.log('✓ Tetapan Guru menyokong gabung, sync penuh dan nyahaktif tanpa memadam sejarah');
 console.log('✓ Upload murid/guru dari mana-mana sistem menggunakan relay tanpa gelung');
 console.log('✓ Migrasi awal guru mengutamakan SEMAK; AKSI hanya sandaran');
-console.log('✓ Versi PWA v1.9.0 dan cache aset dinaikkan serentak');
+console.log('✓ Kategori + Sebab MOEIS wajib, disahkan pada pelayan dan disimpan bersama kehadiran');
+console.log('✓ Hantar ke MOEIS menyekat penghantaran tidak lengkap dan mengelak tugasan pendua');
+console.log('✓ Versi PWA v1.10.0 dan cache aset dinaikkan serentak');

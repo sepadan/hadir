@@ -9,6 +9,185 @@ var HADIR_LOGIN_SEKAT_SAAT = 15 * 60;
 var HADIR_AKSI_URL_LALAI = 'https://script.google.com/macros/s/AKfycby0Td2p3zoAdBWXYbbKTqmVS4Xa8R42k0suzeDFTIjgwg-hVxIzYqNkEyTE75E_bukfLA/exec';
 var HADIR_SEMAK_URL_LALAI = 'https://script.google.com/macros/s/AKfycbx306dN8vd3HR3Mu4xdum8MpG0PkbbwbKgsu88jx-nMG2LnEWszU350S2ez8TU_kX_H/exec';
 
+/* Senarai rasmi Kategori + Sebab MOEIS. Sumber: MOEIS
+   /sahsiah/kehadiran/pkhem/tabguru (diperoleh 17/09/2026). Salinan yang sama
+   disimpan di MOEIS_SEBAB dalam app.js untuk paparan; projek ini tiada modul
+   kongsi, jadi kedua-dua salinan mesti dikemas kini bersama jika MOEIS
+   menukar senarai. Pengesahan pelayan sentiasa menggunakan salinan ini, tidak
+   pernah salinan yang dihantar oleh pelanggan. */
+function hadirMoeisSebabData_() {
+  return {
+    kategori: ['A', 'B', 'D', 'E', 'G', 'I', 'J', 'K', 'L', 'M', 'N', 'P'],
+    sebab: {
+      B: ['WAKIL SEKOLAH'],
+      K: ['BINATANG LIAR/BUAS/BERBISA', 'DICULIK', 'GANGGUAN MISTIK/MAKHLUK HALUS',
+        'GANGGUAN KUMPULAN KONGSI GELAP', 'KEBAKARAN', 'PENGGANAS/LANUN',
+        'RUSUHAN DI LUAR KAWASAN SEKOLAH', 'UGUTAN DARIPADA PIHAK LUAR',
+        'MANGSA BULI', 'MANGSA SEKSUAL', 'TIDAK DAPAT DIKESAN/HILANG'],
+      L: ['JEREBU', 'KEMALANGAN', 'BANJIR', 'GEMPA BUMI', 'HUJAN LEBAT/RIBUT TAUFAN',
+        'PENCEMARAN UDARA', 'KEMARAU', 'CUACA PANAS EL NINO', 'PENCEMARAN SISA KIMIA',
+        'PENCEMARAN ALAM', 'TANAH RUNTUH'],
+      E: ['DIGANTUNG SEKOLAH'],
+      J: ['BEKERJA', 'BERPINDAH RANDAH', 'PEREBUTAN HAK PENJAGAAN ANAK',
+        'MENGIKUT KELUARGA BERCUTI/BERKURSUS', 'MENJAGA/MENGURUSKAN AHLI KELUARGA',
+        'MENJAGA AHLI KELUARGA YANG SAKIT', 'KEMATIAN AHLI KELUARGA TERDEKAT',
+        'KEMISKINAN/KESEMPITAN HIDUP', 'MASALAH PENGANGKUTAN', 'MENZIARAHI KELUARGA SAKIT',
+        'BALIK KAMPUNG', 'BERPINDAH KE LUAR NEGARA', 'KRISIS KELUARGA', 'LARI DARI RUMAH'],
+      I: ['TEKANAN PERASAAN/TRAUMA', 'KESAKITAN AKIBAT HAID/PERMULAAN HAID'],
+      A: ['PEMBELAJARAN DI RUMAH'],
+      G: ['URUSAN PEPERIKSAAN'],
+      M: ['HAJI/UMRAH/KEGIATAN AGAMA', 'PEPERIKSAAN/UJIAN SELAIN KPM',
+        'PERTANDINGAN/AKTIVITI SELAIN KPM', 'PROSES PERPINDAHAN SEKOLAH',
+        'TERLIBAT KES JENAYAH', 'TERLIBAT KES TRAFIK', 'URUSAN RASMI AGENSI KERAJAAN',
+        'LATIHAN/UJIAN LESEN MEMANDU', 'TAHANAN PIHAK BERKUASA', 'TERLIBAT PROSIDING MAHKAMAH',
+        'PERLINDUNGAN JABATAN KEBAJIKAN MASYARAKAT', 'CUTI SEMESTER', 'MENJALANI LATIHAN INDUSTRI'],
+      N: ['BANGUN LEWAT', 'MALAS KE SEKOLAH', 'KETAGIHAN GAJET', 'TIDAK MENYIAPKAN KERJA SEKOLAH',
+        'MALAS KE AKTIVITI KOKURIKULUM'],
+      D: ['MAKLUMAN IBU BAPA PENJAGA', 'KECEDERAAN/PATAH TULANG', 'SURAT CUTI SAKIT HOSPITAL/KLINIK',
+        'IMUNISASI RENDAH', 'DEMAM', 'TANTRUM (MBK)', 'TEMUJANJI HOSPITAL/KLINIK',
+        'MENJALANI TERAPI/RAWATAN/KUARANTIN', 'TIDAK MELEPASI SARINGAN KESIHATAN (MBK)',
+        'MENDAPATKAN RAWATAN TRADISIONAL', 'KEMURUNGAN', 'BATUK KOKOL', 'BEGUK', 'CACAR AIR',
+        'CHIKUNGUNYA', 'COVID 19 BERGEJALA', 'COVID 19 DENGAN KEBENARAN IBUBAPA',
+        'COVID 19 DIKUARANTIN', 'COVID 19 PENGGILIRAN', 'DENGGI', 'SWINE FLU (H1N1)', 'HEPATITIS',
+        'HAND, FOOT AND MOUTH DISEASE (HFMD)', 'INFLUENZA', 'JAPANESE ENCEPHALITIS (JE)',
+        'LEPTOSPIROSIS (PENYAKIT KENCING TIKUS)', 'KUDIS BUTA', 'MALARIA', 'MERS COV', 'SAKIT MATA',
+        'SARS', 'TAUN', 'TIBI', 'SAKIT MISTIK', 'SAKIT MENTAL', 'TEKANAN EMOSI'],
+      P: ['SEKOLAH DALAM HOSPITAL']
+    }
+  };
+}
+
+function hadirMoeisSebabSah_(kategori, sebab) {
+  kategori = String(kategori || '').trim().toUpperCase();
+  sebab = String(sebab || '').trim().toUpperCase();
+  if (!kategori || !sebab) return false;
+  var rujukan = hadirMoeisSebabData_();
+  if (rujukan.kategori.indexOf(kategori) < 0) return false;
+  return (rujukan.sebab[kategori] || []).indexOf(sebab) > -1;
+}
+
+function hadirMoeisLabelStatus_(status) {
+  return { menunggu: 'Menunggu', berjaya: 'Berjaya', gagal: 'Gagal' }[status] || status;
+}
+
+/* Murid tidak hadir yang kategori/sebabnya kosong atau tidak sah mengikut
+   senarai rasmi MOEIS. Dikongsi oleh skrin admin (paparan "Belum lengkap")
+   dan moeis_job_buat (sekatan penghantaran). */
+function hadirMoeisBelumLengkap_(murid) {
+  return (murid || []).filter(function (m) { return !hadirMoeisSebabSah_(m && m.kategori, m && m.sebab); });
+}
+
+/* Elak pendua tugasan bagi kelas+tarikh yang sama: hanya dibenarkan mencipta
+   semula jika tiada tugasan sedia ada, atau tugasan sedia ada telah gagal. */
+function hadirMoeisBolehCiptaJob_(statusSediaAda) {
+  return statusSediaAda === undefined || statusSediaAda === null || statusSediaAda === '' || statusSediaAda === 'gagal';
+}
+
+/* Membenarkan penghantaran hanya apabila ada sekurang-kurangnya seorang murid
+   tidak hadir dan kesemuanya mempunyai kategori+sebab yang sah. */
+function hadirMoeisSahkanLengkap_(murid, kelas) {
+  murid = murid || [];
+  if (!murid.length) throw new Error('Tiada murid tidak hadir untuk kelas ' + kelas + ' hari ini.');
+  var belumLengkap = hadirMoeisBelumLengkap_(murid);
+  if (belumLengkap.length) {
+    throw new Error('Kategori/sebab belum lengkap bagi: ' + belumLengkap.map(function (m) { return m.nama; }).join(', '));
+  }
+  return true;
+}
+
+function hadirSahRahsiaMoeis_(rahsia) {
+  var betul = PropertiesService.getScriptProperties().getProperty('HADIR_MOEIS_ENGINE_SECRET');
+  if (!betul) throw new Error('Rahsia enjin MOEIS belum ditetapkan.');
+  if (!rahsia || hadirHash_(rahsia) !== hadirHash_(betul)) throw new Error('Akses enjin MOEIS ditolak.');
+  return true;
+}
+
+function hadirSheetMoeisSebab_() {
+  var s = ss.getSheetByName('HADIR_MOEIS_SEBAB');
+  if (!s) {
+    s = ss.insertSheet('HADIR_MOEIS_SEBAB');
+    s.getRange(1, 1, 1, 6).setValues([['TARIKH_ISO', 'KELAS', 'IC', 'NAMA', 'KATEGORI', 'SEBAB']]);
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function hadirBacaMoeisSebabPeta_(tarikhIso) {
+  var s = ss.getSheetByName('HADIR_MOEIS_SEBAB');
+  var peta = Object.create(null);
+  if (!s || s.getLastRow() < 2) return peta;
+  s.getRange(2, 1, s.getLastRow() - 1, 6).getDisplayValues().forEach(function (r) {
+    if (String(r[0]).trim() !== tarikhIso) return;
+    var ic = normalisasiIc_(r[2]);
+    if (ic) peta[ic] = { kategori: r[4], sebab: r[5] };
+  });
+  return peta;
+}
+
+/* Simpan satu rekod sebab (kemas kini admin dari skrin Hantar ke MOEIS).
+   Tidak menyentuh rekod murid lain bagi kelas/tarikh yang sama. */
+function hadirUpsertMoeisSebab_(tarikhIso, kelas, item) {
+  var s = hadirSheetMoeisSebab_();
+  var n = s.getLastRow() - 1;
+  var data = n > 0 ? s.getRange(2, 1, n, 6).getDisplayValues() : [];
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][0]).trim() === tarikhIso && normalisasiIc_(data[i][2]) === item.ic) {
+      s.getRange(i + 2, 1, 1, 6).setValues([[tarikhIso, kelas, item.ic, item.nama, item.kategori, item.sebab]]);
+      return;
+    }
+  }
+  s.appendRow([tarikhIso, kelas, item.ic, item.nama, item.kategori, item.sebab]);
+}
+
+/* Ganti keseluruhan rekod sebab bagi satu kelas+tarikh dengan senarai murid
+   tidak hadir yang baharu disimpan (dipanggil oleh hadirSimpanKehadiran_).
+   Murid yang bertukar kembali kepada hadir tidak lagi mempunyai rekod. */
+function hadirGantiMoeisSebabKelas_(tarikhIso, kelas, senarai) {
+  var s = hadirSheetMoeisSebab_();
+  var n = s.getLastRow() - 1;
+  var data = n > 0 ? s.getRange(2, 1, n, 6).getDisplayValues() : [];
+  var bakiLain = data.filter(function (r) {
+    return !(String(r[0]).trim() === tarikhIso && String(r[1]).trim().toUpperCase() === kelas);
+  });
+  var baharu = bakiLain.concat(senarai.map(function (item) {
+    return [tarikhIso, kelas, item.ic, item.nama, item.kategori, item.sebab];
+  }));
+  if (n > 0) s.getRange(2, 1, n, 6).clearContent();
+  if (baharu.length) s.getRange(2, 1, baharu.length, 6).setValues(baharu);
+}
+
+var HADIR_MOEIS_JOB_LEBAR = 11;
+
+function hadirSheetMoeisJob_() {
+  var s = ss.getSheetByName('HADIR_MOEIS_JOB');
+  if (!s) {
+    s = ss.insertSheet('HADIR_MOEIS_JOB');
+    s.getRange(1, 1, 1, HADIR_MOEIS_JOB_LEBAR).setValues([[
+      'ID', 'TARIKH_ISO', 'KELAS', 'STATUS', 'MESEJ',
+      'DICIPTA', 'DIKEMASKINI', 'MASA_SELESAI', 'BIL_HADIR_SELEPAS', 'MURID_JSON',
+      'KELAS_MOEIS_ID'
+    ]]);
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function hadirBacaJobBaris_() {
+  var s = ss.getSheetByName('HADIR_MOEIS_JOB');
+  if (!s || s.getLastRow() < 2) return [];
+  return s.getRange(2, 1, s.getLastRow() - 1, HADIR_MOEIS_JOB_LEBAR).getDisplayValues();
+}
+
+function hadirBacaJobPeta_(tarikhIso) {
+  var peta = Object.create(null);
+  hadirBacaJobBaris_().forEach(function (r) {
+    if (String(r[1]).trim() === tarikhIso) {
+      peta[String(r[2]).trim().toUpperCase()] = { id: r[0], status: r[3], mesej: r[4] };
+    }
+  });
+  return peta;
+}
+
 function hadirAdakahPermintaan_(e) {
   try {
     if (!e || !e.postData || !e.postData.contents) return false;
@@ -31,7 +210,10 @@ function hadirDoPost_(e) {
     nyahaktifGuru: hadirNyahaktifGuru_,
     uploadGuruCsv: hadirUploadGuruCsv_, syncGuru: hadirSyncGuruApi_,
     terimaSyncMurid: hadirTerimaSyncMurid_, terimaSyncGuru: hadirTerimaSyncGuru_,
-    syncSemua: hadirSyncSemuaApi_
+    syncSemua: hadirSyncSemuaApi_,
+    moeisSenaraiKelas: hadirMoeisSenaraiKelas_, moeisSimpanSebab: hadirMoeisSimpanSebab_,
+    moeisJobBuat: hadirMoeisJobBuat_, moeisJobSenarai: hadirMoeisJobSenarai_,
+    moeisJobSelesai: hadirMoeisJobSelesai_
   };
   try {
     var fn = dibenarkan[String(p.kaedah || '')];
@@ -176,6 +358,7 @@ function hadirBinaInit_(sekarang, zona, tarikhIso) {
   var intervalArkib = dapatkanIntervalArkib_();
   var icMain = dapatkanIcAktifMain_();
   var petaRmt = hadirPetaRmt_();
+  var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
   var peta = Object.create(null);
   for (var i = 1; i < data.length; i++) {
     var nama = String(data[i][1] || '').trim();
@@ -184,18 +367,21 @@ function hadirBinaInit_(sekarang, zona, tarikhIso) {
     if (!nama || !kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
     if (!peta[kelas]) peta[kelas] = [];
     var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
+    var sebabRekod = nilai === '0' ? petaSebab[ic] : null;
     peta[kelas].push({
       kunci: hadirKunciMurid_(ic, tkh), nama: nama,
       nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
       _rmt: !!petaRmt[ic],
-      _rmtHadir: nilai === '1' && !!petaRmt[ic]
+      _rmtHadir: nilai === '1' && !!petaRmt[ic],
+      kategori: sebabRekod ? sebabRekod.kategori : '',
+      sebab: sebabRekod ? sebabRekod.sebab : ''
     });
   }
   var kelasHasil = Object.keys(peta).sort(hadirSusunKelas_).map(function (kelas) {
     var murid = peta[kelas].sort(function (a, b) { return a.nama.localeCompare(b.nama); });
     return {
       nama: kelas,
-      murid: murid.map(function (m) { return { kunci: m.kunci, nama: m.nama, nilai: m.nilai }; }),
+      murid: murid.map(function (m) { return { kunci: m.kunci, nama: m.nama, nilai: m.nilai, kategori: m.kategori, sebab: m.sebab }; }),
       jumlah: murid.length,
       tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
       rmtJumlah: murid.filter(function (m) { return m._rmt; }).length,
@@ -317,6 +503,7 @@ function hadirBukaKehadiranTarikh_(kelas, tarikhIso) {
   var intervalArkib = dapatkanIntervalArkib_();
   var icMain = dapatkanIcAktifMain_();
   var petaRmt = hadirPetaRmt_();
+  var petaSebab = hadirBacaMoeisSebabPeta_(pilihan.iso);
   var murid = [];
   for (var i = 1; i < data.length; i++) {
     var nama = String(data[i][1] || '').trim();
@@ -325,17 +512,20 @@ function hadirBukaKehadiranTarikh_(kelas, tarikhIso) {
     if (!nama || namaKelas !== kelas || !ic ||
         muridTiadaPadaTarikh_(ic, pilihan.tkh, intervalArkib, icMain)) continue;
     var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
+    var sebabRekod = nilai === '0' ? petaSebab[ic] : null;
     murid.push({
       kunci: hadirKunciMurid_(ic, pilihan.tkh), nama: nama,
       nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
-      _rmt: !!petaRmt[ic], _rmtHadir: nilai === '1' && !!petaRmt[ic]
+      _rmt: !!petaRmt[ic], _rmtHadir: nilai === '1' && !!petaRmt[ic],
+      kategori: sebabRekod ? sebabRekod.kategori : '',
+      sebab: sebabRekod ? sebabRekod.sebab : ''
     });
   }
   murid.sort(function (a, b) { return a.nama.localeCompare(b.nama); });
   if (!murid.length) throw new Error('Tiada murid ditemui untuk kelas dan tarikh ini.');
   return {
     nama: kelas,
-    murid: murid.map(function (m) { return { kunci: m.kunci, nama: m.nama, nilai: m.nilai }; }),
+    murid: murid.map(function (m) { return { kunci: m.kunci, nama: m.nama, nilai: m.nilai, kategori: m.kategori, sebab: m.sebab }; }),
     jumlah: murid.length,
     tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
     rmtJumlah: murid.filter(function (m) { return m._rmt; }).length,
@@ -377,13 +567,25 @@ function hadirSusunKelas_(a, b) {
   return na - nb || a.localeCompare(b);
 }
 
-function hadirSimpanKehadiran_(kelas, senaraiTiada, token, tarikhIso) {
+/* senaraiSebab: [{kunci, kategori, sebab}] bagi setiap murid tidak hadir.
+   Kategori dan sebab wajib dan disahkan terhadap hadirMoeisSebabData_()
+   sebelum sebarang tulisan berlaku — pelanggan tidak dipercayai. */
+function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
   var sesi = token ? hadirSesi_(token, true) : { peranan: 'guru' };
   var pilihan = hadirSahkanTarikhIso_(tarikhIso);
   kelas = String(kelas || '').trim().toUpperCase();
   if (!kelas) throw new Error('Kelas tidak sah.');
   var tiada = Object.create(null);
-  (senaraiTiada || []).forEach(function (kunci) { tiada[String(kunci || '').trim()] = true; });
+  (senaraiSebab || []).forEach(function (item) {
+    item = item || {};
+    var kunci = String(item.kunci || '').trim();
+    if (!kunci) return;
+    var kategori = String(item.kategori || '').trim().toUpperCase();
+    var sebab = String(item.sebab || '').trim().toUpperCase();
+    if (!hadirMoeisSebabSah_(kategori, sebab))
+      throw new Error('Kategori dan sebab MOEIS wajib dipilih bagi setiap murid tidak hadir.');
+    tiada[kunci] = { kategori: kategori, sebab: sebab };
+  });
   // Fungsi asal menyediakan lajur hari ini di bawah locknya sendiri. Tarikh
   // lama dibuat di bawah lock simpanan di bawah supaya satu tarikh tidak boleh
   // terhasil dua kali apabila dua guru menekan serentak.
@@ -404,18 +606,28 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token, tarikhIso) {
     var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
     var petaRmt = hadirPetaRmt_();
     var jumlah = 0, bilTiada = 0, rmtHadir = 0, rmtJumlah = 0;
+    var sebabUntukSimpan = [];
     for (var i = 0; i < n; i++) {
       var ic = normalisasiIc_(asas[i][2]);
       if (String(asas[i][1]).trim().toUpperCase() !== kelas ||
           muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)) continue;
-      var tidakHadir = !!tiada[hadirKunciMurid_(ic, tkh)];
+      var rekodSebab = tiada[hadirKunciMurid_(ic, tkh)];
+      var tidakHadir = !!rekodSebab;
       nilai[i][0] = tidakHadir ? 0 : 1;
-      jumlah++; if (tidakHadir) bilTiada++;
+      jumlah++;
+      if (tidakHadir) {
+        bilTiada++;
+        sebabUntukSimpan.push({
+          ic: ic, nama: String(asas[i][0]).trim(),
+          kategori: rekodSebab.kategori, sebab: rekodSebab.sebab
+        });
+      }
       if (petaRmt[ic]) rmtJumlah++;
       if (!tidakHadir && petaRmt[ic]) rmtHadir++;
     }
     if (!jumlah) throw new Error('Tiada murid aktif ditemui untuk ' + kelas + '.');
     s.getRange(2, col, n, 1).setValues(nilai);
+    hadirGantiMoeisSebabKelas_(pilihan.iso, kelas, sebabUntukSimpan);
     if (pilihan.iso === pilihan.hariIniIso) hadirPadamCacheInit_();
     hadirLog_('SIMPAN_KEHADIRAN', sesi.peranan, kelas,
       tkh + '; ' + jumlah + ' murid; ' + bilTiada + ' tidak hadir');
@@ -424,6 +636,213 @@ function hadirSimpanKehadiran_(kelas, senaraiTiada, token, tarikhIso) {
       tarikhIso: pilihan.iso,
       masa: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'HH:mm') };
   } finally { lock.releaseLock(); }
+}
+
+/* Admin sahaja. Senarai kelas hari ini untuk skrin "Hantar ke MOEIS": bilangan
+   tidak hadir, murid yang belum lengkap kategori/sebab, dan status tugasan
+   giliran sedia ada bagi kelas itu. */
+function hadirMoeisSenaraiKelas_(token) {
+  hadirSesi_(token, true);
+  var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
+  var tarikhIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
+  var tkh = tarikhHariIni_();
+  var s = ss.getSheetByName('kehadiran');
+  if (!s) throw new Error('Tab kehadiran tidak ditemui.');
+  var data = s.getDataRange().getDisplayValues();
+  var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
+  var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
+  var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
+  var kelasSemua = Object.create(null);
+  var absenPeta = Object.create(null);
+  for (var i = 1; i < data.length; i++) {
+    var nama = String(data[i][1] || '').trim();
+    var kelas = String(data[i][2] || '').trim().toUpperCase();
+    var ic = normalisasiIc_(data[i][3]);
+    if (!nama || !kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
+    kelasSemua[kelas] = true;
+    var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
+    if (nilai !== '0') continue;
+    var sebabRekod = petaSebab[ic];
+    if (!absenPeta[kelas]) absenPeta[kelas] = [];
+    absenPeta[kelas].push({
+      kunci: hadirKunciMurid_(ic, tkh), nama: nama,
+      kategori: sebabRekod ? sebabRekod.kategori : '',
+      sebab: sebabRekod ? sebabRekod.sebab : ''
+    });
+  }
+  var jobPeta = hadirBacaJobPeta_(tarikhIso);
+  return Object.keys(kelasSemua).sort(hadirSusunKelas_).map(function (kelas) {
+    var murid = (absenPeta[kelas] || []).sort(function (a, b) { return a.nama.localeCompare(b.nama); });
+    var belumLengkap = hadirMoeisBelumLengkap_(murid);
+    var job = jobPeta[kelas];
+    return {
+      nama: kelas,
+      bilTidakHadir: murid.length,
+      belumLengkap: belumLengkap.map(function (m) { return { kunci: m.kunci, nama: m.nama }; }),
+      statusPenghantaran: job ? job.status : 'belum_dihantar',
+      mesejPenghantaran: job ? job.mesej : ''
+    };
+  });
+}
+
+/* Admin sahaja. Kemas kini kategori/sebab satu murid tanpa membuka semula
+   skrin kehadiran. Murid mesti sudah ditanda tidak hadir hari ini. */
+function hadirMoeisSimpanSebab_(payload, token) {
+  var sesi = hadirSesi_(token, true);
+  payload = payload || {};
+  var kelas = String(payload.kelas || '').trim().toUpperCase();
+  var kunci = String(payload.kunci || '').trim();
+  var kategori = String(payload.kategori || '').trim().toUpperCase();
+  var sebab = String(payload.sebab || '').trim().toUpperCase();
+  if (!kelas || !kunci) throw new Error('Murid tidak sah.');
+  if (!hadirMoeisSebabSah_(kategori, sebab)) throw new Error('Kategori atau sebab tidak sah.');
+  var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
+  var tarikhIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
+  var tkh = tarikhHariIni_();
+  var s = ss.getSheetByName('kehadiran');
+  if (!s) throw new Error('Tab kehadiran tidak ditemui.');
+  var data = s.getDataRange().getDisplayValues();
+  var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
+  if (idxTarikh < 0) throw new Error('Lajur kehadiran hari ini belum wujud.');
+  var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
+  var dipadan = null;
+  for (var i = 1; i < data.length; i++) {
+    var namaKelas = String(data[i][2] || '').trim().toUpperCase();
+    var ic = normalisasiIc_(data[i][3]);
+    if (namaKelas !== kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
+    if (hadirKunciMurid_(ic, tkh) !== kunci) continue;
+    if (data[i][idxTarikh] !== '0') throw new Error('Murid ini tidak ditanda tidak hadir hari ini.');
+    dipadan = { ic: ic, nama: String(data[i][1] || '').trim() };
+    break;
+  }
+  if (!dipadan) throw new Error('Murid tidak ditemui untuk kelas dan tarikh ini.');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    hadirUpsertMoeisSebab_(tarikhIso, kelas, {
+      ic: dipadan.ic, nama: dipadan.nama, kategori: kategori, sebab: sebab
+    });
+  } finally { lock.releaseLock(); }
+  hadirPadamCacheInit_();
+  hadirLog_('MOEIS_SEBAB_ADMIN', sesi.peranan, kelas, 'kategori=' + kategori);
+  return { ok: true, kategori: kategori, sebab: sebab, mesej: 'Kategori dan sebab dikemas kini.' };
+}
+
+/* Admin sahaja, dan hanya untuk kehadiran hari ini. Mencipta satu tugasan
+   giliran yang kelak diambil oleh enjin Playwright pada PC guru (projek
+   berasingan moeis-bot). HADIR tidak menghubungi MOEIS secara langsung. */
+function hadirMoeisJobBuat_(kelas, tarikhIso, token, kelasMoeisId) {
+  var sesi = hadirSesi_(token, true);
+  kelas = String(kelas || '').trim().toUpperCase();
+  if (!kelas) throw new Error('Kelas tidak sah.');
+  kelasMoeisId = String(kelasMoeisId || '').trim().slice(0, 100);
+  var zona = Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur';
+  var hariIniIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
+  tarikhIso = String(tarikhIso || hariIniIso).trim();
+  if (tarikhIso !== hariIniIso) throw new Error('Penghantaran MOEIS hanya tersedia bagi kehadiran hari ini.');
+  var tkh = tarikhHariIni_();
+  var s = ss.getSheetByName('kehadiran');
+  if (!s) throw new Error('Tab kehadiran tidak ditemui.');
+  var data = s.getDataRange().getDisplayValues();
+  var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
+  var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
+  var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
+  var murid = [];
+  if (idxTarikh >= 0) {
+    for (var i = 1; i < data.length; i++) {
+      var nama = String(data[i][1] || '').trim();
+      var namaKelas = String(data[i][2] || '').trim().toUpperCase();
+      var ic = normalisasiIc_(data[i][3]);
+      if (!nama || namaKelas !== kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
+      if (data[i][idxTarikh] !== '0') continue;
+      var sebabRekod = petaSebab[ic];
+      murid.push({
+        ic: ic, nama: nama,
+        kategori: sebabRekod ? sebabRekod.kategori : '',
+        sebab: sebabRekod ? sebabRekod.sebab : ''
+      });
+    }
+  }
+  hadirMoeisSahkanLengkap_(murid, kelas);
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sJob = hadirSheetMoeisJob_();
+    var n = sJob.getLastRow() - 1;
+    var baris = n > 0 ? sJob.getRange(2, 1, n, HADIR_MOEIS_JOB_LEBAR).getDisplayValues() : [];
+    var indeks = -1;
+    for (var j = 0; j < baris.length; j++) {
+      if (String(baris[j][1]).trim() === tarikhIso && String(baris[j][2]).trim().toUpperCase() === kelas) {
+        indeks = j; break;
+      }
+    }
+    if (indeks >= 0 && !hadirMoeisBolehCiptaJob_(baris[indeks][3])) {
+      throw new Error('Tugasan untuk kelas ' + kelas + ' pada tarikh ini sudah wujud (status: ' +
+        hadirMoeisLabelStatus_(baris[indeks][3]) + ').');
+    }
+    var masa = new Date();
+    var id = indeks >= 0 ? baris[indeks][0] : Utilities.getUuid();
+    if (!kelasMoeisId && indeks >= 0) kelasMoeisId = String(baris[indeks][10] || '');
+    var barisBaru = [id, tarikhIso, kelas, 'menunggu', '', masa, masa, '', '', JSON.stringify(murid), kelasMoeisId];
+    if (indeks >= 0) sJob.getRange(indeks + 2, 1, 1, HADIR_MOEIS_JOB_LEBAR).setValues([barisBaru]);
+    else sJob.appendRow(barisBaru);
+  } finally { lock.releaseLock(); }
+  hadirLog_('MOEIS_JOB_BUAT', sesi.peranan, kelas, murid.length + ' murid tidak hadir');
+  return {
+    ok: true, kelas: kelas, jumlah: murid.length,
+    mesej: 'Tugasan penghantaran MOEIS dicipta untuk ' + kelas + ' (' + murid.length + ' murid).'
+  };
+}
+
+/* Dibaca oleh admin (token sesi) untuk paparan status, atau oleh enjin PC
+   (rahsia HADIR_MOEIS_ENGINE_SECRET) untuk mengambil tugasan. Butiran murid
+   (termasuk IC, diperlukan oleh enjin untuk mengisi borang MOEIS) hanya
+   dihantar pada laluan rahsia enjin, tidak pada paparan admin. */
+function hadirMoeisJobSenarai_(token, rahsia) {
+  var modAdmin = false;
+  if (token) { hadirSesi_(token, true); modAdmin = true; }
+  else hadirSahRahsiaMoeis_(rahsia);
+  return hadirBacaJobBaris_().map(function (r) {
+    var rekod = {
+      id: r[0], tarikhIso: r[1], kelas: r[2], status: r[3], mesej: r[4],
+      dicipta: r[5], dikemaskini: r[6], masaSelesai: r[7],
+      bilHadirSelepas: r[8] === '' ? null : Number(r[8]),
+      kelasMoeisId: r[10] || ''
+    };
+    if (!modAdmin) rekod.murid = JSON.parse(r[9] || '[]');
+    return rekod;
+  });
+}
+
+/* Dipanggil oleh enjin PC sahaja (rahsia HADIR_MOEIS_ENGINE_SECRET) apabila
+   satu tugasan selesai diproses di MOEIS. HADIR tidak pernah memanggil MOEIS
+   sendiri; ini hanya merekod keputusan yang dilaporkan oleh enjin. */
+function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, rahsia) {
+  hadirSahRahsiaMoeis_(rahsia);
+  keputusan = String(keputusan || '').toLowerCase();
+  if (['berjaya', 'gagal'].indexOf(keputusan) < 0) throw new Error('Keputusan tugasan tidak sah.');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var kelasLog = '';
+  try {
+    var s = ss.getSheetByName('HADIR_MOEIS_JOB');
+    if (!s || s.getLastRow() < 2) throw new Error('Tugasan tidak ditemui.');
+    var n = s.getLastRow() - 1;
+    var baris = s.getRange(2, 1, n, HADIR_MOEIS_JOB_LEBAR).getDisplayValues();
+    var indeks = -1;
+    for (var i = 0; i < baris.length; i++) { if (String(baris[i][0]) === String(id)) { indeks = i; break; } }
+    if (indeks < 0) throw new Error('Tugasan tidak ditemui.');
+    kelasLog = baris[indeks][2];
+    var masa = new Date();
+    s.getRange(indeks + 2, 4).setValue(keputusan);
+    s.getRange(indeks + 2, 5).setValue(String(mesej || '').slice(0, 500));
+    s.getRange(indeks + 2, 7).setValue(masa);
+    s.getRange(indeks + 2, 8).setValue(masa);
+    s.getRange(indeks + 2, 9).setValue(bilHadirSelepas == null || bilHadirSelepas === '' ? '' : Number(bilHadirSelepas));
+  } finally { lock.releaseLock(); }
+  hadirLog_('MOEIS_JOB_SELESAI', 'sistem', kelasLog, keputusan);
+  return { ok: true };
 }
 
 function hadirSenaraiMurid_(token) {

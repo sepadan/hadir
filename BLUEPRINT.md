@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.9 · 30 Ogos 2026**
+**Versi 2.10 · 17 September 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -107,7 +107,8 @@ Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `bukaKehadiranTarikh`,
 `simpanKehadiran`, `senaraiMurid`,
 `simpanMurid`, `simpanTetapanMurid`, `uploadMuridCsv`, `syncSemua`,
 `senaraiGuru`, `simpanGuru`, `nyahaktifGuru`, `uploadGuruCsv`, `syncGuru`, `terimaSyncMurid`,
-`terimaSyncGuru`.
+`terimaSyncGuru`, `moeisSenaraiKelas`, `moeisSimpanSebab`, `moeisJobBuat`,
+`moeisJobSenarai`, `moeisJobSelesai`.
 
 `semakKehadiran(tarikhIso)` ialah bacaan awam bagi tahun semasa. Tarikh mesti
 berformat `YYYY-MM-DD`, tidak boleh melebihi hari ini, dan ditukar kepada tajuk
@@ -116,9 +117,12 @@ hadir/jumlah RMT dan nama murid tidak hadir sahaja.
 
 `bukaKehadiranTarikh(kelas, tarikhIso)` hanya dipanggil selepas guru menekan
 kad kelas bagi tarikh lama dan mengesahkan amaran. Ia menghantar senarai penuh
-satu kelas dengan kunci legap khusus tarikh, tanpa IC. `simpanKehadiran`
-menerima tarikh ISO pilihan sebagai argumen keempat; tarikh mesti dalam tahun
-semasa dan tidak melebihi hari ini. Ringkasan semakan biasa kekal menghantar
+satu kelas dengan kunci legap khusus tarikh, tanpa IC, tetapi turut membawa
+Kategori/Sebab MOEIS sedia ada bagi murid yang sudah ditanda tidak hadir.
+`simpanKehadiran(kelas, senaraiSebab, token, tarikhIso)` menerima tarikh ISO
+pilihan sebagai argumen keempat; tarikh mesti dalam tahun semasa dan tidak
+melebihi hari ini. `senaraiSebab` ialah `[{kunci, kategori, sebab}]` bagi
+setiap murid tidak hadir — lihat 5.1. Ringkasan semakan biasa kekal menghantar
 nama murid tidak hadir sahaja.
 
 `simpanTetapanMurid(tetapan, token)` hanya untuk admin. Status RMT ditulis ke
@@ -126,6 +130,52 @@ tab `rmt`; jawatan ditulis pada lajur tambahan bernama `JAWATAN MURID` dalam
 tab `main`. Lajur tambahan ini dikenal melalui tajuk dan tidak mengubah susunan
 11 lajur teras. Nilai jawatan yang dibenarkan ialah Pengawas, Pengawas
 Perpustakaan, Ketua Kelas, Penolong Ketua Kelas dan Murid Biasa.
+
+### 5.1 Kategori + Sebab MOEIS dan "Hantar ke MOEIS"
+
+MOEIS (`moeispel.moe.gov.my`) mewajibkan Kategori + Sebab bagi setiap murid
+tidak hadir. Senarai rasmi (12 kategori, ~80 sebab) disalin secara statik pada
+dua tempat kerana projek ini tiada modul kongsi: `MOEIS_SEBAB` dalam `app.js`
+(paparan) dan `hadirMoeisSebabData_()` dalam `apps-script/HadirWeb.gs`
+(pengesahan pelayan — pelanggan tidak dipercayai). Kedua-dua salinan mesti
+dikemas kini bersama jika MOEIS menukar senarainya.
+
+- Apabila guru menekan seorang murid, dialog Kategori→Sebab dibuka. Membatalkan
+  dialog tidak menanda murid tidak hadir — aliran pantas lalai (semua hadir)
+  kekal. Murid yang sudah bertanda memaparkan sebab sedia ada dan boleh
+  ditukar kembali kepada hadir daripada dialog yang sama.
+- `simpanKehadiran` menyimpan Kategori/Sebab bersama rekod kehadiran dalam
+  tab pelayan `HADIR_MOEIS_SEBAB` (satu baris setiap `tarikhIso`+IC), diganti
+  sepenuhnya bagi kelas+tarikh itu pada setiap simpanan supaya murid yang
+  kembali hadir tidak mewarisi sebab lama. `hadirBinaInit_` dan
+  `hadirBukaKehadiranTarikh_` membaca semula tab ini supaya sebab sedia ada
+  dipaparkan apabila guru membuka semula kelas.
+- Menu admin **Hantar ke MOEIS** (selepas log masuk admin) memaparkan setiap
+  kelas aktif hari ini: bilangan tidak hadir, status sebab (`Lengkap` /
+  `Belum lengkap: n`, dikira oleh `hadirMoeisBelumLengkap_`) dan status
+  tugasan (`Belum dihantar` / `Menunggu` / `Sedang dihantar` / `Berjaya` /
+  `Gagal: <sebab>`). Admin boleh melengkapkan Kategori/Sebab mana-mana murid
+  terus dari skrin ini (`moeisSimpanSebab`, menulis satu baris sahaja) tanpa
+  membuka semula skrin kehadiran.
+- Butang **Hantar** memanggil `moeisJobBuat(kelas, tarikhIso, token)`, yang
+  disekat sepenuhnya (`hadirMoeisSahkanLengkap_`) jika ada murid tidak hadir
+  tanpa Kategori/Sebab sah, atau jika tiada murid tidak hadir. Hanya
+  kehadiran **hari ini** boleh dihantar. Satu tugasan tersimpan setiap
+  kelas+tarikh dalam tab `HADIR_MOEIS_JOB`; tugasan pendua disekat melainkan
+  tugasan sebelumnya berstatus `gagal` (`hadirMoeisBolehCiptaJob_`), yang mana
+  ia boleh dicuba semula.
+- HADIR **tidak pernah** menghubungi MOEIS. `moeisJobBuat` hanya menulis
+  baris tugasan; enjin Playwright berasingan pada PC guru (projek
+  `moeis-bot`) mengambil tugasan menerusi `moeisJobSenarai` dan melaporkan
+  keputusan menerusi `moeisJobSelesai`, kedua-duanya disahkan dengan rahsia
+  Script Properties `HADIR_MOEIS_ENGINE_SECRET` (corak sama seperti
+  `SEPADAN_SYNC_SECRET`) — bukan token admin, kerana enjin berjalan tanpa
+  pengawasan. `moeisJobSenarai` memulangkan IC dan senarai murid hanya pada
+  laluan rahsia enjin; paparan admin tidak menerima IC.
+- Tugasan membawa `kelasMoeisId` pilihan (argumen keempat `moeisJobBuat`,
+  lajur `KELAS_MOEIS_ID`) untuk pemetaan ID kelas MOEIS. Tiada skrin admin
+  memanggil argumen ini lagi; nilainya kosong melainkan diisi terus pada tab
+  `HADIR_MOEIS_JOB` atau dihantar oleh pemanggil `moeisJobBuat` itu sendiri.
 
 Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
@@ -317,6 +367,13 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
 - [x] Produksi telefon disahkan: 9 pilihan kelas, pemilihan kelas automatik,
   senarai murid tanpa login, menu boleh ditutup dan PWA berstatus sedia.
 - [x] IC/MyKid tidak muncul pada paparan guru dan konsol tidak melaporkan ralat.
+- [x] Kategori + Sebab MOEIS wajib ketika menanda tidak hadir, disahkan di
+  pelayan dan disimpan bersama rekod kehadiran. Menu admin **Hantar ke
+  MOEIS** menyenaraikan kelas hari ini, mengesan "Belum lengkap", membenarkan
+  admin melengkapkan sebab terus dari skrin itu, dan mencipta satu tugasan
+  giliran setiap kelas+tarikh (elak pendua melainkan tugasan lalu gagal).
+  HADIR tidak menghubungi MOEIS; tugasan diambil dan dilaporkan oleh enjin
+  `moeis-bot` berasingan menerusi rahsia `HADIR_MOEIS_ENGINE_SECRET`.
 
 **Baki pengesahan:** satu simpanan kehadiran sebenar dan satu sync AKSI/SEMAK
 masih perlu dijalankan oleh pengguna. Dicatat sebagai **isu #20 dalam hab** —
@@ -327,6 +384,7 @@ memutuskan bila.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 17 September 2026 | 1.10.0 | Tambah Kategori + Sebab MOEIS wajib ketika menanda tidak hadir (senarai rasmi disalin statik pada frontend dan backend; pengesahan sentiasa di pelayan), disimpan bersama kehadiran dalam tab baharu `HADIR_MOEIS_SEBAB`. Tambah menu admin **Hantar ke MOEIS**: status "Lengkap"/"Belum lengkap: n" setiap kelas hari ini, kemas kini sebab terus dari skrin itu, dan `moeisJobBuat`/`moeisJobSenarai`/`moeisJobSelesai` mencipta serta menjejak tugasan giliran dalam tab baharu `HADIR_MOEIS_JOB` (elak pendua melainkan tugasan lalu gagal). HADIR hanya menyediakan data — enjin `moeis-bot` berasingan pada PC guru yang menghantar ke MOEIS, disahkan dengan rahsia Script Properties `HADIR_MOEIS_ENGINE_SECRET`. Aset dan cache PWA dinaikkan serentak | Tiada nama/IC murid sebenar disentuh dalam ujian; ujian automatik mengesahkan pengesahan kategori/sebab, pengiraan belum lengkap, sekatan hantar tidak lengkap dan elak pendua tugasan. Penghantaran sebenar ke MOEIS oleh enjin PC belum disahkan pengguna |
 | 30 Ogos 2026 | audit repo | Login admin kini dihadkan kepada lima cubaan PIN gagal dan disekat 15 minit. `ScriptProperties` ialah sumber benar yang tahan pelucutan cache; semak, tambah, sekat, reset dan cipta sesi dilaksanakan sebagai satu peralihan atomik di bawah `ScriptLock`. Suite HADIR menjalankan simulasi tingkah laku lima kegagalan, penolakan ketika sekatan dan pemulihan selepas luput | Tiada PIN/token/data sekolah sebenar dibaca atau diubah; Apps Script Version 111 diterbitkan pada URL sedia ada |
 | 29 Ogos 2026 | 1.9.0 | Penyelarasan guru autoritatif dari mana-mana sistem: tambah/edit `merge`, nyahaktif/sync penuh menghantar snapshot aktif, status disimpan tanpa padam fizikal, dan satu kunci pusat HADIR menyusun operasi bertindih. CSV HADIR mempunyai pratonton serta pengesahan sebelum menyahaktifkan nama yang tiada. Apps Script Version 110 diterbitkan pada URL sama; AKSI v1.5.0 Version 11 dan SEMAK v1.2.0 Version 61 menerima kontrak yang sama | Kata laluan, tugasan, markah, kokurikulum dan sejarah tidak dipindah atau dipadam. Pengesahan teknikal tidak menambah/menyahaktif guru produksi |
 | 28 Ogos 2026 | 1.8.2 | Tetapkan SEMAK sebagai sumber migrasi guru paling baharu seperti disahkan pengguna; AKSI hanya sandaran jika SEMAK gagal/kosong. Paparan menerangkan sumber ini dan cache PWA dinaikkan serentak | Penyelarasan kekal nama/jawatan sahaja; kata laluan, tugasan dan rekod sistem tidak dipadam |

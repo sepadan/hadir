@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.9.0">
+  <link rel="manifest" href="manifest.webmanifest?v=1.10.0">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.9.0">
+  <link rel="stylesheet" href="styles.css?v=1.10.0">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -39,13 +39,14 @@
           <button class="menu-link" data-pane="studentSettingsPane"><span>⚙</span><div><strong>Tetapan Murid</strong><small>RMT dan jawatan murid</small></div></button>
           <button class="menu-link" data-pane="teacherSettingsPane"><span>♟</span><div><strong>Tetapan Guru</strong><small>Senarai dan penyelarasan guru</small></div></button>
           <button class="menu-link" data-pane="studentsPane"><span>♙</span><div><strong>Data Murid</strong><small>Tambah dan kemas kini</small></div></button>
+          <button class="menu-link" data-pane="moeisPane"><span>✉</span><div><strong>Hantar ke MOEIS</strong><small>Kategori, sebab dan giliran tugasan</small></div></button>
           <button class="menu-link" data-pane="syncPane"><span>↻</span><div><strong>Penyelarasan</strong><small>AKSI dan SEMAK</small></div></button>
         </div>
       </nav>
       <div class="side-foot">
         <span id="roleLabel" hidden>Mod guru</span>
         <div class="side-version-row">
-          <small id="sideVersion">HADIR v1.9.0</small>
+          <small id="sideVersion">HADIR v1.10.0</small>
           <button id="adminLoginMenu" class="side-admin-btn" type="button">🔐 Admin</button>
           <button id="adminLogoutMenu" class="side-admin-btn side-logout-btn" type="button" hidden>↪ Log Keluar</button>
         </div>
@@ -130,6 +131,14 @@
         <label class="search"><span>⌕</span><input id="studentAdminSearch" type="search" placeholder="Cari nama, IC atau kelas"></label>
         <div id="studentAdminStatus" class="status" aria-live="polite"></div>
         <div id="studentAdminList" class="admin-list"></div>
+      </section>
+
+      <section id="moeisPane" class="pane" hidden>
+        <div class="page-head">
+          <div><span class="eyebrow">ADMIN</span><h2>Hantar ke MOEIS</h2><p>Senarai kelas untuk hari ini. Kategori dan sebab mesti lengkap sebelum menghantar. HADIR hanya menyediakan tugasan; tiada apa dihantar terus ke MOEIS dari sini.</p></div>
+        </div>
+        <div id="moeisStatus" class="status" aria-live="polite"></div>
+        <div id="moeisList" class="review-list moeis-list"></div>
       </section>
 
       <section id="syncPane" class="pane" hidden>
@@ -250,7 +259,23 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.9.0"></script>
-  <script src="app.js?v=1.9.0"></script>
+  <dialog id="sebabDialog" class="settings-dialog">
+    <form id="sebabForm" method="dialog">
+      <div class="dialog-head"><div><span class="eyebrow">MOEIS</span><h2>Sebab Tidak Hadir</h2><p id="sebabDialogNama">Murid</p></div><button type="button" class="icon-btn cancel-sebab-dialog">×</button></div>
+      <div class="dialog-body settings-form">
+        <label>Kategori<select id="sebabKategori" required><option value="">Pilih kategori</option></select></label>
+        <label>Sebab<select id="sebabSebab" required disabled><option value="">Pilih kategori dahulu</option></select></label>
+        <div id="sebabDialogStatus" class="status" aria-live="polite"></div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="soft cancel-sebab-dialog">Batal</button>
+        <button id="sebabHadirBtn" type="button" class="soft edit-action" hidden>Tandakan Hadir</button>
+        <button id="sebabSimpanBtn" type="submit" class="primary">Simpan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="config.js?v=1.10.0"></script>
+  <script src="app.js?v=1.10.0"></script>
 </body>
 </html>

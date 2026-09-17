@@ -2,13 +2,78 @@
   'use strict';
 
   var cfg = window.HADIR_CONFIG || {};
+
+  // Senarai rasmi Kategori + Sebab MOEIS. Sumber: MOEIS
+  // /sahsiah/kehadiran/pkhem/tabguru (diperoleh 17/09/2026). Salinan yang
+  // sama (bukan rujukan kongsi — tiada modul dalam projek ini) disimpan di
+  // hadirMoeisSebabData_() dalam apps-script/HadirWeb.gs untuk pengesahan
+  // pelayan; kemas kini kedua-duanya bersama jika MOEIS menukar senarai.
+  var MOEIS_SEBAB = {
+    kategori: [
+      { kod: 'A', label: 'PDPR' },
+      { kod: 'B', label: 'AKTIVITI LUAR SEKOLAH' },
+      { kod: 'D', label: 'MASALAH KESIHATAN' },
+      { kod: 'E', label: 'DIGANTUNG SEKOLAH' },
+      { kod: 'G', label: 'PENGGILIRAN PEPERIKSAAN' },
+      { kod: 'I', label: 'MASALAH PERIBADI' },
+      { kod: 'J', label: 'MASALAH KELUARGA' },
+      { kod: 'K', label: 'ANCAMAN KESELAMATAN' },
+      { kod: 'L', label: 'BENCANA ALAM' },
+      { kod: 'M', label: 'KEBENARAN PENGETUA/GURU BESAR' },
+      { kod: 'N', label: 'PONTENG' },
+      { kod: 'P', label: 'SEKOLAH DALAM HOSPITAL' }
+    ],
+    sebab: {
+      B: ['WAKIL SEKOLAH'],
+      K: ['BINATANG LIAR/BUAS/BERBISA', 'DICULIK', 'GANGGUAN MISTIK/MAKHLUK HALUS',
+        'GANGGUAN KUMPULAN KONGSI GELAP', 'KEBAKARAN', 'PENGGANAS/LANUN',
+        'RUSUHAN DI LUAR KAWASAN SEKOLAH', 'UGUTAN DARIPADA PIHAK LUAR',
+        'MANGSA BULI', 'MANGSA SEKSUAL', 'TIDAK DAPAT DIKESAN/HILANG'],
+      L: ['JEREBU', 'KEMALANGAN', 'BANJIR', 'GEMPA BUMI', 'HUJAN LEBAT/RIBUT TAUFAN',
+        'PENCEMARAN UDARA', 'KEMARAU', 'CUACA PANAS EL NINO', 'PENCEMARAN SISA KIMIA',
+        'PENCEMARAN ALAM', 'TANAH RUNTUH'],
+      E: ['DIGANTUNG SEKOLAH'],
+      J: ['BEKERJA', 'BERPINDAH RANDAH', 'PEREBUTAN HAK PENJAGAAN ANAK',
+        'MENGIKUT KELUARGA BERCUTI/BERKURSUS', 'MENJAGA/MENGURUSKAN AHLI KELUARGA',
+        'MENJAGA AHLI KELUARGA YANG SAKIT', 'KEMATIAN AHLI KELUARGA TERDEKAT',
+        'KEMISKINAN/KESEMPITAN HIDUP', 'MASALAH PENGANGKUTAN', 'MENZIARAHI KELUARGA SAKIT',
+        'BALIK KAMPUNG', 'BERPINDAH KE LUAR NEGARA', 'KRISIS KELUARGA', 'LARI DARI RUMAH'],
+      I: ['TEKANAN PERASAAN/TRAUMA', 'KESAKITAN AKIBAT HAID/PERMULAAN HAID'],
+      A: ['PEMBELAJARAN DI RUMAH'],
+      G: ['URUSAN PEPERIKSAAN'],
+      M: ['HAJI/UMRAH/KEGIATAN AGAMA', 'PEPERIKSAAN/UJIAN SELAIN KPM',
+        'PERTANDINGAN/AKTIVITI SELAIN KPM', 'PROSES PERPINDAHAN SEKOLAH',
+        'TERLIBAT KES JENAYAH', 'TERLIBAT KES TRAFIK', 'URUSAN RASMI AGENSI KERAJAAN',
+        'LATIHAN/UJIAN LESEN MEMANDU', 'TAHANAN PIHAK BERKUASA', 'TERLIBAT PROSIDING MAHKAMAH',
+        'PERLINDUNGAN JABATAN KEBAJIKAN MASYARAKAT', 'CUTI SEMESTER', 'MENJALANI LATIHAN INDUSTRI'],
+      N: ['BANGUN LEWAT', 'MALAS KE SEKOLAH', 'KETAGIHAN GAJET', 'TIDAK MENYIAPKAN KERJA SEKOLAH',
+        'MALAS KE AKTIVITI KOKURIKULUM'],
+      D: ['MAKLUMAN IBU BAPA PENJAGA', 'KECEDERAAN/PATAH TULANG', 'SURAT CUTI SAKIT HOSPITAL/KLINIK',
+        'IMUNISASI RENDAH', 'DEMAM', 'TANTRUM (MBK)', 'TEMUJANJI HOSPITAL/KLINIK',
+        'MENJALANI TERAPI/RAWATAN/KUARANTIN', 'TIDAK MELEPASI SARINGAN KESIHATAN (MBK)',
+        'MENDAPATKAN RAWATAN TRADISIONAL', 'KEMURUNGAN', 'BATUK KOKOL', 'BEGUK', 'CACAR AIR',
+        'CHIKUNGUNYA', 'COVID 19 BERGEJALA', 'COVID 19 DENGAN KEBENARAN IBUBAPA',
+        'COVID 19 DIKUARANTIN', 'COVID 19 PENGGILIRAN', 'DENGGI', 'SWINE FLU (H1N1)', 'HEPATITIS',
+        'HAND, FOOT AND MOUTH DISEASE (HFMD)', 'INFLUENZA', 'JAPANESE ENCEPHALITIS (JE)',
+        'LEPTOSPIROSIS (PENYAKIT KENCING TIKUS)', 'KUDIS BUTA', 'MALARIA', 'MERS COV', 'SAKIT MATA',
+        'SARS', 'TAUN', 'TIBI', 'SAKIT MISTIK', 'SAKIT MENTAL', 'TEKANAN EMOSI'],
+      P: ['SEKOLAH DALAM HOSPITAL']
+    }
+  };
+  function labelKategoriMoeis_(kod) {
+    var k = MOEIS_SEBAB.kategori.find(function (x) { return x.kod === kod; });
+    return k ? k.label : kod;
+  }
+
   var state = {
     token: '', peranan: 'guru', data: null, reviewData: null, kelas: null,
     paneAktif: 'reviewPane',
-    tidakHadir: new Set(), murid: [], sedangSimpan: false,
+    tidakHadir: new Set(), sebabTidakHadir: new Map(), dialogSebab: null,
+    murid: [], sedangSimpan: false,
     uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null,
     guru: [], guruUploadRecords: [], guruUploadFileName: '',
-    cacheSementara: false, tarikhEditIso: '', versiSemakan: 0
+    cacheSementara: false, tarikhEditIso: '', versiSemakan: 0,
+    moeisKelas: []
   };
 
   function $(id) { return document.getElementById(id); }
@@ -198,10 +263,21 @@
     }).map(function (m) { return teks(m.kunci); }));
   }
 
+  function sebabAsal_(murid) {
+    var peta = new Map();
+    (murid || []).forEach(function (m) {
+      if (m.nilai === 0 && m.kategori && m.sebab) {
+        peta.set(teks(m.kunci), { kategori: teks(m.kategori), sebab: teks(m.sebab) });
+      }
+    });
+    return peta;
+  }
+
   function pilihKelas(kelas) {
     if (!kelas) return;
     state.kelas = kelas;
     state.tidakHadir = tidakHadirAsal_(kelas.murid);
+    state.sebabTidakHadir = sebabAsal_(kelas.murid);
     $('emptyState').hidden = true;
     $('attendanceView').hidden = false;
     $('classSelect').value = kelas.nama;
@@ -232,15 +308,14 @@
         btn.appendChild(el('span', 'mini-avatar', norm(m.nama).charAt(0) || '?'));
         var copy = el('span', 'student-copy');
         copy.appendChild(el('strong', '', m.nama));
-        copy.appendChild(el('small', '', state.kelas.nama));
+        var sebabRekod = state.sebabTidakHadir.get(kunci);
+        copy.appendChild(el('small', '', tiada && sebabRekod
+          ? labelKategoriMoeis_(sebabRekod.kategori) + ' · ' + sebabRekod.sebab
+          : state.kelas.nama));
         btn.appendChild(copy);
         btn.appendChild(el('span', 'mark', tiada ? 'Tidak hadir' : 'Hadir'));
         btn.addEventListener('click', function () {
-          if (state.tidakHadir.has(kunci)) state.tidakHadir.delete(kunci);
-          else state.tidakHadir.add(kunci);
-          $('saveHint').textContent = 'Perubahan belum disimpan';
-          kemasKiniRmtHariIni(true);
-          lukisMuridKelas();
+          bukaDialogSebab({ kunci: kunci, nama: m.nama }, 'tanda');
         });
         box.appendChild(btn);
       });
@@ -475,13 +550,25 @@
     });
   }
 
+  function senaraiSebabUntukSimpan_() {
+    return Array.from(state.tidakHadir).map(function (kunci) {
+      var s = state.sebabTidakHadir.get(kunci) || {};
+      return { kunci: kunci, kategori: s.kategori || '', sebab: s.sebab || '' };
+    });
+  }
+
   function simpanKehadiran() {
     if (!state.kelas || state.sedangSimpan || !navigator.onLine) return;
+    var senaraiSebab = senaraiSebabUntukSimpan_();
+    if (senaraiSebab.some(function (s) { return !s.kategori || !s.sebab; })) {
+      $('saveHint').textContent = 'Kategori dan sebab belum lengkap bagi sebahagian murid tidak hadir.';
+      return;
+    }
     state.sedangSimpan = true;
     var siap = mulaButang($('saveAttendanceBtn'), 'Menyimpan…');
     var tarikhSimpan = state.tarikhEditIso || (state.data && state.data.tarikhIso) || '';
     var simpanHariIni = state.data && tarikhSimpan === state.data.tarikhIso;
-    panggil('simpanKehadiran', [state.kelas.nama, Array.from(state.tidakHadir), state.token || '', tarikhSimpan], 45000)
+    panggil('simpanKehadiran', [state.kelas.nama, senaraiSebab, state.token || '', tarikhSimpan], 45000)
       .then(function (r) {
         $('saveHint').textContent = 'Disimpan ' + (r.masa || 'sekarang');
         state.kelas.sudahSimpan = true;
@@ -489,7 +576,11 @@
         state.kelas.rmtHadir = Number(r.rmtHadir || 0);
         state.kelas.rmtJumlah = Number(r.rmtJumlah || 0);
         (state.kelas.murid || []).forEach(function (m) {
-          m.nilai = state.tidakHadir.has(teks(m.kunci)) ? 0 : 1;
+          var kunci = teks(m.kunci);
+          m.nilai = state.tidakHadir.has(kunci) ? 0 : 1;
+          var sebabRekod = state.sebabTidakHadir.get(kunci);
+          m.kategori = m.nilai === 0 && sebabRekod ? sebabRekod.kategori : '';
+          m.sebab = m.nilai === 0 && sebabRekod ? sebabRekod.sebab : '';
         });
         kemasKiniRmtHariIni();
         if (simpanHariIni && state.reviewData && state.data && state.reviewData.tarikhIso === state.data.tarikhIso) {
@@ -512,9 +603,97 @@
   function setSemula() {
     if (!state.kelas) return;
     state.tidakHadir = tidakHadirAsal_(state.kelas.murid);
+    state.sebabTidakHadir = sebabAsal_(state.kelas.murid);
     $('saveHint').textContent = 'Kembali kepada rekod disimpan';
     kemasKiniRmtHariIni();
     lukisMuridKelas();
+  }
+
+  function isiPilihanKategoriSebab_() {
+    var selKategori = $('sebabKategori');
+    selKategori.textContent = '';
+    var kosong = el('option', '', 'Pilih kategori');
+    kosong.value = '';
+    selKategori.appendChild(kosong);
+    MOEIS_SEBAB.kategori.forEach(function (k) {
+      var option = el('option', '', k.kod + ' — ' + k.label);
+      option.value = k.kod;
+      selKategori.appendChild(option);
+    });
+  }
+
+  function isiPilihanSebab_(kodKategori, sebabSedia) {
+    var selSebab = $('sebabSebab');
+    selSebab.textContent = '';
+    var senarai = MOEIS_SEBAB.sebab[kodKategori] || [];
+    var kosong = el('option', '', senarai.length ? 'Pilih sebab' : 'Pilih kategori dahulu');
+    kosong.value = '';
+    selSebab.appendChild(kosong);
+    senarai.forEach(function (s) {
+      var option = el('option', '', s);
+      option.value = s;
+      selSebab.appendChild(option);
+    });
+    selSebab.disabled = !senarai.length;
+    selSebab.value = senarai.indexOf(sebabSedia) > -1 ? sebabSedia : '';
+  }
+
+  function bukaDialogSebab(m, mod, kelasNama) {
+    var kunci = teks(m.kunci);
+    mod = mod || 'tanda';
+    var sediaAda = mod === 'admin' ? null : state.sebabTidakHadir.get(kunci);
+    state.dialogSebab = {
+      kunci: kunci, nama: m.nama, mod: mod,
+      kelasNama: mod === 'admin' ? teks(kelasNama) : (state.kelas ? state.kelas.nama : '')
+    };
+    $('sebabDialogNama').textContent = m.nama;
+    isiPilihanKategoriSebab_();
+    $('sebabKategori').value = sediaAda ? sediaAda.kategori : '';
+    isiPilihanSebab_(sediaAda ? sediaAda.kategori : '', sediaAda ? sediaAda.sebab : '');
+    status($('sebabDialogStatus'), '', '');
+    $('sebabHadirBtn').hidden = mod === 'admin' || !state.tidakHadir.has(kunci);
+    $('sebabDialog').showModal();
+  }
+
+  function simpanSebabDialog(e) {
+    e.preventDefault();
+    var kategori = $('sebabKategori').value;
+    var sebab = $('sebabSebab').value;
+    if (!kategori || !sebab) {
+      status($('sebabDialogStatus'), 'Pilih kategori dan sebab.', 'err');
+      return;
+    }
+    var ctx = state.dialogSebab;
+    if (!ctx) return;
+    if (ctx.mod === 'admin') {
+      var siap = mulaButang($('sebabSimpanBtn'), 'Menyimpan…');
+      panggil('moeisSimpanSebab', [{ kelas: ctx.kelasNama, kunci: ctx.kunci, kategori: kategori, sebab: sebab }, state.token], 20000)
+        .then(function (r) {
+          status($('sebabDialogStatus'), r.mesej || 'Kategori dan sebab dikemas kini.', 'ok');
+          setTimeout(function () { $('sebabDialog').close(); }, 500);
+          return muatMoeisAdmin();
+        }).catch(function (err) {
+          status($('sebabDialogStatus'), err.message, 'err');
+        }).finally(siap);
+      return;
+    }
+    state.tidakHadir.add(ctx.kunci);
+    state.sebabTidakHadir.set(ctx.kunci, { kategori: kategori, sebab: sebab });
+    $('saveHint').textContent = 'Perubahan belum disimpan';
+    kemasKiniRmtHariIni(true);
+    lukisMuridKelas();
+    $('sebabDialog').close();
+  }
+
+  function tandakanHadirDariDialog() {
+    var ctx = state.dialogSebab;
+    if (!ctx || ctx.mod === 'admin') return;
+    state.tidakHadir.delete(ctx.kunci);
+    state.sebabTidakHadir.delete(ctx.kunci);
+    $('saveHint').textContent = 'Perubahan belum disimpan';
+    kemasKiniRmtHariIni(true);
+    lukisMuridKelas();
+    $('sebabDialog').close();
   }
 
   function bukaDialogAdmin() {
@@ -563,7 +742,7 @@
       return;
     }
     state.paneAktif = id;
-    ['attendancePane', 'reviewPane', 'studentSettingsPane', 'teacherSettingsPane', 'studentsPane', 'syncPane'].forEach(function (x) { $(x).hidden = x !== id; });
+    ['attendancePane', 'reviewPane', 'studentSettingsPane', 'teacherSettingsPane', 'studentsPane', 'syncPane', 'moeisPane'].forEach(function (x) { $(x).hidden = x !== id; });
     document.querySelectorAll('.menu-link[data-pane]').forEach(function (b) {
       b.classList.toggle('active', b.dataset.pane === id);
     });
@@ -571,6 +750,7 @@
     if (id === 'studentsPane') muatMuridAdmin();
     if (id === 'studentSettingsPane') muatTetapanMurid();
     if (id === 'teacherSettingsPane') muatGuruAdmin();
+    if (id === 'moeisPane') muatMoeisAdmin();
     if (id === 'reviewPane') {
       state.versiSemakan++;
       state.reviewData = state.data;
@@ -1118,6 +1298,83 @@
     }).finally(siap);
   }
 
+  function muatMoeisAdmin() {
+    status($('moeisStatus'), 'Memuatkan senarai kelas…', '');
+    panggil('moeisSenaraiKelas', [state.token], 30000).then(function (r) {
+      state.moeisKelas = Array.isArray(r) ? r : [];
+      lukisMoeisAdmin();
+      status($('moeisStatus'), '', '');
+    }).catch(function (e) {
+      status($('moeisStatus'), e.message, 'err');
+    });
+  }
+
+  var MOEIS_LABEL_STATUS = {
+    belum_dihantar: 'Belum dihantar', menunggu: 'Menunggu',
+    sedang_dihantar: 'Sedang dihantar', berjaya: 'Berjaya', gagal: 'Gagal'
+  };
+
+  function lukisMoeisAdmin() {
+    var box = $('moeisList');
+    box.textContent = '';
+    if (!state.moeisKelas.length) {
+      box.appendChild(el('div', 'empty-review', 'Tiada kelas aktif hari ini.'));
+      return;
+    }
+    state.moeisKelas.forEach(function (k) {
+      var card = el('article', 'review-card moeis-card');
+      var head = el('div', 'review-card-head');
+      var title = el('div');
+      title.appendChild(el('h2', '', k.nama));
+      title.appendChild(el('p', '', k.bilTidakHadir + ' murid tidak hadir'));
+      head.appendChild(title);
+      var statusPenghantaran = k.mesejPenghantaran && k.statusPenghantaran === 'gagal'
+        ? 'Gagal: ' + k.mesejPenghantaran
+        : (MOEIS_LABEL_STATUS[k.statusPenghantaran] || 'Belum dihantar');
+      head.appendChild(el('span', 'review-state', statusPenghantaran));
+      card.appendChild(head);
+
+      var badan = el('div', 'moeis-card-body');
+      var lengkap = !k.belumLengkap.length;
+      badan.appendChild(el('p', 'moeis-status ' + (lengkap ? 'ok' : 'err'),
+        lengkap ? 'Lengkap' : 'Belum lengkap: ' + k.belumLengkap.length));
+      if (!lengkap) {
+        var ul = el('ul', 'moeis-belum-lengkap');
+        k.belumLengkap.forEach(function (m) {
+          var li = el('li');
+          li.appendChild(el('span', '', m.nama));
+          var btn = el('button', 'soft', 'Lengkapkan');
+          btn.type = 'button';
+          btn.addEventListener('click', function () { bukaDialogSebab(m, 'admin', k.nama); });
+          li.appendChild(btn);
+          ul.appendChild(li);
+        });
+        badan.appendChild(ul);
+      }
+      var hantarBtn = el('button', 'primary wide', 'Hantar');
+      hantarBtn.type = 'button';
+      hantarBtn.disabled = !lengkap || !k.bilTidakHadir ||
+        k.statusPenghantaran === 'menunggu' || k.statusPenghantaran === 'sedang_dihantar' ||
+        k.statusPenghantaran === 'berjaya';
+      hantarBtn.addEventListener('click', function () { hantarMoeis(k.nama); });
+      badan.appendChild(hantarBtn);
+      card.appendChild(badan);
+      box.appendChild(card);
+    });
+  }
+
+  function hantarMoeis(namaKelas) {
+    if (!window.confirm('Cipta tugasan penghantaran MOEIS bagi kelas ' + namaKelas + '?')) return;
+    status($('moeisStatus'), 'Mencipta tugasan…', '');
+    panggil('moeisJobBuat', [namaKelas, state.data && state.data.tarikhIso, state.token], 30000)
+      .then(function (r) {
+        status($('moeisStatus'), r.mesej || 'Tugasan dicipta.', 'ok');
+        return muatMoeisAdmin();
+      }).catch(function (err) {
+        status($('moeisStatus'), err.message, 'err');
+      });
+  }
+
   function bukaMenu() {
     $('sidebar').classList.add('open');
     $('scrim').hidden = false;
@@ -1185,6 +1442,14 @@
   $('teacherCsvFile').addEventListener('change', bacaFailUploadGuru);
   $('teacherUploadForm').addEventListener('submit', uploadGuruCsv);
   $('syncAllBtn').addEventListener('click', syncSemua);
+  $('sebabKategori').addEventListener('change', function () {
+    isiPilihanSebab_($('sebabKategori').value, '');
+  });
+  $('sebabForm').addEventListener('submit', simpanSebabDialog);
+  $('sebabHadirBtn').addEventListener('click', tandakanHadirDariDialog);
+  document.querySelectorAll('.cancel-sebab-dialog').forEach(function (b) {
+    b.addEventListener('click', function () { $('sebabDialog').close(); });
+  });
   document.querySelectorAll('.cancel-admin-login').forEach(function (b) {
     b.addEventListener('click', function () { $('adminLoginDialog').close(); });
   });
@@ -1214,7 +1479,7 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.9.0';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.10.0';
   sambungan();
   daftarPwa();
   muatAwal();
