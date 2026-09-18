@@ -60,7 +60,12 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
         });
       }, LEASE_HEARTBEAT_MS);
 
-      const hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: false });
+      // Matlamat pengguna: selepas admin tekan "Hantar" dan giliran hidup,
+      // rekod mesti siap SEPENUHNYA dalam MOEIS tanpa langkah manual —
+      // iaitu "Simpan & Sahkan", bukan "Simpan" sahaja. Tanpa `sahkan`,
+      // rekod tinggal berstatus "Menunggu pengesahan" di MOEIS dan guru
+      // masih perlu menekan butang pengesahan sendiri.
+      const hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: true });
       log.tulisKerja(klaim.id + '-hantar', (hantar.stdout || '') + (hantar.stderr || ''));
 
       const h = hantar.hasil;

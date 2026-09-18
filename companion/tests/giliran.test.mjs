@@ -78,6 +78,10 @@ test('hasil tersimpan dilaporkan sebagai tersimpan, bukan berjaya, tiada ulang',
   const jalankanTugasanAnak = async (job, opsyen) => {
     panggilan++;
     if (opsyen.mod === 'verifikasi') return { stdout: '', stderr: '', hasil: { status: 'perlu-hantar', perubahan: 1, kod: 0 } };
+    // Kunci tingkah laku: giliran mesti menekan "Simpan & Sahkan", bukan
+    // "Simpan" sahaja — jika tidak, rekod MOEIS tinggal "Menunggu pengesahan"
+    // dan guru terpaksa menyelesaikannya secara manual.
+    assert.equal(opsyen.sahkan, true, 'mod hantar giliran mesti sahkan');
     return { stdout: '', stderr: '', hasil: { status: 'tersimpan', sebab: 'dialog berjaya, pengesahan tidak lengkap', bilHadir: 10, kod: 6 } };
   };
   const log = logPalsu();
