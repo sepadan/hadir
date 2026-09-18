@@ -10,7 +10,16 @@ import path from 'node:path';
 // Profil Playwright BERASINGAN daripada profil Edge harian pengguna —
 // companion tidak pernah menyalin/menyahsulit kredensial Edge sedia ada.
 export async function bukaKonteks(dirData, opsyen) {
-  const { chromium } = await import('playwright-core');
+  let chromium;
+  try {
+    // Import lewat: modul ini kekal boleh diimport tanpa playwright-core.
+    ({ chromium } = await import('playwright-core'));
+  } catch {
+    throw new Error(
+      'Pakej playwright-core tidak dijumpai. Pasang dengan `npm install` di folder companion, ' +
+      'atau guna artifak companion yang sudah menyertakan pakej itu.'
+    );
+  }
   const profilDir = path.join(dirData, 'profil-pelayar');
   return chromium.launchPersistentContext(profilDir, {
     channel: 'msedge', headless: false, viewport: null, ...opsyen
