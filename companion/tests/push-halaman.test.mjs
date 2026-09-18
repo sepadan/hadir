@@ -125,3 +125,43 @@ test('penanda HASIL sah JSON dan kod keluar sepadan status', async () => {
   assert.equal(kodKeluar({ status: 'gagal' }), 8);
   assert.equal(kodKeluar({ status: 'gagal', kod: 11 }), 11);
 });
+
+// Pepijat nyata (18 Sep 2026): tugas "2 CERDIK" gagal dengan "Sesi idMe tamat"
+// walaupun sesi idMe masih sah — MOEIS melencongkan lawatan terus ke dashboard
+// idMe. Enjin mesti mengikut pautan aplikasi idMe SEKALI dan meneruskan kerja.
+test('sesi dilencongkan ke idMe -> lancarkan aplikasi sekali, jangan berhenti', async () => {
+  let semakan = 0;
+  let dilancarkan = 0;
+  const adapterIdMe = {
+    ...buatHalamanPalsu({ muridAwal: MURID_MOEIS_CONTOH }),
+    async semakSesiDanCaptcha() {
+      semakan++;
+      return semakan === 1 ? { sebab: 'Sesi idMe tamat; log masuk manual diperlukan pada PC ini.' } : null;
+    },
+    async urlHalaman() {
+      return semakan === 1
+        ? 'https://idme.moe.gov.my/home'
+        : 'https://moeispel.moe.gov.my/sahsiah/kehadiran/pkhem/tabguru';
+    },
+    async lancarkanAplikasiMoeis() {
+      dilancarkan++;
+      return { ok: true, url: 'https://moeispel.moe.gov.my/' };
+    }
+  };
+  const hasil = await jalankanPengisian(adapterIdMe, JOB_CONTOH, { mod: 'verifikasi' });
+  assert.equal(dilancarkan, 1, 'lancarkanAplikasiMoeis mesti dipanggil tepat sekali');
+  assert.notEqual(hasil.kod, 11, 'tidak boleh berhenti sebagai perluManusia apabila pelancaran berjaya');
+});
+
+test('CAPTCHA/OTP bukan kes idMe: jangan cuba melancarkan aplikasi', async () => {
+  let dilancarkan = 0;
+  const adapterCaptcha = {
+    ...buatHalamanPalsu({ muridAwal: MURID_MOEIS_CONTOH }),
+    async semakSesiDanCaptcha() { return { sebab: 'CAPTCHA/OTP dikesan; perlu campur tangan manusia.' }; },
+    async urlHalaman() { return 'https://moeispel.moe.gov.my/sahsiah/kehadiran/pkhem/tabguru'; },
+    async lancarkanAplikasiMoeis() { dilancarkan++; return { ok: true }; }
+  };
+  const hasil = await jalankanPengisian(adapterCaptcha, JOB_CONTOH, { mod: 'verifikasi' });
+  assert.equal(dilancarkan, 0, 'captcha memerlukan manusia, bukan pelancaran aplikasi');
+  assert.equal(hasil.kod, 11);
+});

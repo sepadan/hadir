@@ -69,7 +69,16 @@ export async function jalankanPengisian(adapter, job, opsyen = {}) {
     // ulangan tanpa had, dan tiada kredensial disentuh.
     let isuSesi = await adapter.semakSesiDanCaptcha();
     if (isuSesi) {
-      const berkaitanIdMe = /idme\.moe\.gov\.my/i.test(JSON.stringify(isuSesi || {}));
+      // Semakan mesti berdasarkan URL SEBENAR. `semakSesiDanCaptcha()` hanya
+      // memulangkan {sebab} tanpa hos, jadi padanan teks pada mesejnya tidak
+      // pernah padan — tugas gagal walaupun sesi idMe masih sah (pepijat nyata
+      // 18 Sep 2026: tugas 2 CERDIK gagal dengan 'Sesi idMe tamat' sedangkan
+      // uji log masuk melaporkan sesi-sah).
+      let urlKini = '';
+      try { urlKini = (await adapter.urlHalaman()) || ''; } catch { urlKini = ''; }
+      let berkaitanIdMe = false;
+      try { berkaitanIdMe = new URL(urlKini).hostname.toLowerCase() === 'idme.moe.gov.my'; } catch { berkaitanIdMe = false; }
+      if (!berkaitanIdMe) berkaitanIdMe = /idme\.moe\.gov\.my/i.test(JSON.stringify(isuSesi || {}));
       if (berkaitanIdMe && typeof adapter.lancarkanAplikasiMoeis === 'function') {
         const lancar = await adapter.lancarkanAplikasiMoeis().catch(() => ({ ok: false }));
         if (lancar && lancar.ok) {
