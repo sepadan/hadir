@@ -79,43 +79,50 @@ test('Origin loopback dengan port berbeza -> 403', async () => {
 
 // Pepijat nyata (18 Sep 2026): butang "Buka tetapan tempatan" dalam HADIR Admin
 // membuka "/" TANPA nonce, jadi guru nampak "Access to 127.0.0.1 was denied".
-// Halaman HADIR tidak boleh membaca nonce (asal berbeza); penyelesaiannya ialah
-// alihan 302 ke URL bernonce, hanya apabila Referer ialah laman HADIR.
-test('[pepijat butang tetapan] GET / tanpa nonce, Referer HADIR -> 302 ke URL bernonce', async () => {
+//
+// Percubaan pertama (semakan Referer) GAGAL dalam pelayar sebenar: log [req]
+// companion menunjukkan `referer=-` kerana pelayar membuang Referer apabila
+// halaman HTTPS menuju ke HTTP. Penyelesaian muktamad: "/" tanpa nonce sentiasa
+// dialihkan ke URL bernonce. Halaman pembuka tidak boleh membaca URL/kandungan
+// tetingkap 127.0.0.1 (asal berbeza), dan setiap /api/lokal/* masih wajib
+// membawa header X-HADIR-Lokal bernonce.
+test('[pepijat butang tetapan] GET / tanpa nonce -> 302 ke URL bernonce', async () => {
   const r = await mintaMentah(port, {
     laluan: '/',
     headers: { Referer: 'https://sepadan.github.io/hadir/' }
   });
   assert.equal(r.status, 302);
   assert.equal(r.headers.location, '/?n=' + encodeURIComponent(NONCE_UJIAN));
+  assert.equal(r.headers['cache-control'], 'no-store');
 });
 
-test('GET / tanpa nonce dan tanpa Referer -> 403 (tiada alihan, tiada cache)', async () => {
+test('GET / tanpa nonce dan TANPA Referer -> tetap 302 (pelayar buang Referer HTTPS->HTTP)', async () => {
   const r = await mintaMentah(port, { laluan: '/' });
-  assert.equal(r.status, 403);
-  assert.equal(r.headers['cache-control'], 'no-store', '403 tidak boleh dicache oleh pelayar');
-});
-
-test('GET / tanpa nonce, Sec-Fetch-Site: none (pengguna taip sendiri) -> 302', async () => {
-  const r = await mintaMentah(port, { laluan: '/', headers: { 'Sec-Fetch-Site': 'none' } });
   assert.equal(r.status, 302);
   assert.equal(r.headers.location, '/?n=' + encodeURIComponent(NONCE_UJIAN));
 });
 
-test('GET / tanpa nonce, Sec-Fetch-Site: cross-site (halaman asing) -> 403', async () => {
+test('GET / tanpa nonce, Sec-Fetch-Site: cross-site -> 302 (halaman pembuka tetap tidak boleh baca nonce)', async () => {
   const r = await mintaMentah(port, { laluan: '/', headers: { 'Sec-Fetch-Site': 'cross-site' } });
-  assert.equal(r.status, 403);
+  assert.equal(r.status, 302);
 });
 
-test('GET / tanpa nonce dengan Referer asing -> 403 (Referer tidak boleh dipalsukan)', async () => {
+test('GET / tanpa nonce dengan Referer asing -> tetap 302, bukan 403', async () => {
   const r = await mintaMentah(port, {
     laluan: '/',
     headers: { Referer: 'https://jahat.invalid/hadir/' }
   });
+  assert.equal(r.status, 302);
+});
+
+test('GET /lokal.js TANPA nonce -> 403 (hanya halaman / yang dialihkan)', async () => {
+  const r = await mintaMentah(port, { laluan: '/lokal.js' });
   assert.equal(r.status, 403);
 });
 
-test('GET / dengan nonce sah tetap dihidangkan 200 (tiada regresi)', async () => {
+test('GET / dengan nonce sah -> 200, no-store dan tidak boleh dibingkaikan', async () => {
   const r = await mintaMentah(port, { laluan: '/?n=' + encodeURIComponent(NONCE_UJIAN) });
   assert.equal(r.status, 200);
+  assert.equal(r.headers['x-frame-options'], 'DENY');
+  assert.match(String(r.headers['content-security-policy'] || ''), /frame-ancestors 'none'/);
 });

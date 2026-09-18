@@ -20,14 +20,21 @@ test('GET /lokal.js?n=<nonce betul> -> 200', async () => {
   assert.equal(r.status, 200);
 });
 
-test('GET / tanpa nonce -> 403', async () => {
+test('GET / tanpa nonce -> 302 alih ke URL bernonce (bukan 403)', async () => {
+  // Perubahan sengaja (18 Sep 2026): butang "Buka tetapan tempatan" dalam HADIR
+  // membuka "/" tanpa nonce, dan pelayar membuang Referer pada navigasi
+  // HTTPS->HTTP, jadi semakan Referer tidak boleh digunakan. "/" kini sentiasa
+  // dialihkan ke URL bernonce; perlindungan sebenar ialah header X-HADIR-Lokal
+  // pada setiap /api/lokal/* (halaman pembuka tidak boleh membacanya).
   const r = await mintaMentah(port, { laluan: '/' });
-  assert.equal(r.status, 403);
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.location, '/?n=' + NONCE_UJIAN);
 });
 
-test('GET /?n=<salah> -> 403', async () => {
+test('GET /?n=<salah> -> 302 alih ke URL bernonce yang betul', async () => {
   const r = await mintaMentah(port, { laluan: '/?n=salah-sama-sekali' });
-  assert.equal(r.status, 403);
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.location, '/?n=' + NONCE_UJIAN);
 });
 
 test('GET /lokal.js tanpa nonce -> 403', async () => {

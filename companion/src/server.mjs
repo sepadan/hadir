@@ -105,23 +105,22 @@ export function buatPelayanHttp(konteks) {
     return pasangan.sahkanToken(token);
   }
 
-  // Adakah permintaan halaman datang daripada laman HADIR yang dibenarkan?
-// Referer ditetapkan oleh pelayar dan tidak boleh dipalsukan oleh halaman web,
-// jadi ia selamat sebagai laluan pemulihan untuk butang "Buka tetapan tempatan"
-// (yang membuka "/" tanpa nonce).
-function rujukanHadirSah(referer, senaraiOrigin) {
-  if (!referer) return false;
-  try {
-    const u = new URL(String(referer));
-    return u.protocol === 'https:' && originDibenarkan(u.origin, senaraiOrigin);
-  } catch {
-    return false;
-  }
-}
-
 async function pengendali(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const laluan = url.pathname;
+
+    // Jejak diagnostik: sesetengah pelayar menghalang halaman awam daripada
+    // membuka 127.0.0.1, jadi kita perlu tahu sama ada permintaan itu sampai
+    // ke sini langsung (baris ini menjawab "pelayar sekat" vs "companion tolak").
+    // Hanya halaman dijejak; panggilan /api/* (giliran/heartbeat) terlalu kerap.
+    if (!laluan.startsWith('/api/')) {
+      console.log(
+        '[req]', new Date().toISOString(), req.method, laluan,
+        'origin=' + (req.headers.origin || '-'),
+        'referer=' + (req.headers.referer || '-'),
+        'sec-fetch-site=' + (req.headers['sec-fetch-site'] || '-')
+      );
+    }
 
     if (!hostSah(req.headers.host, port)) {
       res.writeHead(403); res.end(); return;
@@ -167,19 +166,24 @@ async function pengendali(req, res) {
       const nonceQuery = url.searchParams.get('n');
       if (!nonceSahHeader && !nonceCocok(nonceQuery)) {
         // Butang "Buka tetapan tempatan" dalam HADIR Admin membuka "/" TANPA
-        // nonce, jadi pengguna nampak "Access to 127.0.0.1 was denied" (pepijat
-        // dilaporkan 18 Sep 2026). Alihkan ke URL bernonce dalam DUA kes yang
-        // tidak boleh dipalsukan oleh halaman web:
-        //   1. Referer ialah laman HADIR yang dibenarkan (butang HADIR), atau
-        //   2. Sec-Fetch-Site: none/same-origin (pengguna menaip alamat atau
-        //      menekan pautan sendiri — pelayar menetapkan header ini).
-        // Halaman asing (Sec-Fetch-Site: cross-site) KEKAL 403.
-        // no-store WAJIB: tanpanya pelayar boleh menyimpan 403 itu dan
-        // memaparkan semula tanpa meminta kepada companion (sebab aduan
-        // "masih access denied" walaupun pembetulan sudah dipasang).
-        const secFetch = String(req.headers['sec-fetch-site'] || '');
-        const navigasiPengguna = secFetch === 'none' || secFetch === 'same-origin';
-        if (laluan === '/' && (rujukanHadirSah(req.headers.referer, senaraiOrigin) || navigasiPengguna)) {
+        // nonce, dan pelayar memaparkan "Access to 127.0.0.1 was denied".
+        //
+        // Bukti sebenar (log [req] companion, 18 Sep 2026): permintaan sampai
+        // ke sini dengan `referer=-` — pelayar MEMBUANG Referer apabila halaman
+        // HTTPS menuju ke HTTP (downgrade). Jadi apa-apa semakan berasaskan
+        // Referer tidak boleh berfungsi, dan butang itu akan sentiasa gagal.
+        //
+        // Penyelesaian: alihkan "/" ke URL bernonce untuk SEMUA navigasi tanpa
+        // nonce. Ini tidak melemahkan perlindungan kerana:
+        //   - halaman pembuka (cth. laman asing) TIDAK boleh membaca URL atau
+        //     kandungan tetingkap 127.0.0.1 (asal berbeza) — nonce tidak bocor;
+        //   - semua panggilan /api/lokal/* masih WAJIB membawa header
+        //     X-HADIR-Lokal bernonce (tidak boleh dipalsukan halaman web);
+        //   - halaman UI dihidangkan dengan X-Frame-Options/CSP anti-iframe
+        //     supaya ia tidak boleh dibingkaikan untuk clickjacking.
+        // no-store WAJIB: tanpanya pelayar menyimpan 302/403 dan memaparkan
+        // semula tanpa meminta kepada companion ("masih access denied").
+        if (laluan === '/' && req.method === 'GET') {
           res.writeHead(302, {
             Location: '/?n=' + encodeURIComponent(nonceLokal),
             'Cache-Control': 'no-store'
@@ -210,7 +214,16 @@ async function pengendali(req, res) {
 
   function layanLokalHalaman(req, res, laluan) {
     const teks = laluan === '/' ? konteks.halamanLokalHtml() : konteks.halamanLokalJs();
-    res.writeHead(200, { 'Content-Type': laluan === '/' ? 'text/html; charset=utf-8' : 'application/javascript; charset=utf-8' });
+    const jenis = laluan === '/' ? 'text/html; charset=utf-8' : 'application/javascript; charset=utf-8';
+    // Halaman ini boleh dicapai melalui alihan 302 daripada "/" (lihat nota di
+    // pengendali), jadi ia MESTI tidak boleh dibingkaikan (clickjacking) dan
+    // tidak boleh dicache (URL bernonce tidak boleh bertakung dalam cache).
+    res.writeHead(200, {
+      'Content-Type': jenis,
+      'Cache-Control': 'no-store',
+      'X-Frame-Options': 'DENY',
+      'Content-Security-Policy': "frame-ancestors 'none'"
+    });
     res.end(teks);
   }
 
