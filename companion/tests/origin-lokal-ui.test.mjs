@@ -76,3 +76,34 @@ test('Origin loopback dengan port berbeza -> 403', async () => {
   });
   assert.equal(r.status, 403);
 });
+
+// Pepijat nyata (18 Sep 2026): butang "Buka tetapan tempatan" dalam HADIR Admin
+// membuka "/" TANPA nonce, jadi guru nampak "Access to 127.0.0.1 was denied".
+// Halaman HADIR tidak boleh membaca nonce (asal berbeza); penyelesaiannya ialah
+// alihan 302 ke URL bernonce, hanya apabila Referer ialah laman HADIR.
+test('[pepijat butang tetapan] GET / tanpa nonce, Referer HADIR -> 302 ke URL bernonce', async () => {
+  const r = await mintaMentah(port, {
+    laluan: '/',
+    headers: { Referer: 'https://sepadan.github.io/hadir/' }
+  });
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.location, '/?n=' + encodeURIComponent(NONCE_UJIAN));
+});
+
+test('GET / tanpa nonce dan tanpa Referer -> 403 (tiada alihan)', async () => {
+  const r = await mintaMentah(port, { laluan: '/' });
+  assert.equal(r.status, 403);
+});
+
+test('GET / tanpa nonce dengan Referer asing -> 403 (Referer tidak boleh dipalsukan)', async () => {
+  const r = await mintaMentah(port, {
+    laluan: '/',
+    headers: { Referer: 'https://jahat.invalid/hadir/' }
+  });
+  assert.equal(r.status, 403);
+});
+
+test('GET / dengan nonce sah tetap dihidangkan 200 (tiada regresi)', async () => {
+  const r = await mintaMentah(port, { laluan: '/?n=' + encodeURIComponent(NONCE_UJIAN) });
+  assert.equal(r.status, 200);
+});

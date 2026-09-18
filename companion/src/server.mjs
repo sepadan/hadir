@@ -105,7 +105,21 @@ export function buatPelayanHttp(konteks) {
     return pasangan.sahkanToken(token);
   }
 
-  async function pengendali(req, res) {
+  // Adakah permintaan halaman datang daripada laman HADIR yang dibenarkan?
+// Referer ditetapkan oleh pelayar dan tidak boleh dipalsukan oleh halaman web,
+// jadi ia selamat sebagai laluan pemulihan untuk butang "Buka tetapan tempatan"
+// (yang membuka "/" tanpa nonce).
+function rujukanHadirSah(referer, senaraiOrigin) {
+  if (!referer) return false;
+  try {
+    const u = new URL(String(referer));
+    return u.protocol === 'https:' && originDibenarkan(u.origin, senaraiOrigin);
+  } catch {
+    return false;
+  }
+}
+
+async function pengendali(req, res) {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const laluan = url.pathname;
 
@@ -151,7 +165,19 @@ export function buatPelayanHttp(konteks) {
 
     if (LALUAN_LOKAL_HALAMAN.has(laluan)) {
       const nonceQuery = url.searchParams.get('n');
-      if (!nonceSahHeader && !nonceCocok(nonceQuery)) { res.writeHead(403); res.end(); return; }
+      if (!nonceSahHeader && !nonceCocok(nonceQuery)) {
+        // Butang "Buka tetapan tempatan" dalam HADIR Admin membuka "/" TANPA
+        // nonce, jadi pengguna nampak "Access to 127.0.0.1 was denied" (pepijat
+        // dilaporkan 18 Sep 2026). Alihkan ke URL bernonce HANYA apabila
+        // permintaan datang daripada halaman HADIR sendiri (Referer tidak boleh
+        // dipalsukan oleh halaman lain). Halaman asing kekal 403.
+        if (laluan === '/' && rujukanHadirSah(req.headers.referer, senaraiOrigin)) {
+          res.writeHead(302, { Location: '/?n=' + encodeURIComponent(nonceLokal) });
+          res.end();
+          return;
+        }
+        res.writeHead(403); res.end(); return;
+      }
       return layanLokalHalaman(req, res, laluan);
     }
 
