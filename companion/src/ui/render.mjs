@@ -163,7 +163,7 @@ export function halamanLokalJs() {
         'Status: ' + r.status + '\\n' +
         'Hos: ' + (r.hos || '-') + '\\n' +
         'Kunci keselamatan: ' + (r.kunci || '-') +
-        (r.perluManusia ? '\\nPerlu log masuk manual pada PC ini.' : '')
+        (r.sebab ? '\\n' + r.sebab : (r.perluManusia ? '\\nPerlu log masuk manual pada PC ini.' : ''))
       );
       muatStatus();
     });

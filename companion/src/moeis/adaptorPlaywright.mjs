@@ -31,6 +31,21 @@ export function buatAdaptorPlaywright(page) {
     async tajuk() {
       return page.title();
     },
+    // Adakah borang log masuk idMe sedang dipaparkan? Membolehkan sesi.mjs
+    // membezakan "belum log masuk langsung" daripada "sudah log masuk idMe
+    // tetapi aplikasi MOEIS belum dilancarkan dari portal" — dua keadaan yang
+    // memerlukan tindakan pengguna yang berbeza.
+    async adaBorangLogMasuk() {
+      return page
+        .evaluate(
+          () =>
+            !!document.querySelector(
+              'input[type=password], input[name*="kata" i], input[name*=pass i],' +
+                'input[placeholder*="KAD PENGENALAN" i], input[name*="pengenalan" i]'
+            )
+        )
+        .catch(() => false);
+    },
     async urlHalaman() {
       return page.url();
     },

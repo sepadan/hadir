@@ -57,6 +57,28 @@ export async function jalankanUjiLogin(adapter, { kunciDijangka } = {}) {
     // JANGAN klik kotak semak/hantar borang — hanya laporkan apa yang
     // dibaca. Log masuk sebenar ialah tindakan MANUSIA (lihat
     // bin/log-masuk-manual.mjs).
+    //
+    // Dua keadaan berbeza boleh berakhir di hos idMe, dan tindakan pengguna
+    // berbeza sama sekali:
+    //   - borang log masuk kelihatan  -> belum log masuk
+    //   - tiada borang (dashboard)    -> sudah log masuk idMe, tetapi aplikasi
+    //     MOEIS belum dilancarkan dari portal, jadi lawatan terus ke MOEIS
+    //     dilencongkan kembali ke dashboard idMe.
+    const borang =
+      typeof adapter.adaBorangLogMasuk === 'function' ? await adapter.adaBorangLogMasuk() : true;
+    if (!borang) {
+      return {
+        status: 'idme-sah-moeis-belum',
+        hos: HOS_IDME_SAH,
+        kunci,
+        perluManusia: true,
+        sebab:
+          'Log masuk idMe sudah berjaya, tetapi aplikasi MOEIS belum dibuka. ' +
+          'Dalam tetingkap log masuk: tekan Aplikasi → pilih MOEIS (Pengurusan Murid), ' +
+          'tunggu senarai murid muncul, kemudian tekan Uji log masuk semula.',
+        bukti: ['hos-sah:' + sah.hos, 'kunci:' + kunci, 'tiada-borang-log-masuk']
+      };
+    }
     return {
       status: 'sesi-tamat', hos: HOS_IDME_SAH, kunci, perluManusia: true,
       bukti: ['hos-sah:' + sah.hos, 'kunci:' + kunci]

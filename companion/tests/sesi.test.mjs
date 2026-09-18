@@ -115,6 +115,28 @@ test('adaSesiMoeis: pulangkan boolean, true hanya bagi sesi-sah', async () => {
 });
 
 // ---------------- Tiada tulisan sepanjang uji log masuk ----------------
+// Pepijat nyata (18 Sep 2026): selepas guru log masuk idMe, lawatan terus ke
+// MOEIS dilencongkan ke DASHBOARD idMe, bukan ke borang log masuk. Laporan
+// lama berkata "sesi tamat / perlu log masuk manual" sedangkan guru sudah log
+// masuk; tindakan yang perlu ialah melancarkan aplikasi MOEIS dari portal idMe.
+test('jalankanUjiLogin: dashboard idMe (tiada borang) -> idme-sah-moeis-belum', async () => {
+  const asas = buatHalamanPalsu({ muridAwal: MURID_MOEIS_CONTOH, urlAwal: 'https://idme.moe.gov.my/home' });
+  const dashboard = { ...asas, adaBorangLogMasuk: async () => false };
+  const r = await jalankanUjiLogin(dashboard, {});
+  assert.equal(r.status, 'idme-sah-moeis-belum');
+  assert.equal(r.perluManusia, true);
+  assert.match(r.sebab, /Aplikasi/);
+  // Bukan sesi sah — giliran mesti kekal fail-closed.
+  assert.equal(await adaSesiMoeis(dashboard), false);
+});
+
+test('jalankanUjiLogin: borang log masuk kelihatan -> sesi-tamat', async () => {
+  const asas = buatHalamanPalsu({ muridAwal: MURID_MOEIS_CONTOH, urlAwal: 'https://idme.moe.gov.my/login' });
+  const borang = { ...asas, adaBorangLogMasuk: async () => true };
+  const r = await jalankanUjiLogin(borang, {});
+  assert.equal(r.status, 'sesi-tamat');
+});
+
 test('jalankanUjiLogin tidak pernah klik simpan/kemaskini walau apa jua senario', async () => {
   const senario = [
     { urlAwal: 'https://idme.moe.gov.my/log-masuk', kunciKeselamatan: 'X' },
