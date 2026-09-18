@@ -168,15 +168,28 @@ async function pengendali(req, res) {
       if (!nonceSahHeader && !nonceCocok(nonceQuery)) {
         // Butang "Buka tetapan tempatan" dalam HADIR Admin membuka "/" TANPA
         // nonce, jadi pengguna nampak "Access to 127.0.0.1 was denied" (pepijat
-        // dilaporkan 18 Sep 2026). Alihkan ke URL bernonce HANYA apabila
-        // permintaan datang daripada halaman HADIR sendiri (Referer tidak boleh
-        // dipalsukan oleh halaman lain). Halaman asing kekal 403.
-        if (laluan === '/' && rujukanHadirSah(req.headers.referer, senaraiOrigin)) {
-          res.writeHead(302, { Location: '/?n=' + encodeURIComponent(nonceLokal) });
+        // dilaporkan 18 Sep 2026). Alihkan ke URL bernonce dalam DUA kes yang
+        // tidak boleh dipalsukan oleh halaman web:
+        //   1. Referer ialah laman HADIR yang dibenarkan (butang HADIR), atau
+        //   2. Sec-Fetch-Site: none/same-origin (pengguna menaip alamat atau
+        //      menekan pautan sendiri — pelayar menetapkan header ini).
+        // Halaman asing (Sec-Fetch-Site: cross-site) KEKAL 403.
+        // no-store WAJIB: tanpanya pelayar boleh menyimpan 403 itu dan
+        // memaparkan semula tanpa meminta kepada companion (sebab aduan
+        // "masih access denied" walaupun pembetulan sudah dipasang).
+        const secFetch = String(req.headers['sec-fetch-site'] || '');
+        const navigasiPengguna = secFetch === 'none' || secFetch === 'same-origin';
+        if (laluan === '/' && (rujukanHadirSah(req.headers.referer, senaraiOrigin) || navigasiPengguna)) {
+          res.writeHead(302, {
+            Location: '/?n=' + encodeURIComponent(nonceLokal),
+            'Cache-Control': 'no-store'
+          });
           res.end();
           return;
         }
-        res.writeHead(403); res.end(); return;
+        res.writeHead(403, { 'Cache-Control': 'no-store' });
+        res.end();
+        return;
       }
       return layanLokalHalaman(req, res, laluan);
     }

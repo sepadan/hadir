@@ -90,8 +90,20 @@ test('[pepijat butang tetapan] GET / tanpa nonce, Referer HADIR -> 302 ke URL be
   assert.equal(r.headers.location, '/?n=' + encodeURIComponent(NONCE_UJIAN));
 });
 
-test('GET / tanpa nonce dan tanpa Referer -> 403 (tiada alihan)', async () => {
+test('GET / tanpa nonce dan tanpa Referer -> 403 (tiada alihan, tiada cache)', async () => {
   const r = await mintaMentah(port, { laluan: '/' });
+  assert.equal(r.status, 403);
+  assert.equal(r.headers['cache-control'], 'no-store', '403 tidak boleh dicache oleh pelayar');
+});
+
+test('GET / tanpa nonce, Sec-Fetch-Site: none (pengguna taip sendiri) -> 302', async () => {
+  const r = await mintaMentah(port, { laluan: '/', headers: { 'Sec-Fetch-Site': 'none' } });
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.location, '/?n=' + encodeURIComponent(NONCE_UJIAN));
+});
+
+test('GET / tanpa nonce, Sec-Fetch-Site: cross-site (halaman asing) -> 403', async () => {
+  const r = await mintaMentah(port, { laluan: '/', headers: { 'Sec-Fetch-Site': 'cross-site' } });
   assert.equal(r.status, 403);
 });
 
