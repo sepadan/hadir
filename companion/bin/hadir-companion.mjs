@@ -131,9 +131,14 @@ function jalankanAnakSkrip(skripRelatif, args, timeoutMs) {
 
 async function main() {
   if (perintah === 'kod-pasangan') {
-    const simpananGeneric = buatSimpananRahsia({ dirData });
-    const pengurus = buatPengurusPasangan({ simpanan: simpananGeneric });
-    console.log('Kod pasangan (sah 10 minit, sekali guna):', pengurus.janaKodPasangan());
+    // Kod pasangan hidup dalam MEMORI proses `serve` sahaja. Menjananya di sini
+    // menghasilkan kod dalam proses yang terus keluar — pelayan tidak pernah
+    // melihatnya, jadi ia sentiasa gagal. Arahkan pengguna ke UI tempatan.
+    console.log('Kod pasangan tidak boleh dijana dari terminal.');
+    console.log('Kod hidup dalam memori proses `serve`. Langkah betul:');
+    console.log('  1. Jalankan: node bin/hadir-companion.mjs serve');
+    console.log('  2. Buka URL "Buka tetapan tempatan" yang dipaparkan (mengandungi nonce)');
+    console.log('  3. Tekan "Jana kod pasangan" di situ, kemudian masukkan kod di HADIR Admin → Sambung PC');
     return;
   }
 
