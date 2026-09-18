@@ -6,6 +6,7 @@
 // docs/PEMASANGAN.md. Selektor diwarisi daripada moeis-bot/push.mjs
 // (rujukan baca sahaja, projek itu tidak disentuh).
 import { adalahHosIdMe } from './sesi.mjs';
+import { URL_APLIKASI_IDME, pilihPautanAplikasiMoeis, HOS_MOEIS } from './aplikasi.mjs';
 
 const URL_KEHADIRAN_HARIAN = 'https://moeispel.moe.gov.my/sahsiah/kehadiran/pkhem/tabguru';
 const jeda = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -48,6 +49,32 @@ export function buatAdaptorPlaywright(page) {
     },
     async urlHalaman() {
       return page.url();
+    },
+    // Ikut pautan aplikasi MOEIS pada portal idMe supaya sesi MOEIS terbentuk.
+    // Ini NAVIGASI sahaja: tiada kata laluan ditaip, tiada kotak semak log
+    // masuk ditekan, tiada borang dihantar. Tanpa langkah ini, lawatan terus ke
+    // moeispel.moe.gov.my dilencongkan kembali ke dashboard idMe.
+    async lancarkanAplikasiMoeis() {
+      await page.goto(URL_APLIKASI_IDME, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await jeda(4000);
+      const senarai = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('a')).map((a) => ({
+          teks: (a.innerText || '').replace(/\s+/g, ' ').trim(),
+          href: a.getAttribute('href') || ''
+        }))
+      );
+      const pilih = pilihPautanAplikasiMoeis(senarai);
+      if (!pilih) return { ok: false, sebab: 'Pautan aplikasi MOEIS tidak dijumpai pada halaman Aplikasi idMe.' };
+      await page.goto(pilih.href, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await jeda(8000);
+      const urlAkhir = page.url();
+      let hos = '';
+      try { hos = new URL(urlAkhir).hostname.toLowerCase(); } catch { hos = ''; }
+      return {
+        ok: hos === HOS_MOEIS,
+        url: urlAkhir,
+        sebab: hos === HOS_MOEIS ? null : 'Selepas mengikut pautan aplikasi, hos ialah ' + (hos || '(tiada)')
+      };
     },
     // Kunci keselamatan anti-pancing idMe: cuba beberapa selektor teks yang
     // munasabah; jika tiada satu pun ditemui, pulangkan null (JANGAN gagal

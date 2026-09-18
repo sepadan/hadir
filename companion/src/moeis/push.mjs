@@ -63,9 +63,23 @@ export async function jalankanPengisian(adapter, job, opsyen = {}) {
 
   try {
     await adapter.navigasiHarian();
-    const isuSesi = await adapter.semakSesiDanCaptcha();
+    // Sesi idMe mungkin masih sah, cuma aplikasi MOEIS belum dilancarkan
+    // (lawatan terus ke moeispel dilencongkan ke dashboard idMe). Cuba ikut
+    // pautan aplikasi idMe SEKALI sahaja, kemudian semak semula — tiada
+    // ulangan tanpa had, dan tiada kredensial disentuh.
+    let isuSesi = await adapter.semakSesiDanCaptcha();
     if (isuSesi) {
-      return hasilAsas(job, { status: 'gagal', sebab: isuSesi.sebab || 'Perlu campur tangan manusia.', kod: 11, perluManusia: true });
+      const berkaitanIdMe = /idme\.moe\.gov\.my/i.test(JSON.stringify(isuSesi || {}));
+      if (berkaitanIdMe && typeof adapter.lancarkanAplikasiMoeis === 'function') {
+        const lancar = await adapter.lancarkanAplikasiMoeis().catch(() => ({ ok: false }));
+        if (lancar && lancar.ok) {
+          await adapter.navigasiHarian();
+          isuSesi = await adapter.semakSesiDanCaptcha();
+        }
+      }
+      if (isuSesi) {
+        return hasilAsas(job, { status: 'gagal', sebab: isuSesi.sebab || 'Perlu campur tangan manusia.', kod: 11, perluManusia: true });
+      }
     }
 
     const awal = await bukaDanBacaKeadaan(adapter, { tahun: peta.tahun, kelas: peta.kelas, tarikhIso: job.tarikhIso });

@@ -28,6 +28,21 @@ async function main() {
   let hasil;
   try {
     hasil = await jalankanUjiLogin(adapter, { kunciDijangka });
+    // Guru sudah log masuk idMe tetapi aplikasi MOEIS belum dilancarkan:
+    // ikut pautan aplikasi pada portal idMe (NAVIGASI sahaja — tiada kata
+    // laluan, tiada kotak semak log masuk, tiada borang dihantar), kemudian
+    // semak semula. Inilah satu-satunya tindakan bukan-baca dalam ujian ini.
+    if (hasil.status === 'idme-sah-moeis-belum' && typeof adapter.lancarkanAplikasiMoeis === 'function') {
+      const lancar = await adapter.lancarkanAplikasiMoeis();
+      if (lancar.ok) {
+        const semula = await jalankanUjiLogin(adapter, { kunciDijangka });
+        hasil = Object.assign({}, semula, { dilancarkan: true });
+      } else {
+        hasil = Object.assign({}, hasil, {
+          sebab: String(hasil.sebab || '') + ' Cubaan melancarkan aplikasi gagal: ' + (lancar.sebab || 'tidak diketahui')
+        });
+      }
+    }
   } finally {
     await context.close().catch(() => {});
   }

@@ -54,6 +54,25 @@ Giliran penghantaran **MATI secara lalai**. Tekan **Mula giliran** di HADIR
 Admin apabila sedia — biasanya selepas menyemak beberapa kelas menggunakan
 **Uji log masuk (tanpa tulis)**.
 
+## Sesi idMe dan pelancaran aplikasi MOEIS
+
+Log masuk idMe sah **tidak mencukupi** dengan sendirinya: selagi aplikasi MOEIS
+belum dibuka daripada portal idMe, sebarang lawatan terus ke
+`moeispel.moe.gov.my` dilencongkan kembali ke dashboard idMe (bukan ke borang
+log masuk). Companion menangani ini secara automatik:
+
+- **Uji log masuk** — jika mendapati sesi idMe sah tetapi MOEIS belum dibuka,
+  companion mengikut pautan aplikasi **Pengurusan Murid** pada halaman
+  `idme.moe.gov.my/list_aplikasi` (pautan itu membawa token SSO sekali guna),
+  kemudian menyemak semula. Hasil akhir melaporkan `dilancarkan: true`.
+- **Enjin penghantaran** — jika navigasi ke halaman kehadiran dilencongkan ke
+  idMe, langkah yang sama dicuba **sekali sahaja** sebelum berhenti dengan
+  status *perlu campur tangan manusia*.
+
+Ini **navigasi sahaja**: companion tidak menaip kata laluan, tidak menekan
+kotak semak log masuk, dan tidak menghantar borang log masuk (disahkan oleh
+ujian sumber dalam `tests/sesi.test.mjs`).
+
 ## Autostart (opt-in sahaja)
 
 Tiada apa didaftarkan secara automatik. Untuk mulakan companion semasa log
