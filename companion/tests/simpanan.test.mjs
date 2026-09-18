@@ -55,10 +55,10 @@ test('bacaTetapan: nilai rosak (bukan JSON sah) gagal tertutup kepada lalai sela
   fs.rmSync(dirData, { recursive: true, force: true });
 });
 
-test('bacaTetapan: intervalSaat < 10 dipaksa naik kepada 10 (minimum giliran)', () => {
+test('bacaTetapan: intervalSaat < 30 dipaksa naik kepada 30 (minimum giliran)', () => {
   const dirData = fs.mkdtempSync(path.join(os.tmpdir(), 'hadir-tetapan-'));
   tulisTetapanAtomik(dirData, { ...TETAPAN_LALAI, intervalSaat: 2 });
-  assert.equal(bacaTetapan(dirData).intervalSaat, 10);
+  assert.equal(bacaTetapan(dirData).intervalSaat, 30);
   fs.rmSync(dirData, { recursive: true, force: true });
 });
 

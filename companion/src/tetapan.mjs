@@ -21,7 +21,11 @@ export const TETAPAN_LALAI = Object.freeze({
   port: 8747,
   apiUrl: 'https://script.google.com/macros/s/AKfycbzqppwOPHQZz7dZe9OW3Hbhf1nA5wdfqBeQUUXmOxrt1ILDezw_HsLE4wgpbKMt8hbe/exec',
   label: '',
-  intervalSaat: 20,
+  // Selang giliran lalai 90 saat. Setiap kitaran = satu POST ke Apps Script.
+  // Selang 20 saat (180 permintaan/jam) pernah mencetuskan sekatan sementara
+  // Google pada titik pemulangan data untuk IP PC itu; kehadiran tidak perlu
+  // diproses dalam beberapa detik, jadi 90 saat lebih selamat dan tetap pantas.
+  intervalSaat: 90,
   autostart: false,
   // Frasa "kunci keselamatan" anti-pancing idMe yang admin jangkakan dilihat
   // semasa log masuk (pilihan, bukan rahsia — nilai ini hanya untuk banding
@@ -41,7 +45,7 @@ export function bacaTetapan(dirData) {
   try {
     const mentah = JSON.parse(fs.readFileSync(laluan, 'utf8'));
     const gabungan = { ...TETAPAN_LALAI, ...mentah };
-    if (!Number.isFinite(gabungan.intervalSaat) || gabungan.intervalSaat < 10) gabungan.intervalSaat = 10;
+    if (!Number.isFinite(gabungan.intervalSaat) || gabungan.intervalSaat < 30) gabungan.intervalSaat = 30;
     gabungan.originDibenarkan = sahkanSenaraiOrigin(gabungan.originDibenarkan);
     return gabungan;
   } catch {

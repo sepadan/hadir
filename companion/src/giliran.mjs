@@ -178,7 +178,9 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
   function mulakan(intervalSaat) {
     if (state.aktif) return;
     state.aktif = true;
-    const jeda = Math.max(10, Number(intervalSaat) || 20) * 1000;
+    // Had bawah 30 saat: selang lebih rapat daripada ini membebankan Apps Script
+    // dan boleh mencetuskan sekatan sementara IP (lihat TETAPAN_LALAI.tetapan).
+    const jeda = Math.max(30, Number(intervalSaat) || 90) * 1000;
     state.timer = setInterval(() => { jalankanSatuKitaran().catch(() => {}); }, jeda);
     if (state.timer.unref) state.timer.unref();
   }
