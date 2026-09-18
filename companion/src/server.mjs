@@ -116,9 +116,18 @@ export function buatPelayanHttp(konteks) {
     const origin = req.headers.origin || '';
     const senaraiOrigin = originDibenarkanSenarai();
     const originOk = origin ? originDibenarkan(origin, senaraiOrigin) : false;
+    // Halaman "Tetapan Companion" dihidangkan dari origin loopback ini sendiri,
+    // dan pelayar menghantar Origin itu pada setiap POST serta preflight yang
+    // dicetuskan oleh header X-HADIR-Lokal. Origin ini dibenarkan HANYA untuk
+    // laluan /api/lokal/* yang masih mewajibkan nonce sah (LALUAN_LOKAL_API).
+    // Laluan lain dengan origin loopback kekal ditolak seperti origin asing.
+    const originLokalUI =
+      !!origin && (origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`);
+    const laluanLokal = LALUAN_LOKAL_API.has(laluan);
+    const originDiterima = originOk || (originLokalUI && laluanLokal);
 
     if (req.method === 'OPTIONS') {
-      if (origin && originOk) {
+      if (originDiterima) {
         tetapkanHeaderPreflight(res, origin);
         res.writeHead(204); res.end();
       } else {
@@ -127,10 +136,10 @@ export function buatPelayanHttp(konteks) {
       return;
     }
 
-    if (origin && !originOk) {
+    if (origin && !originDiterima) {
       res.writeHead(403); res.end(JSON.stringify({ ok: false, ralat: 'Origin tidak dibenarkan.' })); return;
     }
-    if (origin && originOk) tetapkanHeaderCorsPenuh(res, origin);
+    if (origin && originDiterima) tetapkanHeaderCorsPenuh(res, origin);
 
     function nonceCocok(diberi) {
       const s = String(diberi || '');
