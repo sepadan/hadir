@@ -70,14 +70,14 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
 
       const h = hantar.hasil;
       if (h.status === 'disahkan') {
-        await klien.selesai(klaim.id, 'berjaya', h.sebab, h.bilHadir ?? '', pemilik);
+        await laporHasil(klaim.id, 'berjaya', h.sebab, h.bilHadir);
         return { id: klaim.id, keputusan: 'berjaya', mesej: h.sebab };
       }
       if (h.status === 'tersimpan') {
-        await klien.selesai(klaim.id, 'tersimpan', h.sebab, h.bilHadir ?? '', pemilik);
+        await laporHasil(klaim.id, 'tersimpan', h.sebab, h.bilHadir);
         return { id: klaim.id, keputusan: 'tersimpan', mesej: h.sebab };
       }
-      await klien.selesai(klaim.id, 'gagal', h.sebab, '', pemilik);
+      await laporHasil(klaim.id, 'gagal', h.sebab, '');
       return { id: klaim.id, keputusan: 'gagal', mesej: h.sebab };
     } catch (ralat) {
       log.tulisKerja(klaim.id + '-ralat', String(ralat && ralat.stack || ralat));
@@ -87,6 +87,28 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
       if (heartbeat) clearInterval(heartbeat);
       state.kerjaSemasa = null;
     }
+  }
+
+  // Laporan status ke HADIR ialah kemas kini IDEMPOTEN (id tugasan + status
+  // sama) — berbeza daripada penulisan kehadiran ke MOEIS. Apps Script kadang
+  // memulangkan 404/halaman HTML sementara, dan kita tidak boleh melaporkan
+  // penulisan MOEIS yang SUDAH BERJAYA sebagai gagal hanya kerana laporan itu
+  // tersekat. Pepijat nyata 18 Sep 2026: tugas 2 CERDIK "disahkan" di MOEIS
+  // tetapi HADIR menerima "Ralat runner: Balasan bukan JSON (status 404)".
+  // Jadi laporan dicuba semula sehingga 3 kali; penulisan MOEIS tidak pernah
+  // diulang.
+  async function laporHasil(id, keputusan, mesej, bilHadir) {
+    let ralatTerakhir = null;
+    for (let cubaan = 1; cubaan <= 3; cubaan++) {
+      try {
+        await klien.selesai(id, keputusan, mesej, bilHadir ?? '', pemilik);
+        return true;
+      } catch (ralat) {
+        ralatTerakhir = ralat;
+        await new Promise((r) => setTimeout(r, 2000 * cubaan));
+      }
+    }
+    throw ralatTerakhir;
   }
 
   async function jalankanSatuKitaran() {

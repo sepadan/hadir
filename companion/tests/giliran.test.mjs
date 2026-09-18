@@ -139,6 +139,35 @@ test('tiada job menunggu -> tiada panggilan hantar/selesai', async () => {
   assert.equal(dipanggil, false);
 });
 
+// Pepijat nyata (18 Sep 2026): penulisan kehadiran BERJAYA di MOEIS (status
+// 'disahkan', 23 hadir / 1 tidak hadir) tetapi laporan ke HADIR gagal kerana
+// Apps Script memulangkan 404, jadi HADIR memaparkan "Ralat runner" sedangkan
+// rekod sudah siap. Laporan status ialah kemas kini idempoten — ia boleh dan
+// mesti dicuba semula; penulisan MOEIS TIDAK boleh diulang.
+test('laporan ke HADIR dicuba semula selepas 404, penulisan MOEIS tidak diulang', async () => {
+  const klien = klienPalsu([{ id: 'j9', status: 'menunggu', kelas: '2 CERDIK', tarikhIso: '2026-09-18', murid: [] }]);
+  const selesaiAsal = klien.selesai.bind(klien);
+  let panggilanLapor = 0;
+  klien.selesai = async (...args) => {
+    panggilanLapor++;
+    if (panggilanLapor <= 2) throw new Error('Balasan bukan JSON (status 404).');
+    return selesaiAsal(...args);
+  };
+  let modHantar = 0;
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    if (opsyen.mod === 'hantar') modHantar++;
+    if (opsyen.mod === 'verifikasi') return { stdout: '', stderr: '', hasil: { status: 'perlu-hantar', perubahan: 1, kod: 0 } };
+    return { stdout: '', stderr: '', hasil: { status: 'disahkan', sebab: 'Pengesahan selepas muat semula berjaya.', bilHadir: 23, kod: 0 } };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak });
+  await g.jalankanSatuKitaran();
+
+  assert.equal(panggilanLapor, 3, 'laporan dicuba semula sehingga berjaya');
+  assert.equal(klien._selesaiPanggilan.length, 1, 'hanya satu laporan berjaya dicatat');
+  assert.equal(klien._selesaiPanggilan[0].keputusan, 'berjaya', 'hasil sebenar MOEIS mesti dilaporkan sebagai berjaya');
+  assert.equal(modHantar, 1, 'penulisan MOEIS tidak boleh diulang');
+});
+
 // ---------------- F2: /api/kerja-jalan mesti jalankan SATU tugasan sahaja ----------------
 
 test('giliran.jalankanTugasan: memproses hanya id yang diminta, mengabaikan tugasan lain', async () => {
