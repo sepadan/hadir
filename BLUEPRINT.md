@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.10 · 17 September 2026**
+**Versi 2.11 · 18 September 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -108,7 +108,7 @@ Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `bukaKehadiranTarikh`,
 `simpanMurid`, `simpanTetapanMurid`, `uploadMuridCsv`, `syncSemua`,
 `senaraiGuru`, `simpanGuru`, `nyahaktifGuru`, `uploadGuruCsv`, `syncGuru`, `terimaSyncMurid`,
 `terimaSyncGuru`, `moeisSenaraiKelas`, `moeisSimpanSebab`, `moeisJobBuat`,
-`moeisJobSenarai`, `moeisJobSelesai`.
+`moeisJobSenarai`, `moeisJobSelesai`, `moeisJobKlaim`, `moeisJobLepas`.
 
 `semakKehadiran(tarikhIso)` ialah bacaan awam bagi tahun semasa. Tarikh mesti
 berformat `YYYY-MM-DD`, tidak boleh melebihi hari ini, dan ditukar kepada tajuk
@@ -165,19 +165,101 @@ dikemas kini bersama jika MOEIS menukar senarainya.
   tugasan sebelumnya berstatus `gagal` (`hadirMoeisBolehCiptaJob_`), yang mana
   ia boleh dicuba semula.
 - HADIR **tidak pernah** menghubungi MOEIS. `moeisJobBuat` hanya menulis
-  baris tugasan; enjin Playwright berasingan pada PC guru (projek
-  `moeis-bot`) mengambil tugasan menerusi `moeisJobSenarai` dan melaporkan
-  keputusan menerusi `moeisJobSelesai`, kedua-duanya disahkan dengan rahsia
-  Script Properties `HADIR_MOEIS_ENGINE_SECRET` (corak sama seperti
-  `SEPADAN_SYNC_SECRET`) — bukan token admin, kerana enjin berjalan tanpa
-  pengawasan. `moeisJobSenarai` memulangkan IC dan senarai murid hanya pada
-  laluan rahsia enjin; paparan admin tidak menerima IC.
+  baris tugasan; enjin Playwright berasingan pada PC guru (kini **Enjin PC
+  (Companion)** rasmi dalam `companion/` — lihat bahagian 5.2 — gantian
+  prototaip `moeis-bot`) mengambil tugasan menerusi `moeisJobSenarai` dan
+  melaporkan keputusan menerusi `moeisJobSelesai`, kedua-duanya disahkan
+  dengan rahsia Script Properties `HADIR_MOEIS_ENGINE_SECRET` (corak sama
+  seperti `SEPADAN_SYNC_SECRET`) — bukan token admin, kerana enjin berjalan
+  tanpa pengawasan. `moeisJobSenarai` memulangkan IC dan senarai murid hanya
+  pada laluan rahsia enjin; paparan admin tidak menerima IC.
+- **Klaim atomik + lease (v1.11.0).** `moeisJobKlaim(id, pemilik,
+  benarkanCubaSemula, rahsia)` mengesahkan dan menukar status tugasan kepada
+  `sedang_dihantar` di bawah `ScriptLock`, merekod `PEMILIK` + `LEASE_SELEPAS`
+  (15 minit) supaya dua enjin yang cuba tugasan yang sama serentak hanya satu
+  berjaya; `moeisJobLepas(id, pemilik, rahsia)` melepaskan balik ke `menunggu`
+  bagi henti bersih. Lease luput membenarkan runner lain mengambil alih jika
+  runner asal mati. `moeisJobSelesai` menerima keputusan tambahan `tersimpan`
+  ("Tersimpan — menunggu pengesahan": dialog Simpan MOEIS berjaya tetapi
+  pengesahan selepas muat semula tidak lengkap) — ini **bukan** kejayaan dan
+  tidak pernah dicuba semula secara automatik. Tab `HADIR_MOEIS_JOB` mempunyai
+  13 lajur (`HADIR_MOEIS_JOB_LEBAR`); helaian lama (11 lajur) dinaik taraf
+  lembut dengan menambah tajuk `PEMILIK`/`LEASE_SELEPAS` tanpa menyentuh baris
+  sedia ada.
 - Tugasan membawa `kelasMoeisId` pilihan (argumen keempat `moeisJobBuat`,
   lajur `KELAS_MOEIS_ID`) untuk pemetaan ID kelas MOEIS. Tiada skrin admin
   memanggil argumen ini lagi; nilainya kosong melainkan diisi terus pada tab
   `HADIR_MOEIS_JOB` atau dihantar oleh pemanggil `moeisJobBuat` itu sendiri.
 
 Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
+
+### 5.2 Enjin PC (companion)
+
+`companion/` ialah komponen Node (ESM, Node ≥ 20) yang menggantikan
+penggunaan manual prototaip `moeis-bot` di terminal. Ia berjalan pada satu PC
+guru Windows (Edge sistem, `playwright-core`, **headed** — MOEIS menolak
+pelayar headless) dan dikawal daripada kad **Enjin PC (Companion)** dalam
+menu admin **Hantar ke MOEIS**. Pemasangan penuh, aliran pemasangan mudah
+alih dan had keupayaan yang diuji: [`companion/docs/PEMASANGAN.md`](companion/docs/PEMASANGAN.md).
+
+**Sempadan keselamatan (fail-closed):**
+- `server.listen(port, '127.0.0.1')` sahaja — tiada sambungan luar PC.
+- Semakan `Host` (kalis DNS-rebinding) + allowlist `Origin` **tepat** (tiada
+  wildcard `*`, tiada padanan awalan; lalai hanya `https://sepadan.github.io`)
+  + token klien `Authorization: Bearer <token>` dibanding dengan `crypto.timingSafeEqual`.
+  Origin tidak dibenarkan → 403 **tanpa** header CORS.
+- Rahsia enjin, hash token klien dan metadata pasangan disulit **DPAPI**
+  (`CurrentUser`) dalam `rahsia.dat`, dilindungi ACL (`icacls`) selepas
+  setiap tulisan; storan gagal **tertutup** jika tiada pelindung DPAPI sah
+  (tiada fallback teks biasa). `POST /api/tetapan` menolak terus medan
+  `kataLaluan/password/pin/rahsia/token`.
+- Storan DPAPI menghantar skrip melalui STDIN `-Command -` dan muatan rahsia
+  melalui pemboleh ubah persekitaran proses anak — **tidak** melalui baris arahan
+  `powershell.exe` (baris arahan boleh dibaca proses lain pengguna yang sama).
+- Log (`src/log.mjs`) menapis IC/MyKid, emel dan rentetan seperti token sebelum
+  menyentuh cakera, termasuk stdout/stderr mentah proses anak. **Had diakui:**
+  nama murid tidak dimask sepenuhnya (samaran inisial+panjang hanya pada mesej
+  keputusan enjin); folder data dihadkan ACL kepada akaun Windows semasa.
+- `/api/status` membaca cache sesi (30 min) dan cache sokongan klaim (5 min) — ia
+  tidak melancarkan Edge atau membuat panggilan keluar pada poll rutin; hanya
+  tindakan eksplisit (`/api/uji-login`, `/api/mula`, log masuk manual) berbuat begitu.
+- `apiUrl` (hos `script.google.com` sahaja) dan `originDibenarkan` hanya boleh
+  diubah pada PC itu sendiri (UI tempatan ber-nonce / fail tetapan); klien jauh
+  tidak boleh meluaskan sempadan kepercayaannya sendiri.
+- Tiada endpoint arahan sewenang-wenangnya: tiada `exec`, nama fail, URL atau
+  eval daripada klien.
+- Kod pasangan sekali guna (TTL 10 minit) hanya boleh dijana daripada UI
+  tetapan tempatan (`http://127.0.0.1:<port>/`, nonce per-proses) — bukti
+  manusia berada di PC itu. `POST /api/pair` (tiada token, had kadar ketat)
+  menukar kod kepada token klien tetap.
+- Giliran penghantaran **MATI secara lalai**; hanya `POST /api/mula` (admin
+  sah) atau UI tempatan boleh menghidupkannya. `POST /api/mula` dan
+  `POST /api/kerja-jalan` menolak dengan **409** jika backend HADIR belum
+  di-deploy semula dengan `moeisJobKlaim` (lihat `apps-script/README.md`) —
+  tiada mod "hantar tanpa klaim".
+- Kata laluan hidup MOEIS/idMe **hanya** melalui alat vault pengguna sendiri
+  atau log masuk manual pada Edge companion; companion tidak pernah menaip,
+  menyalin atau menyahsulit kredensial pelayar.
+
+**Runner giliran (`src/giliran.mjs`):** idempotent, satu kerja aktif pada
+satu masa, log anak penuh (stdout+stderr, disensor) dalam
+`log/kerja/<jobid>-<iso>.log`. Setiap kitaran: klaim atomik →
+`mod:verifikasi` (tiada tulisan) → jika tiada perubahan, lapor `berjaya`
+"tiada perubahan" (termasuk kelas "semua hadir" yang sepadan — **tidak
+dilangkau**); jika konflik (MOEIS ada murid tidak hadir tambahan tiada dalam
+HADIR), lapor `gagal` tanpa `--paksa` automatik; jika perlu, jalankan
+`mod:hantar` dan lapor `berjaya` (disahkan) / `tersimpan` (dialog berjaya,
+pengesahan tidak lengkap) / `gagal` mengikut keputusan sebenar.
+
+**Enjin pengisian (`src/moeis/push.mjs` + `src/moeis/halaman.mjs`):**
+pembetulan audit prototaip moeis-bot — tab Kehadiran Harian dibuka **sebelum**
+sebarang bacaan; tarikh ditetapkan `DD/MM/YYYY` dan **disahkan** sebelum
+diteruskan (menolak ISO); dialog simpan eksplisit (`.simpan` lalai,
+`.simpansah` hanya dengan `--sahkan`, tiada `.confirm` generik); pengesahan
+selepas muat semula membaca **identiti + kategori + sebab setiap murid**
+(bukan sekadar ringkasan bilangan kelas) sebelum melapor `disahkan`. Diuji
+sepenuhnya terhadap `HalamanPalsu` (DOM mini) — lihat had keupayaan dalam
+`companion/docs/PEMASANGAN.md`.
 
 ## 6. Penyelarasan murid
 
@@ -243,7 +325,7 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.9.0`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.11.0`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -374,16 +456,82 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
   giliran setiap kelas+tarikh (elak pendua melainkan tugasan lalu gagal).
   HADIR tidak menghubungi MOEIS; tugasan diambil dan dilaporkan oleh enjin
   `moeis-bot` berasingan menerusi rahsia `HADIR_MOEIS_ENGINE_SECRET`.
+- [x] **Enjin PC (Companion)** rasmi (`companion/`) menggantikan penggunaan
+  manual terminal: pelayan loopback (Host+Origin+token fail-closed, tiada
+  wildcard CORS), storan rahsia DPAPI, pasangan kod sekali guna, klaim
+  atomik + lease pada backend (`moeisJobKlaim`/`moeisJobLepas`, status
+  `tersimpan` baharu), runner giliran idempotent (MATI lalai), dan enjin
+  pengisian yang membetulkan audit prototaip moeis-bot (tab dibuka dahulu,
+  tarikh disahkan, dialog simpan eksplisit, pengesahan identiti+kategori+sebab
+  penuh selepas muat semula). Kad admin **Enjin PC (Companion)** dalam
+  **Hantar ke MOEIS** menyambung, menguji dan mengawal PC itu.
+  Ujian asap E2E tempatan companion (loopback sebenar, DPAPI sebenar,
+  tiada pelayar, tiada rangkaian MOEIS): 43/43 pemeriksaan lulus — empangan
+  nonce UI tempatan, Origin/Host (anti DNS-rebinding), preflight CORS tidak
+  wildcard, pasangan kod sekali guna, penolakan medan rahsia pada
+  `/api/tetapan`, giliran MATI lalai, `/api/mula` 409 (fail-closed), laporan
+  jujur `adaRahsiaEnjin`/`klaimDisokong`, sekatan kadar auth 429. Ujian ini
+  mendedahkan dan mengesahkan pembetulan satu pepijat sebenar: PowerShell 5.1
+  TIDAK memuatkan `System.Security` secara automatik, jadi protector DPAPI
+  mesti `Add-Type -AssemblyName System.Security` — tanpa itu pasangan pertama
+  guru akan gagal walaupun semua ujian unit lulus (protector palsu disuntik
+  dalam ujian unit). `sahkanProtectorBerfungsi()` kini menjalankan bulat-pusing
+  probe semasa permulaan supaya kegagalan DPAPI muncul serta-merta.
+- [x] **Semakan bebas oleh model keluarga berbeza (DeepSeek)**, bukan penulis
+  kod: LULUS BERSYARAT dengan 9 penemuan, semuanya dibetulkan dan dikunci
+  dengan ujian regresi berlabel `[penemuan N]` dalam
+  `companion/tests/pembetulan-semakan.test.mjs`:
+  1. (TINGGI) `log-masuk-manual.mjs` menulis cookie sesi idMe ke `sesi.json`
+     teks biasa — penulisan dibuang; sesi hidup dalam profil Edge berasingan
+     (disulit DPAPI oleh Chromium). 2. Payload murid (termasuk IC) dihantar
+     sebagai argumen CLI — kini melalui STDIN dan medan `ic` dibuang
+     (`src/moeis/payload.mjs`). 3. `moeisJobSelesai` menerima laporan daripada
+     mana-mana pemegang rahsia enjin — kini `pemilik` + status semasa mesti
+     sepadan di bawah `ScriptLock`. 4. `apiUrl`/`originDibenarkan` boleh
+     diubah oleh klien jauh — kini `apiUrl` hos sahaja + UI tempatan, dan
+     `originDibenarkan` hanya melalui fail tetapan (disahkan ketat).
+  5. `/api/status` melancarkan Edge pada setiap poll — kini cache sesi 30 min
+     + cache sokongan klaim 5 min; pelayar hanya dilancarkan pada tindakan
+     eksplisit. 6. Had kadar auth global boleh lockout silang — kini baldi
+     berasingan (pasangan vs token). 7. Heuristik sokongan klaim terlalu
+     longgar — kini hanya `Tugasan tidak ditemui` = disokong. 8. Regex hos
+     idMe longgar dalam adapter — kini `adalahHosIdMe()` (HTTPS + hos tepat).
+  9. Heartbeat lease gagal senyap — kini direkod sebagai had yang diakui
+     (`LEASE_HEARTBEAT_GAGAL`), bukan didakwa sempurna.
+- [x] **Pusingan pengesahan bebas kedua (DeepSeek)** mengesahkan pembetulan 1–4
+  **ditutup** dan angka ujian tepat. Tiga penemuan baharu daripadanya turut
+  dibetulkan: (a) [SED] rahsia pernah dibina ke dalam baris arahan
+  `powershell.exe` — kini skrip melalui STDIN (`-Command -`) dan muatan melalui
+  pemboleh ubah persekitaran proses anak (`HADIR_PS_DATA`); ujian tingkah laku
+  memeriksa argv/env sebenar. (b) [RENDAH] penapis lapisan log sebenar ditambah
+  (IC/emel/token dimask sebelum menyentuh cakera, termasuk stdout/stderr anak)
+  dan had diakui secara jujur: nama murid TIDAK dimask sepenuhnya. (c) [RENDAH]
+  ujian penemuan 1/3 dinaikkan daripada imbas kod sumber kepada ujian tingkah
+  laku (senarai fail sebenar pada cakera selepas aliran pasangan; klien
+  menghantar `pemilik` dalam `moeisJobSelesai`) — hanya bentuk `HadirWeb.gs`
+  kekal ujian struktur kerana Apps Script tidak boleh dijalankan dalam Node.
+  Pepijat ketiga ditemui oleh ujian DPAPI nyata: `powershell -Command -`
+  melaksanakan STDIN baris demi baris, jadi skrip berbilang baris gagal SENYAP
+  (status 0, keluaran kosong) — skrip kini satu baris dan keluaran kosong
+  dianggap kegagalan (fail tertutup).
 
 **Baki pengesahan:** satu simpanan kehadiran sebenar dan satu sync AKSI/SEMAK
 masih perlu dijalankan oleh pengguna. Dicatat sebagai **isu #20 dalam hab** —
 ujian itu akan mengubah data sekolah sebenar, jadi hanya pengguna boleh
-memutuskan bila.
+memutuskan bila. Tambahan companion: backend HADIR **perlu di-deploy semula**
+sebelum companion boleh menghidupkan giliran (lihat `apps-script/README.md`);
+`uji-login`, log masuk manual idMe dan pengesanan sesi idMe **sudah
+diimplementasi** (`companion/src/moeis/sesi.mjs`, `bin/uji-login.mjs`,
+`bin/log-masuk-manual.mjs`) dan diuji terhadap double halaman, tetapi **belum
+pernah dijalankan terhadap MOEIS/idMe hidup** — larangan kerja ini. Log masuk
+idMe kekal MANUAL oleh manusia pada PC itu; companion tidak menaip kata laluan
+dan tidak mengklik kotak semak. Had penuh: `companion/docs/PEMASANGAN.md`.
 
 ## 9. Rekod perubahan
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 18 September 2026 | 1.11.0 | Tambah **Enjin PC (Companion)** rasmi (`companion/`, Node ESM) menggantikan penggunaan manual terminal `moeis-bot`: pelayan loopback fail-closed (Host+Origin allowlist tepat+token Bearer timingSafeEqual, tiada wildcard CORS, had kadar auth), storan rahsia DPAPI (CurrentUser, ACL icacls, gagal tertutup tanpa fallback teks biasa), pasangan kod sekali guna, UI tetapan tempatan (nonce), CLI, skrip pemasangan/artifak. Backend: klaim atomik + lease (`moeisJobKlaim`/`moeisJobLepas`, `ScriptLock`), status tugasan baharu `sedang_dihantar`/`tersimpan`, migrasi lembut `HADIR_MOEIS_JOB_LEBAR` 11→13 (lajur `PEMILIK`/`LEASE_SELEPAS`). Runner giliran idempotent (MATI lalai, satu kerja sesaat, log anak penuh disensor). Enjin pengisian membetulkan audit prototaip moeis-bot: tab Kehadiran Harian dibuka sebelum bacaan, tarikh `DD/MM/YYYY` disahkan sebelum diteruskan, dialog simpan eksplisit (`.simpan`/`.simpansah`, tiada `.confirm` generik), pengesahan selepas muat semula membaca identiti+kategori+sebab setiap murid (bukan ringkasan bilangan sahaja). Kad admin **Enjin PC (Companion)** baharu dalam **Hantar ke MOEIS**: sambung/uji/mula/henti/jalankan-semula/putuskan. Aset dan cache PWA dinaikkan serentak | Ujian automatik (`node --test companion/tests/`) menggunakan double halaman (`HalamanPalsu`) dan double storan/klien HADIR sahaja — **tiada pelayar/rangkaian sebenar, tiada data murid sebenar**. Backend HADIR perlu di-deploy semula untuk `moeisJobKlaim`/`moeisJobLepas` sebelum companion boleh menghidupkan giliran (fail-closed 409 jika belum). Ujian asap E2E tempatan (loopback+DPAPI sebenar, tiada pelayar/MOEIS): 43/43 lulus (suite unit/integrasi companion: 102 ujian, 101 lulus, 1 dilangkau); ia menemui dan mengesahkan pembetulan pepijat DPAPI (PowerShell 5.1 perlukan `Add-Type -AssemblyName System.Security`) dan pepijat UI tempatan (nonce tidak boleh dihantar melalui `<script src>` — halaman kini dibuka dengan `?n=<nonce>`, header hanya untuk `/api/lokal/*`). `uji-login`, log masuk manual dan pengesanan sesi idMe sudah diimplementasi dan diuji hanya terhadap double halaman — **belum disahkan terhadap MOEIS/idMe hidup**; log masuk idMe kekal manual oleh manusia. Semakan bebas keluarga model berbeza (DeepSeek) memberi LULUS BERSYARAT dengan 9 penemuan (1 tinggi, 4 sederhana, 4 rendah) — semuanya dibetulkan: cookie sesi tidak lagi ditulis ke fail teks biasa, payload murid melalui STDIN tanpa IC, `moeisJobSelesai` kini memerlukan pemilik+status klaim sepadan, apiUrl/Origin allowlist tidak lagi boleh diluaskan oleh klien jauh, `/api/status` tidak melancarkan pelayar (cache), had kadar auth dibahagikan mengikut baldi, pengesanan sokongan klaim ketat, semakan hos idMe ketat, dan heartbeat lease direkod apabila gagal |
 | 17 September 2026 | 1.10.0 | Tambah Kategori + Sebab MOEIS wajib ketika menanda tidak hadir (senarai rasmi disalin statik pada frontend dan backend; pengesahan sentiasa di pelayan), disimpan bersama kehadiran dalam tab baharu `HADIR_MOEIS_SEBAB`. Tambah menu admin **Hantar ke MOEIS**: status "Lengkap"/"Belum lengkap: n" setiap kelas hari ini, kemas kini sebab terus dari skrin itu, dan `moeisJobBuat`/`moeisJobSenarai`/`moeisJobSelesai` mencipta serta menjejak tugasan giliran dalam tab baharu `HADIR_MOEIS_JOB` (elak pendua melainkan tugasan lalu gagal). HADIR hanya menyediakan data — enjin `moeis-bot` berasingan pada PC guru yang menghantar ke MOEIS, disahkan dengan rahsia Script Properties `HADIR_MOEIS_ENGINE_SECRET`. Aset dan cache PWA dinaikkan serentak | Tiada nama/IC murid sebenar disentuh dalam ujian; ujian automatik mengesahkan pengesahan kategori/sebab, pengiraan belum lengkap, sekatan hantar tidak lengkap dan elak pendua tugasan. Penghantaran sebenar ke MOEIS oleh enjin PC belum disahkan pengguna |
 | 30 Ogos 2026 | audit repo | Login admin kini dihadkan kepada lima cubaan PIN gagal dan disekat 15 minit. `ScriptProperties` ialah sumber benar yang tahan pelucutan cache; semak, tambah, sekat, reset dan cipta sesi dilaksanakan sebagai satu peralihan atomik di bawah `ScriptLock`. Suite HADIR menjalankan simulasi tingkah laku lima kegagalan, penolakan ketika sekatan dan pemulihan selepas luput | Tiada PIN/token/data sekolah sebenar dibaca atau diubah; Apps Script Version 111 diterbitkan pada URL sedia ada |
 | 29 Ogos 2026 | 1.9.0 | Penyelarasan guru autoritatif dari mana-mana sistem: tambah/edit `merge`, nyahaktif/sync penuh menghantar snapshot aktif, status disimpan tanpa padam fizikal, dan satu kunci pusat HADIR menyusun operasi bertindih. CSV HADIR mempunyai pratonton serta pengesahan sebelum menyahaktifkan nama yang tiada. Apps Script Version 110 diterbitkan pada URL sama; AKSI v1.5.0 Version 11 dan SEMAK v1.2.0 Version 61 menerima kontrak yang sama | Kata laluan, tugasan, markah, kokurikulum dan sejarah tidak dipindah atau dipadam. Pengesahan teknikal tidak menambah/menyahaktif guru produksi |

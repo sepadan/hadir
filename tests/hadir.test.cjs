@@ -293,10 +293,72 @@ sah(konteksMoeis.hadirMoeisBolehCiptaJob_('menunggu') === false, 'Tugasan menung
 sah(konteksMoeis.hadirMoeisBolehCiptaJob_('berjaya') === false, 'Tugasan berjaya mesti mengelak pendua');
 
 const cfg = baca('config.js');
-sah(cfg.includes("versi: 'HADIR v1.10.0'"), 'Versi paparan bukan v1.10.0');
+sah(cfg.includes("versi: 'HADIR v1.11.0'"), 'Versi paparan bukan v1.11.0');
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
-sah(html.includes('styles.css?v=1.10.0') && html.includes('app.js?v=1.10.0') && html.includes('config.js?v=1.10.0'), 'Versi aset HTML tidak seragam');
-sah(sw.includes("hadir-shell-v1.10.0-20260917-1") && sw.includes('app.js?v=1.10.0'), 'Cache PWA belum dinaikkan bersama aset');
+sah(html.includes('styles.css?v=1.11.0') && html.includes('app.js?v=1.11.0') && html.includes('config.js?v=1.11.0'), 'Versi aset HTML tidak seragam');
+sah(sw.includes("hadir-shell-v1.11.0-20260918-1") && sw.includes('app.js?v=1.11.0'), 'Cache PWA belum dinaikkan bersama aset');
+
+// Ciri Enjin PC (Companion): klaim atomik + lease, status tersimpan, dan
+// pengawal admin di frontend (tiada wildcard CORS, tiada medan kata laluan,
+// sessionStorage lalai).
+sah(backend.includes('function hadirMoeisJobKlaim_') && backend.includes('function hadirMoeisJobLepas_'),
+  'Klaim/lepas atomik tugasan MOEIS tiada');
+sah(backend.includes('moeisJobKlaim: hadirMoeisJobKlaim_') && backend.includes('moeisJobLepas: hadirMoeisJobLepas_'),
+  'Klaim/lepas atomik tidak didaftarkan dalam jadual kaedah dibenarkan');
+sah(backend.includes("HADIR_MOEIS_JOB_LEBAR = 13"), 'Lebar jadual tugasan MOEIS belum dinaikkan kepada 13 (PEMILIK + LEASE_SELEPAS)');
+sah(backend.includes("'PEMILIK', 'LEASE_SELEPAS'") || backend.includes("['PEMILIK', 'LEASE_SELEPAS']"),
+  'Migrasi lembut lajur PEMILIK/LEASE_SELEPAS tiada');
+sah(backend.includes("['berjaya', 'gagal', 'tersimpan'].indexOf(keputusan)"),
+  'hadirMoeisJobSelesai_ mesti menerima keputusan "tersimpan" (disimpan, menunggu pengesahan)');
+sah(backend.includes("tersimpan: 'Tersimpan — menunggu pengesahan'"), 'Label status tersimpan tiada');
+sah(backend.includes('idTugasan: job ? job.id : '), 'Senarai kelas admin mesti membawa id tugasan supaya companion boleh dijalankan semula');
+
+// Pembetulan semakan bebas (18 September 2026) — dikunci pada suite repo:
+// laporan keputusan mesti datang daripada pemegang klaim sahaja, dan payload
+// murid tidak boleh mengandungi IC melalui laluan yang dikawal companion.
+const blokSelesai = backend.match(/function hadirMoeisJobSelesai_\([\s\S]*?\n}/)[0];
+sah(/function hadirMoeisJobSelesai_\(id, keputusan, mesej, bilHadirSelepas, pemilik, rahsia\)/.test(blokSelesai),
+  'moeisJobSelesai mesti menerima pemilik sebagai argumen kelima');
+sah(blokSelesai.includes('pemilikSemasa !== pemilik') && blokSelesai.includes("statusSemasa !== 'sedang_dihantar'"),
+  'moeisJobSelesai mesti menolak laporan daripada enjin bukan pemegang klaim atau status yang tidak sepadan');
+
+const payloadCompanion = path.join(root, 'companion', 'src', 'moeis', 'payload.mjs');
+if (fs.existsSync(payloadCompanion)) {
+  const p = baca('companion/src/moeis/payload.mjs');
+  sah(/murid: murid[\s\S]*map\(\(m\) => \(\{ nama: m\.nama/.test(p),
+    'Payload proses anak mesti membuang medan ic (PII) sebelum dihantar');
+}
+if (fs.existsSync(path.join(root, 'companion', 'bin', 'jalan-push.mjs'))) {
+  const jp = baca('companion/bin/jalan-push.mjs');
+  sah(!/--job-json/.test(jp) && /bacaStdinJob/.test(jp),
+    'Payload tugasan mesti melalui STDIN, bukan argumen CLI (baris arahan boleh dibaca proses lain)');
+}
+
+sah(app.includes('function companionPanggil') && app.includes("if (!state.token) return Promise.reject"),
+  'Pembantu companionPanggil() tunggal tiada atau tidak menyekat tanpa sesi admin');
+sah(!/Access-Control-Allow-Origin['"`]?\s*[,:]\s*['"`]\*/.test(app), 'Frontend tidak boleh mengandungi rentetan CORS wildcard *');
+sah(app.includes("KUNCI_COMPANION_SESI") && app.includes('sessionStorage.setItem(KUNCI_COMPANION_SESI'),
+  'Pasangan companion mesti disimpan lalai dalam sessionStorage');
+const bahagianMoeisPaneHtml = html.slice(html.indexOf('id="moeisPane"'), html.indexOf('</section>', html.indexOf('id="moeisPane"')));
+sah(!/type=["']password["']/.test(bahagianMoeisPaneHtml), 'Skrin Hantar ke MOEIS/Companion tidak boleh mempunyai medan type="password"');
+sah(html.includes('id="companionSambungBtn"') && html.includes('id="companionPairDialog"'), 'UI Sambung PC companion tiada');
+
+const companionDir = path.join(root, 'companion');
+if (fs.existsSync(companionDir)) {
+  const failCompanion = [];
+  (function jalan(dir) {
+    fs.readdirSync(dir, { withFileTypes: true }).forEach((ent) => {
+      if (ent.name === 'node_modules' || ent.name === 'dist' || ent.name === 'data' || ent.name === 'log') return;
+      const p = path.join(dir, ent.name);
+      if (ent.isDirectory()) jalan(p);
+      else if (/\.(mjs|js|json)$/.test(ent.name)) failCompanion.push(p);
+    });
+  })(companionDir);
+  const gabunganCompanion = failCompanion.map((p) => fs.readFileSync(p, 'utf8')).join('\n');
+  sah(!/HADIR_MOEIS_ENGINE_SECRET\s*=\s*['"][^'"]+['"]/.test(gabunganCompanion),
+    'Rahsia enjin tidak boleh dihardcode dalam companion/');
+  sah(!/['"]Bearer [a-zA-Z0-9]{10,}['"]/.test(gabunganCompanion), 'Token contoh sebenar tidak boleh dihardcode dalam companion/');
+}
 
 // Ujian tingkah laku sebenar bagi had cubaan dan luput sekatan.
 let sekarang = 1_000_000;
@@ -371,4 +433,6 @@ console.log('✓ Upload murid/guru dari mana-mana sistem menggunakan relay tanpa
 console.log('✓ Migrasi awal guru mengutamakan SEMAK; AKSI hanya sandaran');
 console.log('✓ Kategori + Sebab MOEIS wajib, disahkan pada pelayan dan disimpan bersama kehadiran');
 console.log('✓ Hantar ke MOEIS menyekat penghantaran tidak lengkap dan mengelak tugasan pendua');
-console.log('✓ Versi PWA v1.10.0 dan cache aset dinaikkan serentak');
+console.log('✓ Versi PWA v1.11.0 dan cache aset dinaikkan serentak');
+console.log('✓ Klaim atomik + lease + status tersimpan tersedia untuk giliran MOEIS berasingan');
+console.log('✓ Enjin PC (Companion) HADIR Admin: pengawal admin, sessionStorage lalai, tiada wildcard CORS di frontend');

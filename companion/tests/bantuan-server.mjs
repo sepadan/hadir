@@ -1,0 +1,83 @@
+// Bantuan ujian bersama: konteks pelayan minimum + pembantu permintaan HTTP
+// mentah (supaya ujian boleh mengawal header Host secara eksplisit — sesuatu
+// yang tidak boleh dilakukan dengan fetch() piawai). Port OS-diagihkan (0)
+// digunakan supaya fail ujian yang berjalan selari (proses berasingan
+// `node --test`) tidak berlanggar pada satu port tetap.
+import http from 'node:http';
+import { buatPelayanHttp, buatNonceLokal } from '../src/server.mjs';
+
+export const TOKEN_SAH = 'token-ujian-sah-1234567890abcdef';
+export const NONCE_UJIAN = buatNonceLokal();
+
+export function konteksAsas(port, override) {
+  const tetapanData = {
+    port, apiUrl: 'https://contoh.invalid/exec', label: '', intervalSaat: 20,
+    autostart: false, originDibenarkan: ['https://sepadan.github.io']
+  };
+  const asas = {
+    port,
+    nonceLokal: NONCE_UJIAN,
+    versi: 'ujian-1.0.0',
+    pcNama: 'PC-UJIAN',
+    pasangan: {
+      sahkanToken: (token) => (token === TOKEN_SAH ? { id: 'klien-1', label: 'Ujian' } : null),
+      janaKodPasangan: () => 'ABCD1234',
+      pasang: (kod) => { if (kod !== 'ABCD1234') throw new Error('Kod tidak sah.'); return TOKEN_SAH; },
+      senaraiKlien: () => [{ id: 'klien-1', label: 'Ujian' }],
+      batalSemua: () => {}, batalSatu: () => {}
+    },
+    tetapan: { baca: () => ({ ...tetapanData }), tulis: (patch) => Object.assign(tetapanData, patch) },
+    simpanan: { adaRahsiaEnjin: () => true, simpanRahsiaEnjin: () => {}, dapatkanRahsiaEnjin: () => 'rahsia-ujian' },
+    giliran: { status: () => ({ aktif: false, sedangProses: false }), mulakan: () => {}, hentikan: () => {}, jalankanSatuKitaran: async () => ({}) },
+    log: { tulis: () => {}, tulisKerja: () => {}, bacaTerakhir: () => [] },
+    halamanLokalHtml: () => '<html>lokal</html>',
+    halamanLokalJs: () => '// lokal.js',
+    klaimDisokong: async () => true,
+    adaSesiMoeis: async () => true,
+    statusSesiMoeis: async () => ({ sesiAda: true, umurSesi: 10 }),
+    ujiLogin: async () => ({ status: 'sesi-sah' }),
+    logMasukManual: async () => ({ status: 'ok' }),
+    kerjaJalan: async () => ({ diproses: 0 }),
+    kerjaSah: async () => ({ diproses: 0 }),
+    kerjaSenaraiDisensor: async () => [],
+    autostartTulis: () => {}
+  };
+  return Object.assign(asas, override);
+}
+
+export function mulakanPelayanUjian(override) {
+  return new Promise((selesai) => {
+    // Bina konteks selepas port diketahui (listen(0) memilih port bebas).
+    const pelayanSementara = http.createServer();
+    pelayanSementara.listen(0, '127.0.0.1', () => {
+      const port = pelayanSementara.address().port;
+      pelayanSementara.close(() => {
+        const konteks = konteksAsas(port, override);
+        const pelayan = buatPelayanHttp(konteks);
+        pelayan.listen(port, '127.0.0.1', () => selesai({ pelayan, konteks, port }));
+      });
+    });
+  });
+}
+
+// Permintaan HTTP mentah dengan kawalan penuh ke atas header Host/Origin.
+export function mintaMentah(port, { method = 'GET', laluan = '/', host, headers = {}, badan = null }) {
+  return new Promise((selesai, gagal) => {
+    const req = http.request({
+      host: '127.0.0.1', port, path: laluan, method,
+      headers: { Host: host || `127.0.0.1:${port}`, ...headers }
+    }, (res) => {
+      const bahagian = [];
+      res.on('data', (c) => bahagian.push(c));
+      res.on('end', () => {
+        const teks = Buffer.concat(bahagian).toString('utf8');
+        let json = null;
+        try { json = teks ? JSON.parse(teks) : null; } catch { /* bukan JSON, biarkan null */ }
+        selesai({ status: res.statusCode, headers: res.headers, teks, json });
+      });
+    });
+    req.on('error', gagal);
+    if (badan) req.write(badan);
+    req.end();
+  });
+}

@@ -29,6 +29,10 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Tab `main` KEHADIRAN kekal sumber rasmi dan boleh menyelaraskan senarai aktif
   ke AKSI serta SEMAK.
 - Bot Telegram dan fungsi kemas kini dalam aplikasi sedia ada terus berfungsi.
+- Menu admin **Hantar ke MOEIS** mengurus Kategori/Sebab wajib dan giliran
+  tugasan MOEIS, termasuk kad **Enjin PC (Companion)** untuk menyambung,
+  menguji dan mengawal enjin Playwright pada satu PC guru (Windows) melalui
+  loopback sahaja. Pemasangan penuh: [`companion/docs/PEMASANGAN.md`](companion/docs/PEMASANGAN.md).
 
 ## Update Data Murid
 
@@ -64,6 +68,7 @@ offline.html                       Paparan selamat tanpa internet
 icons/                             Ikon HADIR Android/iOS
 apps-script/HadirWeb.gs            Backend dalam projek KEHADIRAN
 apps-script/README.md               Langkah pemasangan backend
+companion/                         Enjin PC (Companion) MOEIS — lihat companion/docs/PEMASANGAN.md
 BLUEPRINT.md                       Kontrak dan rekod keputusan
 tests/hadir.test.cjs               Ujian tanpa data sebenar
 ```
@@ -72,4 +77,12 @@ tests/hadir.test.cjs               Ujian tanpa data sebenar
 
 ```powershell
 node tests/hadir.test.cjs
+node --test companion/tests/*.test.mjs
+
+# Ujian asap E2E companion: pelayan loopback + storan DPAPI sebenar,
+# tiada pelayar dan tiada MOEIS (lihat companion/docs/PEMASANGAN.md)
+node companion/tests/asap-e2e.mjs
 ```
+
+Guna bentuk glob (`companion/tests/*.test.mjs`) — `node --test companion/tests/`
+tanpa glob gagal di bawah git-bash/MSYS kerana terjemahan laluan.

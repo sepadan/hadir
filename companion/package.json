@@ -1,0 +1,18 @@
+{
+  "name": "hadir-moeis-companion",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Enjin MOEIS berjalan pada PC guru, dikawal dari HADIR Admin melalui loopback sahaja.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": {
+    "hadir-companion": "./bin/hadir-companion.mjs"
+  },
+  "scripts": {
+    "test": "node --test \"tests/*.test.mjs\"",
+    "test:asap": "node tests/asap-e2e.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.47.0"
+  }
+}

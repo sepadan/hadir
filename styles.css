@@ -482,6 +482,16 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .moeis-belum-lengkap button { padding: 6px 10px; font-size: .78rem; }
 @media (max-width: 600px) { .moeis-list { grid-template-columns: minmax(0, 1fr); } }
 
+.companion-card { border: 1px solid var(--line); border-radius: 18px; background: #fff; padding: 15px; margin: 0 0 16px; display: grid; gap: 12px; }
+.companion-card .page-head { padding: 0; }
+.companion-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.companion-actions button { padding: 8px 12px; font-size: .82rem; }
+.soft.danger { background: #fdeceb; color: #a42f40; }
+.companion-butiran { font-size: .82rem; color: var(--muted); background: #f5f8fb; border-radius: 11px; padding: 9px 12px; }
+.companion-nota { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: .78rem; color: var(--muted); }
+.checkbox-line { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.checkbox-line input { width: auto; }
+
 dialog {
   width: min(620px, calc(100% - 24px));
   max-height: calc(100dvh - 24px);

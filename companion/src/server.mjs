@@ -1,0 +1,393 @@
+// Pelayan HTTP loopback (companion/src/server.mjs).
+//
+// Keselamatan (WAJIB tepat, lihat brief bahagian 3.3):
+//   - Hanya 127.0.0.1 (bin/hadir-companion.mjs yang memanggil server.listen).
+//   - Host check: Host mesti 127.0.0.1:<port> atau localhost:<port>.
+//   - Origin allowlist tepat, tiada wildcard, tiada padanan awalan.
+//   - CORS hanya dipantulkan bagi Origin yang sepadan tepat; permintaan Origin
+//     tidak dibenarkan -> 403 TANPA header CORS (fail closed).
+//   - Permintaan tanpa Origin dibenarkan hanya dengan nonce UI tempatan sah
+//     atau token klien sah.
+//   - Auth Bearer dengan timingSafeEqual (di dalam pasangan.mjs) + had kadar.
+//   - Badan maks 32 KB, JSON sahaja untuk POST.
+//   - Tiada endpoint arahan sewenang-wenangnya: tiada exec/nama fail/URL dari klien.
+import crypto from 'node:crypto';
+import http from 'node:http';
+import { hostSah, originDibenarkan, tetapkanHeaderCorsPenuh, tetapkanHeaderPreflight } from './cors.mjs';
+import {
+  adaMedanRahsiaDilarang, tapisTetapanDibenarkan, tapisTetapanLokalDibenarkan, sahkanApiUrl
+} from './tetapan.mjs';
+
+// Medan tetapan yang hanya boleh diubah pada PC itu sendiri (fail tetapan.json
+// atau UI tempatan dengan nonce). Klien jauh yang mencubanya ditolak dengan
+// mesej jelas — bukan diabaikan secara senyap.
+const MEDAN_LOKAL_SAHAJA = ['originDibenarkan', 'apiUrl', 'kunciKeselamatanDijangka'];
+
+const HAD_BADAN_BYTES = 32 * 1024;
+const HAD_GAGAL_AUTH = 10;
+const TETINGKAP_GAGAL_AUTH_MS = 5 * 60 * 1000;
+
+export function buatNonceLokal() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+// GET halaman: nonce diterima melalui header X-HADIR-Lokal ATAU parameter
+// query ?n= (pelayar tidak boleh menghantar header tersuai pada navigasi
+// <script src> / permintaan alamat terus, jadi ?n= diperlukan untuk memuatkan
+// UI buat kali pertama). Halaman itu sendiri membuang query daripada
+// location/history sebaik sahaja dimuatkan — lihat src/ui/render.mjs.
+const LALUAN_LOKAL_HALAMAN = new Set(['/', '/lokal.js']);
+
+// Laluan API tempatan yang MENGUBAH KEADAAN atau mendedahkan status: header
+// X-HADIR-Lokal SAHAJA. Parameter query TIDAK PERNAH diterima di sini —
+// query string boleh tersimpan dalam log pelayan proksi/sejarah pelayar,
+// jadi laluan yang menulis/mendedahkan mesti melalui header sahaja.
+const LALUAN_LOKAL_API = new Set([
+  '/api/lokal/rahsia', '/api/lokal/kod-pasangan', '/api/lokal/log-masuk-manual',
+  '/api/lokal/autostart', '/api/lokal/keluar', '/api/lokal/tetapan',
+  '/api/lokal/status', '/api/lokal/uji-login'
+]);
+
+function bacaBadan(req) {
+  return new Promise((selesai, gagal) => {
+    let jumlah = 0;
+    const bahagian = [];
+    req.on('data', (c) => {
+      jumlah += c.length;
+      if (jumlah > HAD_BADAN_BYTES) {
+        gagal(Object.assign(new Error('Badan permintaan terlalu besar.'), { kod: 413 }));
+        req.destroy();
+        return;
+      }
+      bahagian.push(c);
+    });
+    req.on('end', () => selesai(Buffer.concat(bahagian)));
+    req.on('error', gagal);
+  });
+}
+
+function hantarJson(res, status, obj, headerTambahan) {
+  const teks = JSON.stringify(obj);
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headerTambahan });
+  res.end(teks);
+}
+
+export function buatPelayanHttp(konteks) {
+  const { port, nonceLokal, pasangan, tetapan, simpanan, giliran, log, versi, pcNama } = konteks;
+  // Had kadar DIPISAHKAN mengikut jenis kelayakan (penemuan semakan bebas):
+  // satu kaunter global membenarkan gelung kegagalan token menyekat pasangan
+  // (lockout silang). Setiap baldi mempunyai tetingkap gelongsor sendiri.
+  const kegagalanAuth = new Map(); // baldi -> cap masa kegagalan
+
+  function dibenarkanKadarAuth(baldi) {
+    const kunci = String(baldi || 'token');
+    const senarai = kegagalanAuth.get(kunci) || [];
+    const sekarang = Date.now();
+    while (senarai.length && sekarang - senarai[0] > TETINGKAP_GAGAL_AUTH_MS) senarai.shift();
+    kegagalanAuth.set(kunci, senarai);
+    return senarai.length < HAD_GAGAL_AUTH;
+  }
+  function catatGagalAuth(baldi) {
+    const kunci = String(baldi || 'token');
+    const senarai = kegagalanAuth.get(kunci) || [];
+    senarai.push(Date.now());
+    kegagalanAuth.set(kunci, senarai);
+  }
+
+  function originDibenarkanSenarai() {
+    return tetapan.baca().originDibenarkan;
+  }
+
+  async function sahkanAdmin(req) {
+    const auth = req.headers['authorization'] || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+    if (!token) return null;
+    return pasangan.sahkanToken(token);
+  }
+
+  async function pengendali(req, res) {
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const laluan = url.pathname;
+
+    if (!hostSah(req.headers.host, port)) {
+      res.writeHead(403); res.end(); return;
+    }
+
+    const origin = req.headers.origin || '';
+    const senaraiOrigin = originDibenarkanSenarai();
+    const originOk = origin ? originDibenarkan(origin, senaraiOrigin) : false;
+
+    if (req.method === 'OPTIONS') {
+      if (origin && originOk) {
+        tetapkanHeaderPreflight(res, origin);
+        res.writeHead(204); res.end();
+      } else {
+        res.writeHead(403); res.end();
+      }
+      return;
+    }
+
+    if (origin && !originOk) {
+      res.writeHead(403); res.end(JSON.stringify({ ok: false, ralat: 'Origin tidak dibenarkan.' })); return;
+    }
+    if (origin && originOk) tetapkanHeaderCorsPenuh(res, origin);
+
+    function nonceCocok(diberi) {
+      const s = String(diberi || '');
+      return s.length === nonceLokal.length && s.length > 0 &&
+        crypto.timingSafeEqual(Buffer.from(s), Buffer.from(nonceLokal));
+    }
+    const nonceHeader = req.headers['x-hadir-lokal'];
+    const nonceSahHeader = nonceCocok(nonceHeader);
+
+    if (LALUAN_LOKAL_HALAMAN.has(laluan)) {
+      const nonceQuery = url.searchParams.get('n');
+      if (!nonceSahHeader && !nonceCocok(nonceQuery)) { res.writeHead(403); res.end(); return; }
+      return layanLokalHalaman(req, res, laluan);
+    }
+
+    if (LALUAN_LOKAL_API.has(laluan)) {
+      // Header sahaja — lihat nota LALUAN_LOKAL_API di atas.
+      if (!nonceSahHeader) { res.writeHead(403); res.end(); return; }
+      return layanLokal(req, res, laluan);
+    }
+
+    if (!origin) {
+      const klienSah = !nonceSahHeader ? await sahkanAdmin(req) : null;
+      if (!nonceSahHeader && !klienSah) { res.writeHead(403); res.end(); return; }
+    }
+
+    return layanUtama(req, res, laluan, url);
+  }
+
+  function layanLokalHalaman(req, res, laluan) {
+    const teks = laluan === '/' ? konteks.halamanLokalHtml() : konteks.halamanLokalJs();
+    res.writeHead(200, { 'Content-Type': laluan === '/' ? 'text/html; charset=utf-8' : 'application/javascript; charset=utf-8' });
+    res.end(teks);
+  }
+
+  async function layanLokal(req, res, laluan) {
+    if (req.method !== 'POST' && req.method !== 'GET') { res.writeHead(405); res.end(); return; }
+    let payload = {};
+    if (req.method === 'POST') {
+      const badan = await bacaBadan(req).catch((e) => { hantarJson(res, e.kod || 400, { ok: false, ralat: e.message }); return null; });
+      if (badan === null) return;
+      try { payload = badan.length ? JSON.parse(badan.toString('utf8')) : {}; }
+      catch { hantarJson(res, 400, { ok: false, ralat: 'JSON tidak sah.' }); return; }
+    }
+    try {
+      if (laluan === '/api/lokal/rahsia') {
+        if (req.method === 'GET') { hantarJson(res, 200, { ok: true, ada: simpanan.adaRahsiaEnjin() }); return; }
+        simpanan.simpanRahsiaEnjin(String(payload.rahsiaEnjin || ''));
+        hantarJson(res, 200, { ok: true, ada: true });
+        return;
+      }
+      if (laluan === '/api/lokal/kod-pasangan') {
+        hantarJson(res, 200, { ok: true, kod: pasangan.janaKodPasangan() });
+        return;
+      }
+      if (laluan === '/api/lokal/log-masuk-manual') {
+        const hasil = await konteks.logMasukManual();
+        hantarJson(res, 200, { ok: true, hasil });
+        return;
+      }
+      if (laluan === '/api/lokal/uji-login') {
+        const hasil = await konteks.ujiLogin();
+        hantarJson(res, 200, { ok: true, ...hasil });
+        return;
+      }
+      if (laluan === '/api/lokal/tetapan') {
+        if (adaMedanRahsiaDilarang(payload)) { hantarJson(res, 400, { ok: false, ralat: 'Medan rahsia tidak dibenarkan pada endpoint ini.' }); return; }
+        if (Object.prototype.hasOwnProperty.call(payload, 'originDibenarkan')) {
+          hantarJson(res, 400, { ok: false, ralat: 'originDibenarkan hanya boleh diubah dengan menyunting tetapan.json pada PC ini.' });
+          return;
+        }
+        if (Object.prototype.hasOwnProperty.call(payload, 'apiUrl')) {
+          const sahUrl = sahkanApiUrl(payload.apiUrl);
+          if (!sahUrl.ok) { hantarJson(res, 400, { ok: false, ralat: sahUrl.sebab }); return; }
+        }
+        tetapan.tulis(tapisTetapanLokalDibenarkan(payload));
+        hantarJson(res, 200, { ok: true, tetapan: tetapan.baca() });
+        return;
+      }
+      if (laluan === '/api/lokal/status') {
+        const klaimDisokong = await konteks.klaimDisokong();
+        const t = tetapan.baca();
+        hantarJson(res, 200, {
+          ok: true, versi, pc: pcNama,
+          giliran: { ...giliran.status(), klaimDisokong },
+          moeis: await konteks.statusSesiMoeis(),
+          rahsiaEnjinAda: simpanan.adaRahsiaEnjin(),
+          autostart: t.autostart
+        });
+        return;
+      }
+      if (laluan === '/api/lokal/autostart') {
+        konteks.autostartTulis(!!payload.aktif);
+        tetapan.tulis({ autostart: !!payload.aktif });
+        hantarJson(res, 200, { ok: true, autostart: !!payload.aktif });
+        return;
+      }
+      if (laluan === '/api/lokal/keluar') {
+        hantarJson(res, 200, { ok: true });
+        setTimeout(() => process.exit(0), 50);
+        return;
+      }
+      res.writeHead(404); res.end();
+    } catch (ralat) {
+      hantarJson(res, 500, { ok: false, ralat: ralat.message });
+    }
+  }
+
+  async function layanUtama(req, res, laluan, url) {
+    if (laluan === '/api/pair' && req.method === 'POST') {
+      if (!dibenarkanKadarAuth('pair')) { hantarJson(res, 429, { ok: false, ralat: 'Terlalu banyak percubaan pasangan.' }); return; }
+      const badan = await bacaBadan(req).catch((e) => { hantarJson(res, e.kod || 400, { ok: false, ralat: e.message }); return null; });
+      if (badan === null) return;
+      let payload;
+      try { payload = badan.length ? JSON.parse(badan.toString('utf8')) : {}; }
+      catch { hantarJson(res, 400, { ok: false, ralat: 'JSON tidak sah.' }); return; }
+      try {
+        const token = pasangan.pasang(payload.kod, payload.label);
+        hantarJson(res, 200, { ok: true, token, companion: { versi, pc: pcNama, port }, origin: req.headers.origin || '' });
+      } catch (ralat) {
+        catatGagalAuth('pair');
+        hantarJson(res, 401, { ok: false, ralat: ralat.message });
+      }
+      return;
+    }
+
+    // Selebihnya semua endpoint admin: perlukan token Bearer sah.
+    if (!dibenarkanKadarAuth('token')) { hantarJson(res, 429, { ok: false, ralat: 'Terlalu banyak percubaan token.' }); return; }
+    const klien = await sahkanAdmin(req);
+    if (!klien) {
+      catatGagalAuth('token');
+      hantarJson(res, 401, { ok: false, ralat: 'Token tidak sah.' });
+      return;
+    }
+
+    let payload = {};
+    if (req.method === 'POST') {
+      const ct = String(req.headers['content-type'] || '');
+      if (!ct.includes('application/json')) { hantarJson(res, 400, { ok: false, ralat: 'Content-Type mesti application/json.' }); return; }
+      const badan = await bacaBadan(req).catch((e) => { hantarJson(res, e.kod || 400, { ok: false, ralat: e.message }); return null; });
+      if (badan === null) return;
+      try { payload = badan.length ? JSON.parse(badan.toString('utf8')) : {}; }
+      catch { hantarJson(res, 400, { ok: false, ralat: 'JSON tidak sah.' }); return; }
+    }
+
+    try {
+      if (laluan === '/api/status' && req.method === 'GET') {
+        const klaimDisokong = await konteks.klaimDisokong();
+        const t = tetapan.baca();
+        hantarJson(res, 200, {
+          ok: true,
+          versi, pc: pcNama,
+          adaRahsiaEnjin: simpanan.adaRahsiaEnjin(),
+          giliran: { ...giliran.status(), klaimDisokong },
+          pasangan: pasangan.senaraiKlien(),
+          moeis: await konteks.statusSesiMoeis(),
+          autostart: t.autostart,
+          log: log.bacaTerakhir(10)
+        });
+        return;
+      }
+      if (laluan === '/api/uji-sambungan' && req.method === 'POST') {
+        hantarJson(res, 200, { ok: true, versi, masa: new Date().toISOString() });
+        return;
+      }
+      if (laluan === '/api/uji-login' && req.method === 'POST') {
+        const hasil = await konteks.ujiLogin();
+        hantarJson(res, 200, { ok: true, ...hasil });
+        return;
+      }
+      if (laluan === '/api/mula' && req.method === 'POST') {
+        // Urutan penting: periksa rahsia enjin DAHULU. Tanpa rahsia, probe klaim
+        // backend tidak bermakna (ia gagal atas sebab kelayakan, bukan kerana
+        // kaedah tiada), jadi jangan sekali-kali tafsirkannya sebagai sokongan.
+        if (!simpanan.adaRahsiaEnjin()) { hantarJson(res, 409, { ok: false, ralat: 'Rahsia enjin belum ditetapkan pada PC ini (UI tetapan tempatan).' }); return; }
+        const klaimDisokong = await konteks.klaimDisokong({ segarkan: true });
+        if (klaimDisokong !== true) {
+          hantarJson(res, 409, {
+            ok: false,
+            ralat: klaimDisokong === false
+              ? 'Backend HADIR belum dikemas kini (klaim atomik tiada).'
+              : 'Sokongan klaim backend tidak dapat ditentukan (tiada sambungan/kelayakan). Giliran kekal MATI.'
+          });
+          return;
+        }
+        const sesiOk = await konteks.adaSesiMoeis();
+        if (!sesiOk) { hantarJson(res, 409, { ok: false, ralat: 'Sesi idMe tiada; log masuk manual diperlukan.' }); return; }
+        giliran.mulakan(tetapan.baca().intervalSaat);
+        hantarJson(res, 200, { ok: true });
+        return;
+      }
+      if (laluan === '/api/henti' && req.method === 'POST') {
+        giliran.hentikan();
+        hantarJson(res, 200, { ok: true });
+        return;
+      }
+      if (laluan === '/api/kerja-jalan' && req.method === 'POST') {
+        if (payload.sah !== true || !payload.id) { hantarJson(res, 400, { ok: false, ralat: 'Pengesahan diperlukan.' }); return; }
+        if (!simpanan.adaRahsiaEnjin()) { hantarJson(res, 409, { ok: false, ralat: 'Rahsia enjin belum ditetapkan pada PC ini.' }); return; }
+        const klaimDisokong = await konteks.klaimDisokong({ segarkan: true });
+        if (klaimDisokong !== true) { hantarJson(res, 409, { ok: false, ralat: 'Klaim atomik backend tidak dapat disahkan; tiada apa dijalankan.' }); return; }
+        const hasil = await konteks.kerjaJalan(payload.id).catch((ralat) => ({ diproses: 0, sebab: 'Ralat backend: ' + ralat.message }));
+        hantarJson(res, 200, { ok: true, hasil });
+        return;
+      }
+      if (laluan === '/api/kerja-sah' && req.method === 'POST') {
+        // Pemulihan BACA SAHAJA bagi tugasan 'tersimpan': tidak pernah
+        // menekan simpan/menghantar semula — lihat giliran.sahkanTugasan().
+        if (payload.sah !== true || !payload.id) { hantarJson(res, 400, { ok: false, ralat: 'Pengesahan diperlukan.' }); return; }
+        if (!simpanan.adaRahsiaEnjin()) { hantarJson(res, 409, { ok: false, ralat: 'Rahsia enjin belum ditetapkan pada PC ini.' }); return; }
+        const klaimDisokong = await konteks.klaimDisokong({ segarkan: true });
+        if (klaimDisokong !== true) { hantarJson(res, 409, { ok: false, ralat: 'Klaim atomik backend tidak dapat disahkan; tiada apa dijalankan.' }); return; }
+        const hasil = await konteks.kerjaSah(payload.id).catch((ralat) => ({ diproses: 0, sebab: 'Ralat backend: ' + ralat.message }));
+        hantarJson(res, 200, { ok: true, hasil });
+        return;
+      }
+      if (laluan === '/api/kerja' && req.method === 'GET') {
+        if (!simpanan.adaRahsiaEnjin()) { hantarJson(res, 200, { ok: true, senarai: [], nota: 'Rahsia enjin belum ditetapkan pada PC ini.' }); return; }
+        const senarai = await konteks.kerjaSenaraiDisensor();
+        hantarJson(res, 200, { ok: true, senarai });
+        return;
+      }
+      if (laluan === '/api/tetapan' && req.method === 'POST') {
+        if (adaMedanRahsiaDilarang(payload)) { hantarJson(res, 400, { ok: false, ralat: 'Medan rahsia tidak dibenarkan pada endpoint ini.' }); return; }
+        const lokalSahaja = MEDAN_LOKAL_SAHAJA.filter((k) => Object.prototype.hasOwnProperty.call(payload, k));
+        if (lokalSahaja.length) {
+          hantarJson(res, 400, {
+            ok: false,
+            ralat: 'Medan berikut hanya boleh diubah pada PC companion: ' + lokalSahaja.join(', ')
+          });
+          return;
+        }
+        tetapan.tulis(tapisTetapanDibenarkan(payload));
+        hantarJson(res, 200, { ok: true, tetapan: tetapan.baca() });
+        return;
+      }
+      if (laluan === '/api/autostart' && req.method === 'POST') {
+        if (payload.sah !== true) { hantarJson(res, 400, { ok: false, ralat: 'Pengesahan diperlukan.' }); return; }
+        konteks.autostartTulis(!!payload.aktif);
+        tetapan.tulis({ autostart: !!payload.aktif });
+        hantarJson(res, 200, { ok: true, autostart: !!payload.aktif });
+        return;
+      }
+      if (laluan === '/api/pasangan/batal' && req.method === 'POST') {
+        if (payload.id) pasangan.batalSatu(payload.id); else pasangan.batalSemua();
+        hantarJson(res, 200, { ok: true });
+        return;
+      }
+      res.writeHead(404); res.end();
+    } catch (ralat) {
+      hantarJson(res, 500, { ok: false, ralat: ralat.message });
+    }
+  }
+
+  return http.createServer((req, res) => {
+    pengendali(req, res).catch((ralat) => {
+      try { hantarJson(res, 500, { ok: false, ralat: ralat.message }); } catch { /* respons sudah dihantar */ }
+    });
+  });
+}

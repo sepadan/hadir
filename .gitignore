@@ -1,0 +1,12 @@
+companion/node_modules/
+companion/dist/
+companion/data/
+companion/log/
+*.local.json
+# Keadaan tempatan companion (rahsia disulit DPAPI, kuki sesi dalam profil
+# pelayar, cache status) tidak boleh masuk repo awam walau di mana --data-dir
+# diarahkan.
+companion/**/rahsia.dat
+companion/**/status-sesi.json
+companion/**/tetapan.json
+companion/**/profil-pelayar/

@@ -46,6 +46,27 @@ Penyelarasan menggunakan `importGuru` + `pastikanAkaunGuru` dalam AKSI dan
 `sync` menyamakan senarai aktif dan menanda nama yang tiada sebagai tidak aktif.
 Baris, kata laluan, tugasan dan sejarah tidak dipadam atau ditindih.
 
+## Enjin PC (Companion) — deploy semula diperlukan
+
+HADIR v1.11.0 menambah klaim atomik + lease bagi tugasan MOEIS: fungsi
+`hadirMoeisJobKlaim_`/`hadirMoeisJobLepas_`, kaedah `moeisJobKlaim`/
+`moeisJobLepas` dalam jadual `hadirDoPost_`, keputusan `tersimpan` baharu
+pada `hadirMoeisJobSelesai_`, dan lajur `PEMILIK`/`LEASE_SELEPAS` (migrasi
+lembut — `HADIR_MOEIS_JOB_LEBAR` naik daripada 11 ke 13, helaian sedia ada
+tidak hilang data). **Backend mesti di-deploy semula (New version) sebelum
+companion Windows (`companion/`) boleh menghidupkan giliran** — tanpa itu
+`POST /api/mula` companion menolak dengan 409 dan giliran kekal mati
+(fail-closed by design, lihat `companion/docs/PEMASANGAN.md`).
+
+**Perubahan tandatangan `moeisJobSelesai` (semakan bebas 18 September 2026):**
+argumennya kini `(id, keputusan, mesej, bilHadirSelepas, pemilik, rahsia)`.
+`pemilik` mestilah sama dengan lajur `PEMILIK` pada tugasan dan status semasa
+mesti `sedang_dihantar` (atau `tersimpan` bagi pengesahan semula); selain itu
+laporan ditolak. Ini menghalang mana-mana pemegang rahsia enjin daripada
+menandakan tugasan `berjaya` tanpa memegang klaim. Enjin lama (moeis-bot
+prototaip) yang masih menghantar lima argumen **tidak lagi berfungsi** —
+gunakan `companion/`.
+
 ## Relay tiga sistem
 
 `terimaSyncMurid` dan `terimaSyncGuru` menerima data daripada AKSI/SEMAK hanya

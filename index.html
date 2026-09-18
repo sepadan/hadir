@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.10.0">
+  <link rel="manifest" href="manifest.webmanifest?v=1.11.0">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.10.0">
+  <link rel="stylesheet" href="styles.css?v=1.11.0">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -138,6 +138,29 @@
           <div><span class="eyebrow">ADMIN</span><h2>Hantar ke MOEIS</h2><p>Senarai kelas untuk hari ini. Kategori dan sebab mesti lengkap sebelum menghantar. HADIR hanya menyediakan tugasan; tiada apa dihantar terus ke MOEIS dari sini.</p></div>
         </div>
         <div id="moeisStatus" class="status" aria-live="polite"></div>
+
+        <div class="companion-card">
+          <div class="page-head"><div><span class="eyebrow">ADMIN</span><h2>Enjin PC (Companion)</h2>
+            <p>Enjin Playwright berjalan pada satu PC guru (Windows), disambung melalui loopback sahaja. HADIR tidak pernah menerima kata laluan atau rahsia enjin — rahsia dimasukkan <b>hanya</b> dalam tetapan tempatan pada PC itu.</p></div></div>
+          <div id="companionRingkasan" class="status" aria-live="polite">Tiada PC disambung.</div>
+          <div class="companion-actions">
+            <button id="companionSambungBtn" class="soft">Sambung PC</button>
+            <button id="companionUjiSambunganBtn" class="soft" disabled>Uji sambungan</button>
+            <button id="companionUjiLoginBtn" class="soft" disabled>Uji log masuk (tanpa tulis)</button>
+            <button id="companionMulaBtn" class="soft" disabled>Mula giliran</button>
+            <button id="companionHentiBtn" class="soft" disabled>Hentikan giliran</button>
+            <button id="companionTetapanLokalBtn" class="soft" disabled>Buka tetapan tempatan</button>
+            <button id="companionPutuskanBtn" class="soft danger" disabled>Putuskan pasangan</button>
+          </div>
+          <div id="companionButiran" class="companion-butiran" hidden></div>
+          <ul class="companion-nota">
+            <li>Rahsia enjin dimasukkan hanya dalam UI tetapan tempatan pada PC itu (butang "Buka tetapan tempatan"); HADIR tidak pernah menerima kata laluan.</li>
+            <li>Giliran penghantaran MATI secara lalai. Guru/admin mesti tekan "Mula giliran" secara eksplisit.</li>
+            <li>Sesi idMe tamat = perlu log masuk manual pada PC itu. Tiada dakwaan log masuk tanpa pengawasan.</li>
+            <li>Pelayar mungkin memaparkan gesaan kebenaran "akses rangkaian tempatan" sekali sahaja — ini normal.</li>
+          </ul>
+        </div>
+
         <div id="moeisList" class="review-list moeis-list"></div>
       </section>
 
@@ -275,7 +298,24 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.10.0"></script>
-  <script src="app.js?v=1.10.0"></script>
+  <dialog id="companionPairDialog" class="settings-dialog">
+    <form id="companionPairForm" method="dialog">
+      <div class="dialog-head"><div><span class="eyebrow">COMPANION</span><h2>Sambung PC</h2><p>Kod pasangan dijana pada tetapan tempatan PC itu (sah 10 minit).</p></div><button type="button" class="icon-btn cancel-companion-pair">×</button></div>
+      <div class="dialog-body settings-form">
+        <label>Port companion<input id="companionPortInput" type="text" inputmode="numeric" value="8747" required></label>
+        <label>Kod pasangan (8 aksara)<input id="companionKodInput" type="text" maxlength="8" autocomplete="off" required></label>
+        <label>Label PC ini<input id="companionLabelInput" type="text" placeholder="Contoh: PC Bilik Guru" autocomplete="off"></label>
+        <label class="checkbox-line"><input id="companionIngatCheckbox" type="checkbox"> Ingat pada PC ini (localStorage)</label>
+        <div id="companionPairStatus" class="status" aria-live="polite"></div>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="soft cancel-companion-pair">Batal</button>
+        <button id="companionPairSubmitBtn" type="submit" class="primary">Sambung</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="config.js?v=1.11.0"></script>
+  <script src="app.js?v=1.11.0"></script>
 </body>
 </html>

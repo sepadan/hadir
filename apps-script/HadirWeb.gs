@@ -67,8 +67,13 @@ function hadirMoeisSebabSah_(kategori, sebab) {
 }
 
 function hadirMoeisLabelStatus_(status) {
-  return { menunggu: 'Menunggu', berjaya: 'Berjaya', gagal: 'Gagal' }[status] || status;
+  return {
+    menunggu: 'Menunggu', sedang_dihantar: 'Sedang dihantar',
+    tersimpan: 'Tersimpan — menunggu pengesahan', berjaya: 'Berjaya', gagal: 'Gagal'
+  }[status] || status;
 }
+
+var HADIR_MOEIS_LEASE_SAAT = 15 * 60;
 
 /* Murid tidak hadir yang kategori/sebabnya kosong atau tidak sah mengikut
    senarai rasmi MOEIS. Dikongsi oleh skrin admin (paparan "Belum lengkap")
@@ -156,8 +161,11 @@ function hadirGantiMoeisSebabKelas_(tarikhIso, kelas, senarai) {
   if (baharu.length) s.getRange(2, 1, baharu.length, 6).setValues(baharu);
 }
 
-var HADIR_MOEIS_JOB_LEBAR = 11;
+var HADIR_MOEIS_JOB_LEBAR = 13;
 
+/* Migrasi lembut: helaian lama (11 lajur) menerima tajuk PEMILIK/LEASE_SELEPAS
+   tambahan tanpa menyentuh data sedia ada. Helaian baharu dicipta terus dengan
+   13 lajur. */
 function hadirSheetMoeisJob_() {
   var s = ss.getSheetByName('HADIR_MOEIS_JOB');
   if (!s) {
@@ -165,9 +173,14 @@ function hadirSheetMoeisJob_() {
     s.getRange(1, 1, 1, HADIR_MOEIS_JOB_LEBAR).setValues([[
       'ID', 'TARIKH_ISO', 'KELAS', 'STATUS', 'MESEJ',
       'DICIPTA', 'DIKEMASKINI', 'MASA_SELESAI', 'BIL_HADIR_SELEPAS', 'MURID_JSON',
-      'KELAS_MOEIS_ID'
+      'KELAS_MOEIS_ID', 'PEMILIK', 'LEASE_SELEPAS'
     ]]);
     s.setFrozenRows(1);
+    return s;
+  }
+  if (s.getLastColumn() < HADIR_MOEIS_JOB_LEBAR) {
+    s.getRange(1, s.getLastColumn() + 1, 1, HADIR_MOEIS_JOB_LEBAR - s.getLastColumn())
+      .setValues([['PEMILIK', 'LEASE_SELEPAS'].slice(-(HADIR_MOEIS_JOB_LEBAR - s.getLastColumn()))]);
   }
   return s;
 }
@@ -213,7 +226,8 @@ function hadirDoPost_(e) {
     syncSemua: hadirSyncSemuaApi_,
     moeisSenaraiKelas: hadirMoeisSenaraiKelas_, moeisSimpanSebab: hadirMoeisSimpanSebab_,
     moeisJobBuat: hadirMoeisJobBuat_, moeisJobSenarai: hadirMoeisJobSenarai_,
-    moeisJobSelesai: hadirMoeisJobSelesai_
+    moeisJobSelesai: hadirMoeisJobSelesai_, moeisJobKlaim: hadirMoeisJobKlaim_,
+    moeisJobLepas: hadirMoeisJobLepas_
   };
   try {
     var fn = dibenarkan[String(p.kaedah || '')];
@@ -680,7 +694,8 @@ function hadirMoeisSenaraiKelas_(token) {
       bilTidakHadir: murid.length,
       belumLengkap: belumLengkap.map(function (m) { return { kunci: m.kunci, nama: m.nama }; }),
       statusPenghantaran: job ? job.status : 'belum_dihantar',
-      mesejPenghantaran: job ? job.mesej : ''
+      mesejPenghantaran: job ? job.mesej : '',
+      idTugasan: job ? job.id : ''
     };
   });
 }
@@ -784,7 +799,10 @@ function hadirMoeisJobBuat_(kelas, tarikhIso, token, kelasMoeisId) {
     var masa = new Date();
     var id = indeks >= 0 ? baris[indeks][0] : Utilities.getUuid();
     if (!kelasMoeisId && indeks >= 0) kelasMoeisId = String(baris[indeks][10] || '');
-    var barisBaru = [id, tarikhIso, kelas, 'menunggu', '', masa, masa, '', '', JSON.stringify(murid), kelasMoeisId];
+    // 13 lajur (HADIR_MOEIS_JOB_LEBAR): PEMILIK/LEASE_SELEPAS kosong pada
+    // tugasan baharu/dicipta semula — setValues() melontar ralat dimensi
+    // jika baris ini kurang daripada lebar jadual sebenar.
+    var barisBaru = [id, tarikhIso, kelas, 'menunggu', '', masa, masa, '', '', JSON.stringify(murid), kelasMoeisId, '', ''];
     if (indeks >= 0) sJob.getRange(indeks + 2, 1, 1, HADIR_MOEIS_JOB_LEBAR).setValues([barisBaru]);
     else sJob.appendRow(barisBaru);
   } finally { lock.releaseLock(); }
@@ -817,11 +835,23 @@ function hadirMoeisJobSenarai_(token, rahsia) {
 
 /* Dipanggil oleh enjin PC sahaja (rahsia HADIR_MOEIS_ENGINE_SECRET) apabila
    satu tugasan selesai diproses di MOEIS. HADIR tidak pernah memanggil MOEIS
-   sendiri; ini hanya merekod keputusan yang dilaporkan oleh enjin. */
-function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, rahsia) {
+   sendiri; ini hanya merekod keputusan yang dilaporkan oleh enjin.
+   'tersimpan' bermaksud dialog Simpan berjaya tetapi pengesahan selepas muat
+   semula tidak lengkap — ini BUKAN kejayaan dan tidak boleh dicuba semula
+   secara automatik oleh giliran. PEMILIK/LEASE dikosongkan supaya baris tidak
+   kekal terkunci kepada enjin yang sudah selesai.
+
+   PENTING (penemuan semakan bebas): `pemilik` WAJIB sepadan dengan lajur
+   PEMILIK dan status semasa mesti 'sedang_dihantar' (atau 'tersimpan' untuk
+   laluan pengesahan semula). Tanpa semakan ini, sesiapa yang memegang rahsia
+   enjin boleh menandakan mana-mana tugasan 'berjaya' tanpa sebarang bacaan
+   semula MOEIS — memintas mesin keadaan klaim → sahkan → lapor. */
+function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, pemilik, rahsia) {
   hadirSahRahsiaMoeis_(rahsia);
   keputusan = String(keputusan || '').toLowerCase();
-  if (['berjaya', 'gagal'].indexOf(keputusan) < 0) throw new Error('Keputusan tugasan tidak sah.');
+  if (['berjaya', 'gagal', 'tersimpan'].indexOf(keputusan) < 0) throw new Error('Keputusan tugasan tidak sah.');
+  pemilik = String(pemilik || '').trim();
+  if (!pemilik) throw new Error('Pemilik tugasan diperlukan untuk merekod keputusan.');
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   var kelasLog = '';
@@ -833,6 +863,13 @@ function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, rahsia) {
     var indeks = -1;
     for (var i = 0; i < baris.length; i++) { if (String(baris[i][0]) === String(id)) { indeks = i; break; } }
     if (indeks < 0) throw new Error('Tugasan tidak ditemui.');
+    var statusSemasa = String(baris[indeks][3] || '').trim();
+    var pemilikSemasa = String(baris[indeks][11] || '').trim();
+    if (!pemilikSemasa) throw new Error('Tugasan tidak dipegang oleh mana-mana enjin (tiada klaim aktif).');
+    if (pemilikSemasa !== pemilik) throw new Error('Hanya enjin yang memegang klaim boleh merekod keputusan tugasan ini.');
+    if (statusSemasa !== 'sedang_dihantar' && statusSemasa !== 'tersimpan') {
+      throw new Error('Status tugasan tidak sepadan untuk merekod keputusan (status: ' + statusSemasa + ').');
+    }
     kelasLog = baris[indeks][2];
     var masa = new Date();
     s.getRange(indeks + 2, 4).setValue(keputusan);
@@ -840,8 +877,100 @@ function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, rahsia) {
     s.getRange(indeks + 2, 7).setValue(masa);
     s.getRange(indeks + 2, 8).setValue(masa);
     s.getRange(indeks + 2, 9).setValue(bilHadirSelepas == null || bilHadirSelepas === '' ? '' : Number(bilHadirSelepas));
+    s.getRange(indeks + 2, 12).setValue('');
+    s.getRange(indeks + 2, 13).setValue('');
   } finally { lock.releaseLock(); }
   hadirLog_('MOEIS_JOB_SELESAI', 'sistem', kelasLog, keputusan);
+  return { ok: true };
+}
+
+/* Klaim atomik satu tugasan sedia ada bagi enjin PC (rahsia
+   HADIR_MOEIS_ENGINE_SECRET). Dipanggil selepas enjin melihat senarai melalui
+   moeisJobSenarai dan memilih satu tugasan berstatus 'menunggu'. Pengesahan
+   sebenar keadaan tugasan dibuat semula di sini di bawah ScriptLock supaya dua
+   enjin yang mencuba id yang sama serentak hanya satu berjaya. Pulangkan objek
+   tugasan yang diklaim, atau null jika tidak boleh diklaim (tugasan lain
+   sedang memegangnya, sudah tersimpan/berjaya, atau gagal tanpa kebenaran
+   cuba semula eksplisit).
+
+   benarkanCubaSemula:
+     - true      -> tugasan 'gagal' boleh dicuba semula (klaim admin manual).
+     - 'verifikasi' -> tugasan 'tersimpan' boleh diklaim untuk BACAAN SAHAJA
+       (lease dipegang, status KEKAL 'tersimpan', tiada tulisan kehadiran
+       baharu dibenarkan menerusi laluan ini) — pemulihan selamat companion
+       apabila pengesahan selepas simpan tidak lengkap.
+     - false/tiada -> gelung automatik biasa. */
+function hadirMoeisJobKlaim_(id, pemilik, benarkanCubaSemula, rahsia) {
+  hadirSahRahsiaMoeis_(rahsia);
+  pemilik = String(pemilik || '').trim();
+  if (!pemilik) throw new Error('Pemilik tugasan diperlukan untuk klaim.');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var s = ss.getSheetByName('HADIR_MOEIS_JOB');
+    if (!s || s.getLastRow() < 2) throw new Error('Tugasan tidak ditemui.');
+    var n = s.getLastRow() - 1;
+    var baris = s.getRange(2, 1, n, HADIR_MOEIS_JOB_LEBAR).getDisplayValues();
+    var indeks = -1;
+    for (var i = 0; i < baris.length; i++) { if (String(baris[i][0]) === String(id)) { indeks = i; break; } }
+    if (indeks < 0) throw new Error('Tugasan tidak ditemui.');
+    var status = String(baris[indeks][3] || '');
+    var pemilikSediaAda = String(baris[indeks][11] || '');
+    // LEASE_SELEPAS mesti dibaca sebagai NILAI NOMBOR (getValue), bukan
+    // getDisplayValues() — bentuk paparan lokal (cth "18/9/2026 09:15:00")
+    // menjadikan new Date(...) itu NaN, yang secara silap membenarkan enjin
+    // lain "merampas" tugasan yang sebenarnya masih dipegang (lease sentiasa
+    // dianggap luput). Nilai bukan-nombor dianggap TIDAK SAH dan fail
+    // tertutup: hanya pemilik SEDIA ADA yang boleh memperbaharui; pemilik
+    // BERLAINAN tidak boleh mengambil alih melainkan lease itu nombor sah
+    // dan benar-benar luput.
+    var leaseMentah = s.getRange(indeks + 2, 13).getValue();
+    var leaseSah = typeof leaseMentah === 'number' && isFinite(leaseMentah);
+    var sekarang = Date.now();
+    var mahuVerifikasiSahaja = status === 'tersimpan' && benarkanCubaSemula === 'verifikasi';
+    var bolehKlaim = false;
+    if (status === 'menunggu') bolehKlaim = true;
+    else if (status === 'sedang_dihantar' && pemilikSediaAda === pemilik) bolehKlaim = true; // heartbeat lease oleh pemilik sama
+    else if (status === 'sedang_dihantar' && pemilikSediaAda !== pemilik && leaseSah && leaseMentah < sekarang) bolehKlaim = true; // lease sah dan luput, runner mati
+    else if (status === 'gagal' && benarkanCubaSemula === true) bolehKlaim = true;
+    else if (mahuVerifikasiSahaja) bolehKlaim = true;
+    if (!bolehKlaim) return null;
+    var masa = new Date();
+    var leaseBaharu = sekarang + HADIR_MOEIS_LEASE_SAAT * 1000; // simpan sebagai epoch ms, bukan Date/paparan
+    if (!mahuVerifikasiSahaja) s.getRange(indeks + 2, 4).setValue('sedang_dihantar');
+    s.getRange(indeks + 2, 7).setValue(masa);
+    s.getRange(indeks + 2, 12).setValue(pemilik);
+    s.getRange(indeks + 2, 13).setValue(leaseBaharu);
+    return {
+      id: baris[indeks][0], tarikhIso: baris[indeks][1], kelas: baris[indeks][2],
+      murid: JSON.parse(baris[indeks][9] || '[]'), kelasMoeisId: baris[indeks][10] || ''
+    };
+  } finally { lock.releaseLock(); }
+}
+
+/* Lepaskan lease tugasan tanpa merekod keputusan (henti bersih giliran).
+   Hanya pemilik semasa boleh melepaskan; ini mengelakkan satu enjin
+   melepaskan tugasan yang sedang dipegang oleh enjin lain. */
+function hadirMoeisJobLepas_(id, pemilik, rahsia) {
+  hadirSahRahsiaMoeis_(rahsia);
+  pemilik = String(pemilik || '').trim();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var s = ss.getSheetByName('HADIR_MOEIS_JOB');
+    if (!s || s.getLastRow() < 2) throw new Error('Tugasan tidak ditemui.');
+    var n = s.getLastRow() - 1;
+    var baris = s.getRange(2, 1, n, HADIR_MOEIS_JOB_LEBAR).getDisplayValues();
+    var indeks = -1;
+    for (var i = 0; i < baris.length; i++) { if (String(baris[i][0]) === String(id)) { indeks = i; break; } }
+    if (indeks < 0) throw new Error('Tugasan tidak ditemui.');
+    if (String(baris[indeks][3] || '') !== 'sedang_dihantar') return { ok: true };
+    if (String(baris[indeks][11] || '') !== pemilik) throw new Error('Hanya pemilik tugasan boleh melepaskannya.');
+    s.getRange(indeks + 2, 4).setValue('menunggu');
+    s.getRange(indeks + 2, 7).setValue(new Date());
+    s.getRange(indeks + 2, 12).setValue('');
+    s.getRange(indeks + 2, 13).setValue('');
+  } finally { lock.releaseLock(); }
   return { ok: true };
 }
 

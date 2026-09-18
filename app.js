@@ -73,7 +73,7 @@
     uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null,
     guru: [], guruUploadRecords: [], guruUploadFileName: '',
     cacheSementara: false, tarikhEditIso: '', versiSemakan: 0,
-    moeisKelas: []
+    moeisKelas: [], pasangan: null, companionStatusTerkini: null
   };
 
   function $(id) { return document.getElementById(id); }
@@ -750,7 +750,7 @@
     if (id === 'studentsPane') muatMuridAdmin();
     if (id === 'studentSettingsPane') muatTetapanMurid();
     if (id === 'teacherSettingsPane') muatGuruAdmin();
-    if (id === 'moeisPane') muatMoeisAdmin();
+    if (id === 'moeisPane') { muatMoeisAdmin(); companionKemaskiniPapar(); companionMuatStatus(); }
     if (id === 'reviewPane') {
       state.versiSemakan++;
       state.reviewData = state.data;
@@ -1311,7 +1311,8 @@
 
   var MOEIS_LABEL_STATUS = {
     belum_dihantar: 'Belum dihantar', menunggu: 'Menunggu',
-    sedang_dihantar: 'Sedang dihantar', berjaya: 'Berjaya', gagal: 'Gagal'
+    sedang_dihantar: 'Sedang dihantar', tersimpan: 'Tersimpan — menunggu pengesahan',
+    berjaya: 'Berjaya', gagal: 'Gagal'
   };
 
   function lukisMoeisAdmin() {
@@ -1355,12 +1356,158 @@
       hantarBtn.type = 'button';
       hantarBtn.disabled = !lengkap || !k.bilTidakHadir ||
         k.statusPenghantaran === 'menunggu' || k.statusPenghantaran === 'sedang_dihantar' ||
-        k.statusPenghantaran === 'berjaya';
+        k.statusPenghantaran === 'berjaya' || k.statusPenghantaran === 'tersimpan';
       hantarBtn.addEventListener('click', function () { hantarMoeis(k.nama); });
       badan.appendChild(hantarBtn);
+
+      if ((k.statusPenghantaran === 'tersimpan' || k.statusPenghantaran === 'gagal') && k.idTugasan) {
+        var jalanBtn = el('button', 'soft wide', 'Jalankan sekarang (Companion)');
+        jalanBtn.type = 'button';
+        jalanBtn.disabled = !companionSedia_();
+        jalanBtn.addEventListener('click', function () { companionJalankanTugasan(k.idTugasan, k.statusPenghantaran); });
+        badan.appendChild(jalanBtn);
+      }
       card.appendChild(badan);
       box.appendChild(card);
     });
+  }
+
+  // ---------------- Enjin PC (Companion) ----------------
+  var KUNCI_COMPANION_SESI = 'hadir_companion_pasangan';
+
+  function companionMuatPasangan_() {
+    try {
+      var mentah = sessionStorage.getItem(KUNCI_COMPANION_SESI) || localStorage.getItem(KUNCI_COMPANION_SESI);
+      return mentah ? JSON.parse(mentah) : null;
+    } catch (e) { return null; }
+  }
+  function companionSimpanPasangan_(data, ingat) {
+    var teksData = JSON.stringify(data);
+    sessionStorage.setItem(KUNCI_COMPANION_SESI, teksData);
+    if (ingat) localStorage.setItem(KUNCI_COMPANION_SESI, teksData);
+    else localStorage.removeItem(KUNCI_COMPANION_SESI);
+  }
+  function companionPutuskanTempatan_() {
+    sessionStorage.removeItem(KUNCI_COMPANION_SESI);
+    localStorage.removeItem(KUNCI_COMPANION_SESI);
+    state.pasangan = null;
+    state.companionStatusTerkini = null;
+  }
+  function companionSedia_() { return !!(state.pasangan && state.pasangan.token); }
+
+  // Satu pembantu tunggal bagi semua panggilan companion. TOLAK jika sesi
+  // admin HADIR (state.token) tiada — companion tidak boleh digunakan tanpa
+  // log masuk admin HADIR, walaupun pasangan PC sudah wujud.
+  function companionPanggil(kaedah, laluan, badan) {
+    if (!state.token) return Promise.reject(new Error('Log masuk admin diperlukan.'));
+    if (!companionSedia_()) return Promise.reject(new Error('PC companion belum disambung.'));
+    var url = 'http://127.0.0.1:' + state.pasangan.port + laluan;
+    return fetch(url, {
+      method: kaedah,
+      headers: Object.assign({ Authorization: 'Bearer ' + state.pasangan.token },
+        badan ? { 'Content-Type': 'application/json' } : {}),
+      body: badan ? JSON.stringify(badan) : undefined
+    }).then(function (r) {
+      return r.json().catch(function () { throw new Error('Balasan companion tidak sah.'); }).then(function (j) {
+        if (!j || j.ok === false) throw new Error((j && j.ralat) || ('Ralat companion (' + r.status + ')'));
+        return j;
+      });
+    });
+  }
+
+  function companionKemaskiniPapar() {
+    var ringkasan = $('companionRingkasan');
+    var sedia = companionSedia_();
+    ['companionUjiSambunganBtn', 'companionUjiLoginBtn', 'companionMulaBtn', 'companionHentiBtn',
+      'companionTetapanLokalBtn', 'companionPutuskanBtn'].forEach(function (id) { $(id).disabled = !sedia; });
+    if (!sedia) {
+      ringkasan.textContent = 'Tiada PC disambung.';
+      $('companionButiran').hidden = true;
+      lukisMoeisAdmin();
+      return;
+    }
+    ringkasan.textContent = 'Disambung: ' + (state.pasangan.label || 'Tanpa label') + ' · ' +
+      (state.pasangan.pc || '?') + ' · 127.0.0.1:' + state.pasangan.port;
+    var st = state.companionStatusTerkini;
+    var butiran = $('companionButiran');
+    if (st) {
+      butiran.hidden = false;
+      butiran.textContent =
+        'Giliran: ' + (st.giliran && st.giliran.aktif ? 'HIDUP' : 'MATI (lalai)') +
+        ' · Klaim atomik: ' + (st.giliran && st.giliran.klaimDisokong === true
+          ? 'ada'
+          : (st.giliran && st.giliran.klaimDisokong === false
+            ? 'tiada — naik taraf backend HADIR'
+            : 'tidak dapat ditentukan')) +
+        ' · Rahsia enjin pada PC: ' + (st.adaRahsiaEnjin ? 'ada' : 'belum ditetapkan') +
+        ' · Sesi idMe: ' + (st.moeis && st.moeis.sesiAda === true
+          ? 'ada'
+          : (st.moeis && st.moeis.sesiAda === false
+            ? 'tamat/tiada — perlu log masuk manual pada PC'
+            : 'belum diperiksa — tekan Uji log masuk')) +
+        (st.giliran && st.giliran.ralatTerakhir ? (' · Ralat terakhir: ' + st.giliran.ralatTerakhir) : '');
+    } else {
+      butiran.hidden = true;
+    }
+    lukisMoeisAdmin();
+  }
+
+  function companionMuatStatus() {
+    if (!companionSedia_()) return Promise.resolve();
+    return companionPanggil('GET', '/api/status').then(function (r) {
+      state.companionStatusTerkini = r;
+      companionKemaskiniPapar();
+    }).catch(function (e) {
+      state.companionStatusTerkini = null;
+      status($('companionRingkasan'), e.message, 'err');
+    });
+  }
+
+  function companionUjiSambungan() {
+    status($('companionRingkasan'), 'Menguji sambungan…', '');
+    companionPanggil('POST', '/api/uji-sambungan', {}).then(function () {
+      return companionMuatStatus();
+    }).catch(function (e) { status($('companionRingkasan'), e.message, 'err'); });
+  }
+
+  function companionUjiLogin() {
+    status($('companionButiran'), 'Menguji log masuk (tiada tulisan)…', '');
+    companionPanggil('POST', '/api/uji-login', {}).then(function (r) {
+      $('companionButiran').hidden = false;
+      $('companionButiran').textContent = 'Status log masuk: ' + r.status + ' · hos: ' + (r.hos || '-') + ' · kunci: ' + (r.kunci || '-');
+    }).catch(function (e) { status($('companionButiran'), e.message, 'err'); });
+  }
+
+  function companionMula() {
+    companionPanggil('POST', '/api/mula', {}).then(function () { return companionMuatStatus(); })
+      .catch(function (e) { status($('companionRingkasan'), e.message, 'err'); });
+  }
+  function companionHenti() {
+    companionPanggil('POST', '/api/henti', {}).then(function () { return companionMuatStatus(); })
+      .catch(function (e) { status($('companionRingkasan'), e.message, 'err'); });
+  }
+  function companionPutuskan() {
+    if (!window.confirm('Putuskan pasangan dengan PC companion ini?')) return;
+    companionPanggil('POST', '/api/pasangan/batal', {}).catch(function () {}).finally(function () {
+      companionPutuskanTempatan_();
+      companionKemaskiniPapar();
+    });
+  }
+  function companionBukaTetapanLokal() {
+    if (!state.pasangan) return;
+    window.open('http://127.0.0.1:' + state.pasangan.port + '/', '_blank');
+  }
+  function companionJalankanTugasan(id, statusSemasa) {
+    var amaran = statusSemasa === 'tersimpan'
+      ? 'Tugasan ini sudah "Tersimpan — menunggu pengesahan". Menjalankan semula boleh menulis ganda di MOEIS. ' +
+        'Sahkan dahulu keadaan sebenar di MOEIS sebelum meneruskan. Teruskan?'
+      : 'Cuba jalankan semula tugasan yang gagal ini sekarang?';
+    if (!window.confirm(amaran)) return;
+    status($('moeisStatus'), 'Menjalankan tugasan melalui companion…', '');
+    companionPanggil('POST', '/api/kerja-jalan', { id: id, sah: true }).then(function () {
+      status($('moeisStatus'), 'Tugasan dihantar ke giliran companion.', 'ok');
+      return muatMoeisAdmin();
+    }).catch(function (e) { status($('moeisStatus'), e.message, 'err'); });
   }
 
   function hantarMoeis(namaKelas) {
@@ -1442,6 +1589,44 @@
   $('teacherCsvFile').addEventListener('change', bacaFailUploadGuru);
   $('teacherUploadForm').addEventListener('submit', uploadGuruCsv);
   $('syncAllBtn').addEventListener('click', syncSemua);
+  $('companionSambungBtn').addEventListener('click', function () {
+    status($('companionPairStatus'), '', '');
+    $('companionPairForm').reset();
+    $('companionPortInput').value = '8747';
+    $('companionPairDialog').showModal();
+  });
+  $('companionUjiSambunganBtn').addEventListener('click', companionUjiSambungan);
+  $('companionUjiLoginBtn').addEventListener('click', companionUjiLogin);
+  $('companionMulaBtn').addEventListener('click', companionMula);
+  $('companionHentiBtn').addEventListener('click', companionHenti);
+  $('companionTetapanLokalBtn').addEventListener('click', companionBukaTetapanLokal);
+  $('companionPutuskanBtn').addEventListener('click', companionPutuskan);
+  $('companionPairForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var port = parseInt($('companionPortInput').value, 10) || 8747;
+    var kod = norm($('companionKodInput').value);
+    var label = teks($('companionLabelInput').value) || 'PC Companion';
+    var ingat = $('companionIngatCheckbox').checked;
+    if (!kod) { status($('companionPairStatus'), 'Masukkan kod pasangan.', 'err'); return; }
+    var siap = mulaButang($('companionPairSubmitBtn'), 'Menyambung…');
+    fetch('http://127.0.0.1:' + port + '/api/pair', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kod: kod, label: label })
+    }).then(function (r) { return r.json(); }).then(function (j) {
+      if (!j.ok) throw new Error(j.ralat || 'Gagal menyambung.');
+      state.pasangan = { token: j.token, port: (j.companion && j.companion.port) || port, pc: j.companion && j.companion.pc, label: label };
+      companionSimpanPasangan_(state.pasangan, ingat);
+      status($('companionPairStatus'), 'Disambung.', 'ok');
+      setTimeout(function () { $('companionPairDialog').close(); }, 400);
+      companionKemaskiniPapar();
+      companionMuatStatus();
+    }).catch(function (e) {
+      status($('companionPairStatus'), e.message, 'err');
+    }).finally(siap);
+  });
+  document.querySelectorAll('.cancel-companion-pair').forEach(function (b) {
+    b.addEventListener('click', function () { $('companionPairDialog').close(); });
+  });
   $('sebabKategori').addEventListener('change', function () {
     isiPilihanSebab_($('sebabKategori').value, '');
   });
@@ -1479,7 +1664,8 @@
   window.addEventListener('keydown', function (e) { if (e.key === 'Escape') tutupMenu(); });
 
   $('menuBtn').setAttribute('aria-expanded', 'false');
-  $('sideVersion').textContent = cfg.versi || 'HADIR v1.10.0';
+  $('sideVersion').textContent = cfg.versi || 'HADIR v1.11.0';
+  state.pasangan = companionMuatPasangan_();
   sambungan();
   daftarPwa();
   muatAwal();
