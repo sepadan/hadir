@@ -45,18 +45,14 @@ test('UI nonce tempatan menetapkan opt-in + allowlist dan merekod sempadan aktiv
   } finally { pelayan.close(); }
 });
 
-test('status tempatan jujur: registry sebenar, sebab auto dan batas login manual', async () => {
+test('status tempatan jujur: registry sebenar, sebab auto dan keupayaan log masuk opt-in', async () => {
   const autostart = {
     disokong: true, berdaftar: true, sepadan: false,
     sebab: 'Entri HKCU wujud tetapi arahannya tidak sepadan dengan companion ini.'
   };
   const { pelayan, port } = await mulakanPelayanUjian({
     autostart: { status: () => autostart, tetapkan: () => autostart },
-    autoMulaStatus: { diminta: true, bermula: false, sebab: 'Sesi tiada.' },
-    keupayaanLogMasuk: {
-      automatik: false, mod: 'manual',
-      sebab: 'Tiada integrasi vault pelayar diluluskan; log masuk idMe kekal manual.'
-    }
+    autoMulaStatus: { diminta: true, bermula: false, sebab: 'Sesi tiada.' }
   });
   try {
     const r = await mintaMentah(port, {
@@ -66,8 +62,11 @@ test('status tempatan jujur: registry sebenar, sebab auto dan batas login manual
     assert.equal(r.status, 200);
     assert.deepEqual(r.json.autostart, autostart);
     assert.deepEqual(r.json.autoMula, { diminta: true, bermula: false, sebab: 'Sesi tiada.' });
-    assert.equal(r.json.keupayaanLogMasuk.automatik, false);
-    assert.match(r.json.keupayaanLogMasuk.sebab, /vault pelayar.*manual/i);
+    assert.equal(r.json.keupayaanLogMasuk.automatik, true);
+    assert.equal(r.json.keupayaanLogMasuk.mod, 'automatik-optin');
+    assert.match(r.json.keupayaanLogMasuk.sebab, /opt-in/);
+    assert.equal(r.json.tetapan.loginAuto, false, 'loginAuto lalai MATI dalam status');
+    assert.equal(r.json.kredensial.ada, false);
   } finally { pelayan.close(); }
 });
 
@@ -117,15 +116,21 @@ test('mematikan auto-mula menghentikan queue auto dan ia tidak hidup semula dala
   } finally { pelayan.close(); }
 });
 
-test('UI memisahkan dua suis, kalendar tepat dan menyatakan auto-login disekat tanpa medan kredensial idMe', () => {
+test('UI memisahkan suis opt-in, kalendar tepat, medan kata laluan idMe wujud TANPA gema nilai', () => {
   const html = halamanLokalHtml();
   const js = halamanLokalJs();
   assert.match(html, /id="autostart"/);
   assert.match(html, /id="autoMulaGiliran"/);
   assert.match(html, /id="kalendarSekolah"/);
-  assert.match(html, /Tiada integrasi vault pelayar diluluskan; log masuk idMe kekal manual\./);
-  assert.doesNotMatch(html, /idme[^>]+type=["']password/i);
+  assert.match(html, /id="loginAuto"/, 'suis loginAuto mesti wujud');
+  assert.match(html, /loginAuto/, 'label loginAuto mesti wujud');
+  // Medan kata laluan idMe (type=password) kini wujud untuk simpanan tempatan.
+  assert.match(html, /id="idMeKataLaluan"[^>]*type=["']password/);
+  // Nilai TIDAK PERNAH digemakan: JS tidak membaca .value kata laluan kembali
+  // ke dalam DOM; ia hanya dibersihkan selepas simpan.
+  assert.match(js, /idMeKataLaluan/);
   assert.match(js, /kalendarSekolah/);
   assert.match(js, /autoMulaGiliran/);
+  assert.match(js, /loginAuto/);
   assert.doesNotThrow(() => new Function(js), 'JavaScript UI yang dijana mesti sah');
 });

@@ -152,12 +152,16 @@ try {
   sah('status: senarai klien berlabel, tiada hashToken',
     Array.isArray(r.json?.pasangan) && r.json.pasangan.length === 1 && !/hashToken/.test(JSON.stringify(r.json.pasangan)), 'ok');
   sah('status: giliran MATI secara lalai (default OFF)', r.json?.giliran?.aktif === false, 'aktif=' + r.json?.giliran?.aktif);
-  // Auto-mula & keupayaan log masuk: kedua-dua suis lalai MATI/manual.
+  // Auto-mula lalai MATI; keupayaan log masuk kini automatik OPT-IN (jujur).
   sah('status: autoMula.bermula === false (auto-mula mati lalai)',
     r.json?.autoMula?.bermula === false, JSON.stringify(r.json?.autoMula));
-  sah('status: keupayaanLogMasuk automatik=false + mod=manual (tiada vault diluluskan)',
-    r.json?.keupayaanLogMasuk?.automatik === false && r.json?.keupayaanLogMasuk?.mod === 'manual',
+  sah('status: keupayaanLogMasuk automatik=true + mod=automatik-optin (vault DPAPI tempatan)',
+    r.json?.keupayaanLogMasuk?.automatik === true && r.json?.keupayaanLogMasuk?.mod === 'automatik-optin',
     JSON.stringify(r.json?.keupayaanLogMasuk));
+  sah('status: loginAuto lalai MATI (berasingan daripada auto-mula)',
+    r.json?.loginAuto === false, JSON.stringify(r.json?.loginAuto));
+  sah('status: kredensial belum disimpan (ada=false)',
+    r.json?.kredensial?.ada === false, JSON.stringify(r.json?.kredensial));
   // Penemuan semakan bebas: /api/status TIDAK BOLEH memicu pelancaran Edge
   // atau panggilan keluar. Pada pemulaan bersih tiada cache sesi, jadi status
   // mesti melaporkan "belum diperiksa" — bukan melancarkan pelayar.
@@ -195,9 +199,18 @@ try {
   // / dan /lokal.js). TIDAK memanggil /api/lokal/autostart (itu menulis
   // registry sebenar), dan TIDAK menghidupkan giliran.
   r = await minta(port, { laluan: '/api/lokal/status', headers: { 'X-HADIR-Lokal': nonce } });
-  sah('/api/lokal/status melaporkan autostart sebenar (disokong Windows + belum berdaftar)',
-    r.status === 200 && r.json?.autostart?.disokong === true && r.json?.autostart?.berdaftar === false,
-    JSON.stringify(r.json?.autostart));
+  const autoAsap = r.json?.autostart || {};
+  sah('/api/lokal/status melaporkan autostart sebenar (disokong Windows + keadaan koheren dengan registry)',
+    r.status === 200 && autoAsap.disokong === true
+      && typeof autoAsap.berdaftar === 'boolean'
+      && typeof autoAsap.sepadan === 'boolean'
+      // Mesin ini mungkin SUDAH mendaftarkan entri (opt-in pemilik, autostart
+      // hidup). Ujian tidak boleh menganggap mesin bersih: yang penting laporan
+      // itu koheren dengan keadaannya sendiri — 'sepadan' hanya bermakna jika
+      // entri memang didaftarkan, dan sebab mesti sentiasa diisi.
+      && (autoAsap.berdaftar === false ? autoAsap.sepadan === false : autoAsap.sepadan === true)
+      && typeof autoAsap.sebab === 'string' && autoAsap.sebab.length > 0,
+    JSON.stringify(autoAsap));
   sah('/api/lokal/status: autoMula.bermula === false (auto-mula belum dinilai)',
     r.json?.autoMula?.bermula === false, JSON.stringify(r.json?.autoMula));
   r = await minta(port, { method: 'POST', laluan: '/api/lokal/tetapan', headers: { ...JSONCT, 'X-HADIR-Lokal': nonce }, badan: JSON.stringify({ kalendarSekolah: ['bukan-tarikh'] }) });
@@ -243,11 +256,11 @@ try {
   const failNyata = senaraiFail();
   // Nota: `status-sesi.json` ialah cache bukan-rahsia (status sesi ada/tiada +
   // masa) yang disemak berasingan di bawah — ia BUKAN fail kuki.
-  const dilarang = failNyata.filter((f) => /(?<!status-)sesi\.json|storageState|cookies?\.(json|txt)|auth[\/-]state\.json|kredensial/i.test(f));
+  const dilarang = failNyata.filter((f) => /(?<!status-)sesi\.json|storageState|cookies?\.(json|txt)|auth[\/-]state\.json|kredensial\.(json|txt|log|bak)/i.test(f));
   sah('tiada fail kuki/sesi teks biasa ditulis (ujian tingkah laku cakera)',
     dilarang.length === 0, JSON.stringify(dilarang));
   sah('fail yang ada hanyalah keadaan tempatan yang dijangka',
-    failNyata.every((f) => /^(tetapan\.json|rahsia\.dat|status-sesi\.json|log\/)/.test(f)),
+    failNyata.every((f) => /^(tetapan\.json|rahsia\.dat|kredensial\.dat|status-sesi\.json|log\/)/.test(f)),
     JSON.stringify(failNyata));
   // rahsia.dat mesti disulit (bukan JSON teks biasa).
   const mentahRahsia = fs.readFileSync(path.join(dirData, 'rahsia.dat'));

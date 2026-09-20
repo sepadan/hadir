@@ -31,14 +31,16 @@ button{margin-top:12px;padding:8px 16px;cursor:pointer}
 </head>
 <body>
 <h1>Tetapan tempatan — Companion HADIR-MOEIS</h1>
-<p>Halaman ini hanya boleh diakses pada PC ini (127.0.0.1). Rahsia enjin
-dimasukkan <strong>hanya di sini</strong> — HADIR Admin di pelayar tidak
-pernah menerima kata laluan atau rahsia enjin. Companion tidak pernah menaip
-kata laluan/PIN/OTP pada MOEIS/idMe.</p>
+<p>Halaman ini hanya boleh diakses pada PC ini (127.0.0.1). Rahsia enjin dan
+kredensial idMe dimasukkan <strong>hanya di sini</strong> — HADIR Admin di
+pelayar tidak pernah menerima kata laluan atau rahsia enjin. Companion menaip
+kredensial idMe <strong>hanya</strong> apabila log masuk automatik opt-in
+(suis <em>loginAuto</em>, lalai MATI) dihidupkan DAN frasa kunci keselamatan
+padan; selain itu ia tidak pernah menaip kata laluan/PIN/OTP.</p>
 
-<div class="amaran">Giliran penghantaran MATI secara lalai. Mula/henti
-dikawal dari HADIR Admin selepas PC ini dipasangkan. Autostart Windows juga
-opt-in sahaja (lihat bawah).</div>
+<div class="amaran">Giliran penghantaran MATI secara lalai. Log masuk idMe
+automatik juga opt-in (loginAuto, lalai MATI). Autostart Windows opt-in
+sahaja (lihat bawah).</div>
 
 <h2>Status</h2>
 <div id="panelStatus" class="panel">Memuatkan status…</div>
@@ -58,13 +60,28 @@ opt-in sahaja (lihat bawah).</div>
 <button id="btnTetapan">Simpan tetapan</button>
 <div id="statusTetapan" class="status"></div>
 
+<h2>Kredensial idMe (vault DPAPI tempatan)</h2>
+<div class="amaran">Kredensial disimpan disulit DPAPI (akaun Windows ini sahaja) dalam
+kredensial.dat — tiada teks biasa pada cakera. Nilai TIDAK PERNAH dipaparkan
+semula: status hanya memaparkan boolean + pengguna tersamar.</div>
+<label for="idMePengguna">Pengguna idMe (cth IC / ID guru)</label>
+<input id="idMePengguna" type="text" autocomplete="off" />
+<label for="idMeKataLaluan">Kata laluan idMe</label>
+<input id="idMeKataLaluan" type="password" autocomplete="off" />
+<label for="idMeKunciKeselamatan">Frasa "Kata Kunci Keselamatan" idMe yang dijangka (anti-pancing)</label>
+<input id="idMeKunciKeselamatan" type="text" autocomplete="off" placeholder="Frasa tepat seperti dipaparkan semasa log masuk" />
+<button id="btnKredensial">Simpan kredensial</button>
+<button id="btnKredensialPadam">Padam kredensial</button>
+<div id="statusKredensial" class="status"></div>
+
 <h2>Pasangan HADIR Admin</h2>
 <label>Kod pasangan (masukkan di HADIR Admin, sah 10 minit)</label>
 <button id="btnKod">Jana kod pasangan</button>
 <div id="statusKod" class="status"></div>
 
 <h2>Sesi MOEIS/idMe</h2>
-<div class="amaran">Tiada integrasi vault pelayar diluluskan; log masuk idMe kekal manual.</div>
+<div class="amaran">Log masuk idMe automatik ialah opt-in (suis loginAuto). Tanpa
+loginAuto, log masuk kekal manual (guru log masuk sendiri).</div>
 <p>Uji log masuk hanya MEMBACA hos + kunci keselamatan anti-pancing dan
 keadaan sesi semasa — ia <strong>tidak pernah</strong> menaip kata laluan,
 tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
@@ -75,12 +92,13 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 <button id="btnLogin">Buka Edge untuk log masuk</button>
 <div id="statusLogin" class="status"></div>
 
-<h2>Automasi tempatan (dua suis berasingan)</h2>
+<h2>Automasi tempatan (suis opt-in berasingan)</h2>
 <label><input id="autostart" type="checkbox" style="width:auto;display:inline" /> Mulakan companion automatik semasa log masuk Windows (opt-in)</label>
 <button id="btnAutostart">Kemas kini autostart</button>
 <div id="statusAutostart" class="status"></div>
 
 <label><input id="autoMulaGiliran" type="checkbox" style="width:auto;display:inline" /> Auto-mula giliran selepas companion berjaya bind (opt-in)</label>
+<label><input id="loginAuto" type="checkbox" style="width:auto;display:inline" /> Log masuk idMe automatik semasa startup (opt-in, lalai MATI, berasingan daripada auto-mula giliran)</label>
 <label for="kalendarSekolah">Allowlist tarikh sekolah tepat (YYYY-MM-DD, satu baris satu tarikh)</label>
 <textarea id="kalendarSekolah" rows="6" spellcheck="false" placeholder="2026-09-21&#10;2026-09-22"></textarea>
 <p class="status">Allowlist kosong gagal tertutup. Sabtu/Ahad, cuti, kerja lama,
@@ -125,9 +143,10 @@ export function halamanLokalJs() {
       if (!r.ok) { papar('panelStatus', r.ralat || 'Ralat memuat status.'); return; }
       var g = r.giliran || {}, moeis = r.moeis || {};
       var auto = r.autoMula || {}, autostart = r.autostart || {}, keupayaan = r.keupayaanLogMasuk || {};
-      var tetapan = r.tetapan || {};
+      var tetapan = r.tetapan || {}, kredensial = r.kredensial || {};
       document.getElementById('autostart').checked = autostart.berdaftar === true && autostart.sepadan === true;
       document.getElementById('autoMulaGiliran').checked = tetapan.autoMulaGiliran === true;
+      document.getElementById('loginAuto').checked = tetapan.loginAuto === true;
       document.getElementById('kalendarSekolah').value = (tetapan.kalendarSekolah || []).join('\\n');
       papar('panelStatus',
         'Giliran: ' + (g.aktif ? 'HIDUP' : 'MATI (lalai)') + '\\n' +
@@ -143,8 +162,13 @@ export function halamanLokalJs() {
           : 'mati (lalai)') + '\\n' +
         'Auto-mula giliran: ' + (auto.bermula ? 'BERMULA' : 'tidak bermula') +
           ' — ' + (auto.sebab || 'belum dinilai') + '\\n' +
-        'Log masuk automatik: ' + (keupayaan.automatik ? 'disokong' : 'BLOCKED') +
-          ' — ' + (keupayaan.sebab || 'Keupayaan tidak diketahui.')
+        'Log masuk automatik: ' + (keupayaan.automatik
+          ? ('tersedia opt-in, suis loginAuto ' + (tetapan.loginAuto === true ? 'HIDUP' : 'MATI'))
+          : 'BLOCKED') + '\\n' +
+        'Kredensial idMe: ' + (kredensial.ada
+          ? ('ada (pengguna ' + (kredensial.pengguna || 'tersamar') + (kredensial.rosak ? ', ROSAK' : '') + ')')
+          : 'tiada') + '\\n' +
+        'Nota: ' + (keupayaan.sebab || 'Keupayaan tidak diketahui.')
       );
     }).catch(function (e) { papar('panelStatus', 'Ralat: ' + e.message); });
   }
@@ -160,6 +184,30 @@ export function halamanLokalJs() {
     });
   });
 
+  document.getElementById('btnKredensial').addEventListener('click', function () {
+    panggil('/api/lokal/kredensial', 'POST', {
+      idMePengguna: document.getElementById('idMePengguna').value,
+      idMeKataLaluan: document.getElementById('idMeKataLaluan').value,
+      idMeKunciKeselamatan: document.getElementById('idMeKunciKeselamatan').value
+    }).then(function (r) {
+      // Bersihkan medan sebaik sahaja disimpan — nilai tidak pernah digemakan.
+      document.getElementById('idMePengguna').value = '';
+      document.getElementById('idMeKataLaluan').value = '';
+      document.getElementById('idMeKunciKeselamatan').value = '';
+      papar('statusKredensial', r.ok
+        ? ('Kredensial disimpan (disulit DPAPI). Pengguna tersamar: ' + (r.pengguna || '?'))
+        : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
+  });
+
+  document.getElementById('btnKredensialPadam').addEventListener('click', function () {
+    panggil('/api/lokal/kredensial-padam', 'POST', {}).then(function (r) {
+      papar('statusKredensial', r.ok ? 'Kredensial dipadam.' : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
+  });
+
   document.getElementById('btnTetapan').addEventListener('click', function () {
     var kalendar = document.getElementById('kalendarSekolah').value.split(/\\r?\\n/)
       .map(function (x) { return x.trim(); }).filter(Boolean);
@@ -167,6 +215,7 @@ export function halamanLokalJs() {
       apiUrl: document.getElementById('apiUrl').value,
       kunciKeselamatanDijangka: document.getElementById('kunciKeselamatan').value,
       autoMulaGiliran: document.getElementById('autoMulaGiliran').checked,
+      loginAuto: document.getElementById('loginAuto').checked,
       kalendarSekolah: kalendar
     }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Tetapan disimpan.' : (r.ralat || 'Ralat.'));

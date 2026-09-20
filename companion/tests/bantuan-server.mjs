@@ -28,6 +28,21 @@ export function konteksAsas(port, override) {
     },
     tetapan: { baca: () => ({ ...tetapanData }), tulis: (patch) => Object.assign(tetapanData, patch) },
     simpanan: { adaRahsiaEnjin: () => true, simpanRahsiaEnjin: () => {}, dapatkanRahsiaEnjin: () => 'rahsia-ujian' },
+    kredensial: {
+      _kred: null,
+      ada() { return !!this._kred; },
+      status() {
+        if (!this._kred) return { ada: false, rosak: false, pengguna: '', kunciAda: false };
+        return { ada: true, rosak: false, pengguna: (this._kred.pengguna[0] || '') + '***', kunciAda: !!this._kred.kunciKeselamatan };
+      },
+      simpan({ idMePengguna, idMeKataLaluan, idMeKunciKeselamatan }) {
+        if (!idMePengguna || !idMeKataLaluan || !idMeKunciKeselamatan) {
+          throw new Error('Pengguna, kata laluan dan frasa kunci keselamatan idMe diperlukan.');
+        }
+        this._kred = { pengguna: idMePengguna, kataLaluan: idMeKataLaluan, kunciKeselamatan: idMeKunciKeselamatan };
+      },
+      padam() { this._kred = null; }
+    },
     giliran: { status: () => ({ aktif: false, sedangProses: false }), mulakan: () => {}, hentikan: () => {}, jalankanSatuKitaran: async () => ({}) },
     log: { tulis: () => {}, tulisKerja: () => {}, bacaTerakhir: () => [] },
     halamanLokalHtml: () => '<html>lokal</html>',
@@ -43,8 +58,8 @@ export function konteksAsas(port, override) {
     sekarangMs: () => Date.now(),
     autoMulaStatus: { diminta: false, bermula: false, sebab: 'Dimatikan.' },
     keupayaanLogMasuk: {
-      automatik: false, mod: 'manual',
-      sebab: 'Tiada integrasi vault pelayar diluluskan; log masuk idMe kekal manual.'
+      automatik: true, mod: 'automatik-optin',
+      sebab: 'Log masuk idMe automatik tersedia secara opt-in (suis loginAuto, lalai MATI) melalui vault kredensial DPAPI tempatan. Belum disahkan terhadap idMe hidup; frasa "Kata Kunci Keselamatan" mesti padan dan CAPTCHA/OTP/2FA memerlukan manusia.'
     },
     autostart: {
       status: () => ({ disokong: true, berdaftar: false, sepadan: false, sebab: 'Tidak didaftarkan.' }),

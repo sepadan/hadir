@@ -15,6 +15,8 @@ import { fileURLToPath } from 'node:url';
 
 import { dapatkanDirData, bacaTetapan, tulisTetapanAtomik, bacaJson, tulisJsonAtomik } from '../src/tetapan.mjs';
 import { buatSimpananRahsia, buatSimpananApi } from '../src/simpanan.mjs';
+import { buatStoranKredensial } from '../src/kredensial.mjs';
+import { buatPengurusLoginAuto, cubaLoginAutoStartup } from '../src/moeis/login-auto.mjs';
 import { buatPengurusPasangan } from '../src/pasangan.mjs';
 import { buatLog } from '../src/log.mjs';
 import { buatKlienHadir } from '../src/klien-hadir.mjs';
@@ -171,6 +173,9 @@ async function main() {
     console.log('Tetapan:', JSON.stringify(bacaTetapan(dirData), null, 2));
     console.log('Autostart HKCU sebenar:', JSON.stringify(pengurusAutostart.status(), null, 2));
     console.log('Keupayaan log masuk:', JSON.stringify(keupayaanLogMasuk(), null, 2));
+    try {
+      console.log('Kredensial idMe:', JSON.stringify(buatStoranKredensial({ dirData }).status(), null, 2));
+    } catch { console.log('Kredensial idMe: tidak dapat dibaca.'); }
     return;
   }
 
@@ -198,6 +203,7 @@ async function main() {
   };
   const simpananGeneric = buatSimpananRahsia({ dirData });
   const simpananApi = buatSimpananApi(simpananGeneric);
+  const storeKredensial = buatStoranKredensial({ dirData });
   const pasangan = buatPengurusPasangan({ simpanan: simpananGeneric });
   const log = buatLog({ dirData });
   const nonceLokal = buatNonceLokal();
@@ -292,6 +298,26 @@ async function main() {
     return hasil;
   }
 
+  // Log masuk idMe AUTOMATIK opt-in. Nilai kredensial dibaca dalam PROSES ANAK
+  // (bin/login-auto.mjs) daripada vault — tidak melalui proses pelayan ini dan
+  // tidak melalui argumen CLI/env.
+  async function jalankanLoginAutoSebenar() {
+    pastikanProfilBebas();
+    const hasil = await jalankanAnakSkrip('login-auto.mjs', ['--data-dir', dirData], 5 * 60 * 1000);
+    if (hasil && hasil.status === 'sesi-sah') {
+      tulisStatusSesi({ status: 'sesi-sah', hos: 'moeispel.moe.gov.my', bukti: ['login-auto'] });
+    }
+    return hasil;
+  }
+
+  // Penguatkuasa had 2 cubaan automatik per proses + backoff (perlindungan kunci akaun).
+  const pengurusLoginAuto = buatPengurusLoginAuto({
+    adaKredensial: () => storeKredensial.ada(),
+    jalankan: jalankanLoginAutoSebenar,
+    tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
+    jedaMs: 5000
+  });
+
   async function sesiStartupDisahkan() {
     const c = bacaStatusSesi();
     if (c && Date.now() - c.masa < TTL_SESI_MS && c.sesiAda === true) {
@@ -307,6 +333,7 @@ async function main() {
 
   const konteks = {
     port: t0.port, nonceLokal, pasangan, tetapan: tetapanApi, simpanan: simpananApi,
+    kredensial: storeKredensial,
     giliran, log, versi: '1.0.0', pcNama: os.hostname(),
     halamanLokalHtml, halamanLokalJs,
     sekarangMs: () => Date.now(),
@@ -375,6 +402,20 @@ async function main() {
       log.tulis('Companion dimulakan; bind loopback berjaya.');
     },
     selepasBind: async () => {
+      // 1) Log masuk idMe automatik opt-in (maks 1 cubaan startup), SEBELUM
+      //    auto-mula giliran dinilai — supaya giliran auto melihat sesi baharu
+      //    jika log masuk automatik berjaya. loginAuto lalai MATI = tiada kesan.
+      const loginAuto = await cubaLoginAutoStartup({
+        bacaTetapan: tetapanApi.baca,
+        adaKredensial: () => storeKredensial.ada(),
+        sesiDisahkan: sesiStartupDisahkan,
+        cubaSekaliLogin: () => pengurusLoginAuto.cubaAuto(),
+        tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`)
+      });
+      if (loginAuto.cuba) {
+        log.tulis(`LOGIN_AUTO_STARTUP: ${loginAuto.hasil ? loginAuto.hasil.status : 'tidak-diketahui'}`);
+      }
+      // 2) Auto-mula giliran (pengawal sedia ada, tidak disentuh).
       const hasil = await cubaAutoMula({
         bacaTetapan: tetapanApi.baca,
         sekarangMs: () => Date.now(),

@@ -237,9 +237,45 @@ alih dan had keupayaan yang diuji: [`companion/docs/PEMASANGAN.md`](companion/do
   `POST /api/kerja-jalan` menolak dengan **409** jika backend HADIR belum
   di-deploy semula dengan `moeisJobKlaim` (lihat `apps-script/README.md`) —
   tiada mod "hantar tanpa klaim".
-- Kata laluan hidup MOEIS/idMe **hanya** melalui alat vault pengguna sendiri
-  atau log masuk manual pada Edge companion; companion tidak pernah menaip,
-  menyalin atau menyahsulit kredensial pelayar.
+- **Vault kredensial idMe tempatan (`src/kredensial.mjs`, `kredensial.dat`).**
+  Selepas kelulusan pemilik (Sept 2026), PC guru **kini menyimpan kredensial
+  log masuk idMe** (pengguna + kata laluan + frasa "Kata Kunci Keselamatan")
+  apabila guru memilih menyimpannya. Ini bertentangan dengan dakwaan lama
+  "companion tidak pernah menyimpan kata laluan" — dakwaan itu DIBUANG.
+  Fakta semasa: nilai disulit **DPAPI `CurrentUser`** (hanya akaun Windows
+  yang sama boleh nyahsulit), ditulis atomik, folder dikunci ACL `icacls`;
+  **tiada** teks biasa pada cakera, tiada env var/argumen CLI, tidak pernah
+  digemakan (status/UI hanya boolean + pengguna tersamar `X***`).
+- **Model ancaman kredensial (had jujur):** (1) *Penyerang tempatan dengan
+  akaun Windows yang sama* boleh memanggil DPAPI atas nama pengguna itu
+  (mis. melalui proses lain pada sesi sama) dan berpotensi nyahsulit vault —
+  DPAPI melindungi *semasa rehat* dan daripada *akaun lain*, bukan daripada
+  proses yang berjalan sebagai pengguna sama. (2) *Akaun Windows lain* tidak
+  boleh nyahsulit (CurrentUser). (3) *Sandaran/cakera klon* tidak memindahkan
+  kunci DPAPI pengguna; nilai kekal tidak boleh dibaca tanpa konteks pengguna
+  asal (sandaran profil pengguna + kunci master Windows boleh memindahkan
+  keupayaan itu). (4) *Crash dump / hibernasi / memory swap* mungkin
+  mengandungi nilai sementara dalam ingatan proses; mitigasi: nilai hanya
+  wujud sementara dalam proses anak `login-auto.mjs` semasa `.fill()` dan
+  tidak pernah dicetak/disimpan. (5) *Log* tidak pernah menerima nilai (hasil
+  login-auto hanya status+sebab generik; `simpan()` menolak mesej ralat
+  berisi nilai). (6) *UI/XSS*: UI tempatan dibuka loopback+nonce, di-frame
+  `DENY`, CSP `frame-ancestors 'none'`; nilai kata laluan dibersihkan sejurus
+  simpan. (7) *Nonce*: `/api/lokal/kredensial*` hanya menerima header
+  `X-HADIR-Lokal` bernonce + Origin loopback tepat; halaman pembuka HTTPS→HTTP
+  tidak boleh membaca nonce. (8) *Risiko kunci akaun*: maks **2** cubaan
+  log masuk automatik per proses dengan backoff; selepas itu perlu manusia;
+  tiada gelung tanpa hujung. **Had diakui:** pembilang adalah *per proses*
+  (ditetapkan semula pada mula semula) — semakan bebas menyarankan kekekalan
+  merentas restart dalam tetingkap sejuk; diterima sebagai had terdokumen.
+- **Log masuk idMe automatik (`src/moeis/login-auto.mjs`) ialah OPT-IN**
+  (suis `loginAuto`, lalai MATI, berasingan daripada `autoMulaGiliran`).
+  Ia menaip kredensial **hanya** selepas: frasa "Kata Kunci Keselamatan" pada
+  halaman idMe **padan** dengan yang disimpan (anti-pancing; tidak padan =
+  abort, tiada menaip), CAPTCHA/OTP tidak dikesan, dan had 2 cubaan belum
+  tercapai. OTP/CAPTCHA/2FA **tidak pernah** dipintas — berhenti dengan
+  `perluManusia:true`. Aliran ini **belum disahkan terhadap idMe hidup**;
+  pengesahan hidup berlaku kemudian dengan kehadiran pemilik.
 
 **Dua suis opt-in (autostart + auto-mula), kedua-duanya lalai MATI:**
 - **Autostart Windows** — satu entri Run key HKCU `HADIRMoeisCompanion`
@@ -265,11 +301,13 @@ alih dan had keupayaan yang diuji: [`companion/docs/PEMASANGAN.md`](companion/do
   tidak sah); satu tugasan sekali sepanjang hayat proses; kelayakan diperiksa
   semula sebelum klaim dan sebelum mutasi MOEIS; mematikan suis menghentikan
   giliran auto tanpa hidup semula dalam proses sama.
-- **Keupayaan log masuk idMe** (`src/moeis/keupayaan.mjs`): `automatik: false`,
-  `mod: manual`. Companion standalone tiada integrasi `browser_vault_*` yang
-  diluluskan — ia tidak membaca profil/cookie/kata laluan Edge dan tidak
-  bertanya kata laluan dalam UI/chat/log. Sesi SSO persisten Edge + log masuk
-  manual manusia kekal.
+- **Keupayaan log masuk idMe** (`src/moeis/keupayaan.mjs`): `automatik: true`,
+  `mod: 'automatik-optin'`. Companion kini mempunyai vault kredensial DPAPI
+  tempatan sendiri dan log masuk automatik OPT-IN (`loginAuto`, lalai MATI).
+  Pengawal kekal ketat (frasa kunci keselamatan mesti padan, CAPTCHA/OTP/2FA
+  memerlukan manusia, maks 2 cubaan automatik/proses) dan aliran **belum
+  disahkan terhadap idMe hidup**. Tanpa `loginAuto`, log masuk kekal manual
+  (manusia log masuk sendiri pada Edge companion).
 
 **Runner giliran (`src/giliran.mjs`):** idempotent, satu kerja aktif pada
 satu masa, log anak penuh (stdout+stderr, disensor) dalam
@@ -550,7 +588,8 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
   (allowlist tarikh sekolah tepat, hujung minggu ditolak, kesegaran 15 minit,
   sempadan aktivasi+startup, tiada cubaan semula automatik, kelayakan diperiksa
   semula sebelum klaim dan sebelum mutasi MOEIS). Log masuk idMe automatik
-  kekal disekat (manual) kerana tiada vault pelayar diluluskan. Backend
+  kini tersedia **opt-in** (vault kredensial DPAPI tempatan, suis `loginAuto`
+  lalai MATI) tetapi **belum disahkan terhadap idMe hidup**. Backend
   memulangkan `diciptaEpochMs` dalam `moeisJobSenarai` untuk pengawal kesegaran
   (perlu deploy semula).
 
@@ -563,13 +602,15 @@ sebelum companion boleh menghidupkan giliran (lihat `apps-script/README.md`);
 diimplementasi** (`companion/src/moeis/sesi.mjs`, `bin/uji-login.mjs`,
 `bin/log-masuk-manual.mjs`) dan diuji terhadap double halaman, tetapi **belum
 pernah dijalankan terhadap MOEIS/idMe hidup** — larangan kerja ini. Log masuk
-idMe kekal MANUAL oleh manusia pada PC itu; companion tidak menaip kata laluan
-dan tidak mengklik kotak semak. Had penuh: `companion/docs/PEMASANGAN.md`.
+idMe automatik opt-in (`loginAuto`, lalai MATI) juga **belum disahkan hidup**;
+tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
+`companion/docs/PEMASANGAN.md`.
 
 ## 9. Rekod perubahan
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 20 September 2026 | 1.11.3 | Tambah **vault kredensial idMe tempatan + log masuk idMe automatik opt-in** (`loginAuto`, lalai MATI, berasingan daripada `autoMulaGiliran`). `src/kredensial.mjs` menyimpan (pengguna + kata laluan + frasa "Kata Kunci Keselamatan") dalam `kredensial.dat` disulit DPAPI CurrentUser (corak sama `simpanan.mjs`: tulis atomik + ACL icacls, gagal tertutup tanpa fallback teks biasa); `status()` hanya boolean + pengguna tersamar `X***`; tiada nilai dalam env/CLI/log/respons. `src/moeis/login-auto.mjs` menaip kredensial **hanya** selepas frasa anti-pancing padan + tiada CAPTCHA/OTP + had 2 cubaan/proses (backoff); OTP/CAPTCHA/2FA berhenti `perluManusia:true` tanpa pintas. Endpoint `/api/lokal/kredensial*` (nonce+loopback sahaja), UI tempatan dengan medan `type=password` tanpa gema nilai, orkestrasi startup (selepas bind: loginAuto ON + kredensial + sesi tidak sah → SATU cubaan, kemudian auto-mula giliran dinilai). `keupayaan.mjs` kini JUJUR `automatik:true, mod:'automatik-optin'` (belum disahkan hidup). Dakwaan lama "companion tidak pernah menyimpan kata laluan" DIBUANG daripada BLUEPRINT. Artifak bina tidak menyertakan `kredensial.dat` | Ujian: `node --test companion/tests/*.test.mjs` 177 ujian — 175 lulus, 2 dilangkau, 0 gagal; `node tests/hadir.test.cjs` 23/23; `node companion/tests/asap-e2e.mjs` 51/52 (1 gagal lingkungan sedia ada: entri HKCU autostart memang sudah didaftar pada mesin ini). Semakan bebas keluarga berbeza (Claude) atas pengendalian kredensial — lihat lampiran. Tiada log masuk hidup, tiada kredensial sebenar, tiada registry/kehadiran disentuh |
 | 20 September 2026 | 1.11.2 | Tambah **dua opt-in tempatan companion**: (a) autostart Windows — satu entri Run key HKCU `HADIRMoeisCompanion` diurus `src/autostart-windows.mjs` (`reg.exe` argv tetap, tiada shell); `POST /api/lokal/autostart` melaporkan keadaan **sebenar daripada registry HKCU**, laluan jauh `POST /api/autostart` dibuang; (b) auto-mula giliran selepas bind loopback berjaya — pengawal kelayakan fail-closed (`src/auto-mula.mjs`): allowlist tarikh sekolah tepat `kalendarSekolah` (kosong = gagal tertutup), Sabtu/Ahad ditolak, kesegaran 15 minit, `diciptaEpochMs` mesti lebih baharu daripada sempadan aktivasi opt-in DAN masa mula proses, tiada cubaan semula automatik, satu tugasan sekali sepanjang hayat proses, kelayakan diperiksa semula sebelum klaim dan sebelum mutasi MOEIS. Log masuk idMe automatik **disekat** (`src/moeis/keupayaan.mjs`: manual; tiada vault pelayar diluluskan). Backend `hadirMoeisJobSenarai_` kini memulangkan `diciptaEpochMs` (perlu deploy semula — tanpa itu auto-mula gagal tertutup). Buang kod mati `tulisAutostartRegistryLamaTidakDigunakan` | Ujian: `node tests/hadir.test.cjs` exit 0; `node --test companion/tests/*.test.mjs` 149 ujian — 148 lulus, 1 dilangkau, 0 gagal; `node companion/tests/asap-e2e.mjs` 50/50 lulus (fixture palsu sahaja). Semakan bebas keluarga berbeza (Claude) mula-mula GAGAL (1 penemuan TINGGI): poll yang sama menapis giliran MANUAL juga kerana `automatik` dipaksa `true`; dibetulkan (`state.modMula === 'auto'`) dengan ujian regresi, lalu semakan semula LULUS. Tiada kehadiran ditulis, tiada registry/pelayar/rangkaian sebenar disentuh |
 | 18 September 2026 | 1.11.1 | Pembetulan companion selepas ujian pelayar sebenar: (a) **UI tetapan tempatan tidak boleh menyimpan apa-apa** — pelayar menghantar `Origin: http://127.0.0.1:<port>` pada setiap POST tempatan dan header `X-HADIR-Lokal` mencetuskan preflight, tetapi semakan Origin menolaknya sebelum semakan nonce; origin loopback kini diterima **hanya** untuk `/api/lokal/*` yang masih mewajibkan nonce sah, laluan lain kekal 403. (b) Subperintah CLI `kod-pasangan` sentiasa gagal (kod hidup dalam memori proses `serve` sahaja) — kini mengarahkan pengguna ke UI tempatan, bukan mencetak kod palsu. (c) Selang giliran lalai 20→**90 saat** dan had bawah 10→**30 saat**: 180 permintaan/jam mencetuskan sekatan sementara Google pada titik pemulangan data untuk IP PC itu | Ujian regresi baharu `tests/origin-lokal-ui.test.mjs` (6 ujian) **disahkan gagal tanpa pembetulan (a)** dan lulus dengannya; disahkan juga dalam pelayar sebenar (kod pasangan dijana). Suite companion 108 ujian: 107 lulus, 1 dilangkau; asap 43/43. Tiada kehadiran dihantar dan tiada rekod murid disentuh semasa ujian |
 | 18 September 2026 | 1.11.0 | Tambah **Enjin PC (Companion)** rasmi (`companion/`, Node ESM) menggantikan penggunaan manual terminal `moeis-bot`: pelayan loopback fail-closed (Host+Origin allowlist tepat+token Bearer timingSafeEqual, tiada wildcard CORS, had kadar auth), storan rahsia DPAPI (CurrentUser, ACL icacls, gagal tertutup tanpa fallback teks biasa), pasangan kod sekali guna, UI tetapan tempatan (nonce), CLI, skrip pemasangan/artifak. Backend: klaim atomik + lease (`moeisJobKlaim`/`moeisJobLepas`, `ScriptLock`), status tugasan baharu `sedang_dihantar`/`tersimpan`, migrasi lembut `HADIR_MOEIS_JOB_LEBAR` 11→13 (lajur `PEMILIK`/`LEASE_SELEPAS`). Runner giliran idempotent (MATI lalai, satu kerja sesaat, log anak penuh disensor). Enjin pengisian membetulkan audit prototaip moeis-bot: tab Kehadiran Harian dibuka sebelum bacaan, tarikh `DD/MM/YYYY` disahkan sebelum diteruskan, dialog simpan eksplisit (`.simpan`/`.simpansah`, tiada `.confirm` generik), pengesahan selepas muat semula membaca identiti+kategori+sebab setiap murid (bukan ringkasan bilangan sahaja). Kad admin **Enjin PC (Companion)** baharu dalam **Hantar ke MOEIS**: sambung/uji/mula/henti/jalankan-semula/putuskan. Aset dan cache PWA dinaikkan serentak | Ujian automatik (`node --test companion/tests/`) menggunakan double halaman (`HalamanPalsu`) dan double storan/klien HADIR sahaja — **tiada pelayar/rangkaian sebenar, tiada data murid sebenar**. Backend HADIR perlu di-deploy semula untuk `moeisJobKlaim`/`moeisJobLepas` sebelum companion boleh menghidupkan giliran (fail-closed 409 jika belum). Ujian asap E2E tempatan (loopback+DPAPI sebenar, tiada pelayar/MOEIS): 43/43 lulus (suite unit/integrasi companion: 102 ujian, 101 lulus, 1 dilangkau); ia menemui dan mengesahkan pembetulan pepijat DPAPI (PowerShell 5.1 perlukan `Add-Type -AssemblyName System.Security`) dan pepijat UI tempatan (nonce tidak boleh dihantar melalui `<script src>` — halaman kini dibuka dengan `?n=<nonce>`, header hanya untuk `/api/lokal/*`). `uji-login`, log masuk manual dan pengesanan sesi idMe sudah diimplementasi dan diuji hanya terhadap double halaman — **belum disahkan terhadap MOEIS/idMe hidup**; log masuk idMe kekal manual oleh manusia. Semakan bebas keluarga model berbeza (DeepSeek) memberi LULUS BERSYARAT dengan 9 penemuan (1 tinggi, 4 sederhana, 4 rendah) — semuanya dibetulkan: cookie sesi tidak lagi ditulis ke fail teks biasa, payload murid melalui STDIN tanpa IC, `moeisJobSelesai` kini memerlukan pemilik+status klaim sepadan, apiUrl/Origin allowlist tidak lagi boleh diluaskan oleh klien jauh, `/api/status` tidak melancarkan pelayar (cache), had kadar auth dibahagikan mengikut baldi, pengesanan sokongan klaim ketat, semakan hos idMe ketat, dan heartbeat lease direkod apabila gagal |

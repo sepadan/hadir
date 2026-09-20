@@ -36,8 +36,9 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Companion mempunyai dua opt-in tempatan yang berasingan: autostart Windows
   dan auto-mula giliran berpengawal. Kedua-duanya lalai MATI; auto-mula hanya
   menerima kerja `menunggu` yang fresh untuk tarikh sekolah allowlist hari ini.
-  Log masuk idMe automatik kekal disekat kerana companion standalone tiada
-  integrasi vault pelayar yang diluluskan.
+  Log masuk idMe automatik ialah opt-in berasingan (`loginAuto`, lalai MATI)
+  melalui vault kredensial DPAPI tempatan; frasa kunci keselamatan mesti padan
+  dan CAPTCHA/OTP/2FA memerlukan manusia.
 
 ## Update Data Murid
 

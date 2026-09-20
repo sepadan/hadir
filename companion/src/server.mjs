@@ -24,7 +24,7 @@ import {
 // mesej jelas — bukan diabaikan secara senyap.
 const MEDAN_LOKAL_SAHAJA = [
   'originDibenarkan', 'apiUrl', 'kunciKeselamatanDijangka',
-  'autoMulaGiliran', 'kalendarSekolah', 'autoMulaDiaktifkanPada', 'autostart'
+  'autoMulaGiliran', 'kalendarSekolah', 'autoMulaDiaktifkanPada', 'autostart', 'loginAuto'
 ];
 
 const HAD_BADAN_BYTES = 32 * 1024;
@@ -49,7 +49,8 @@ const LALUAN_LOKAL_HALAMAN = new Set(['/', '/lokal.js']);
 const LALUAN_LOKAL_API = new Set([
   '/api/lokal/rahsia', '/api/lokal/kod-pasangan', '/api/lokal/log-masuk-manual',
   '/api/lokal/autostart', '/api/lokal/keluar', '/api/lokal/tetapan',
-  '/api/lokal/status', '/api/lokal/uji-login'
+  '/api/lokal/status', '/api/lokal/uji-login',
+  '/api/lokal/kredensial', '/api/lokal/kredensial-padam'
 ]);
 
 function bacaBadan(req) {
@@ -77,7 +78,7 @@ function hantarJson(res, status, obj, headerTambahan) {
 }
 
 export function buatPelayanHttp(konteks) {
-  const { port, nonceLokal, pasangan, tetapan, simpanan, giliran, log, versi, pcNama } = konteks;
+  const { port, nonceLokal, pasangan, tetapan, simpanan, kredensial, giliran, log, versi, pcNama } = konteks;
   // Had kadar DIPISAHKAN mengikut jenis kelayakan (penemuan semakan bebas):
   // satu kaunter global membenarkan gelung kegagalan token menyekat pasangan
   // (lockout silang). Setiap baldi mempunyai tetingkap gelongsor sendiri.
@@ -241,6 +242,31 @@ async function pengendali(req, res) {
       catch { hantarJson(res, 400, { ok: false, ralat: 'JSON tidak sah.' }); return; }
     }
     try {
+      if (laluan === '/api/lokal/kredensial') {
+        if (req.method === 'GET') {
+          const st = kredensial ? kredensial.status() : { ada: false, rosak: false, pengguna: '', kunciAda: false };
+          hantarJson(res, 200, { ok: true, ...st, loginAuto: tetapan.baca().loginAuto === true });
+          return;
+        }
+        // POST set: nilai diterima, TIDAK PERNAH dipulangkan/digemakan.
+        try {
+          kredensial.simpan({
+            idMePengguna: payload.idMePengguna,
+            idMeKataLaluan: payload.idMeKataLaluan,
+            idMeKunciKeselamatan: payload.idMeKunciKeselamatan
+          });
+        } catch (ralat) {
+          hantarJson(res, 400, { ok: false, ralat: ralat.message });
+          return;
+        }
+        hantarJson(res, 200, { ok: true, ...kredensial.status() });
+        return;
+      }
+      if (laluan === '/api/lokal/kredensial-padam') {
+        kredensial.padam();
+        hantarJson(res, 200, { ok: true, ada: false, pengguna: '', kunciAda: false });
+        return;
+      }
       if (laluan === '/api/lokal/rahsia') {
         if (req.method === 'GET') { hantarJson(res, 200, { ok: true, ada: simpanan.adaRahsiaEnjin() }); return; }
         simpanan.simpanRahsiaEnjin(String(payload.rahsiaEnjin || ''));
@@ -322,8 +348,10 @@ async function pengendali(req, res) {
           autostart: konteks.autostart.status(),
           autoMula: konteks.autoMulaStatus || { diminta: t.autoMulaGiliran === true, bermula: false, sebab: 'Belum dinilai.' },
           keupayaanLogMasuk: konteks.keupayaanLogMasuk,
+          kredensial: kredensial ? kredensial.status() : { ada: false, rosak: false, pengguna: '', kunciAda: false },
           tetapan: {
             autoMulaGiliran: t.autoMulaGiliran === true,
+            loginAuto: t.loginAuto === true,
             kalendarSekolah: t.kalendarSekolah || []
           }
         });
@@ -394,7 +422,9 @@ async function pengendali(req, res) {
           pasangan: pasangan.senaraiKlien(),
           moeis: await konteks.statusSesiMoeis(),
           autoMula: konteks.autoMulaStatus || { diminta: t.autoMulaGiliran === true, bermula: false, sebab: 'Belum dinilai.' },
+          loginAuto: t.loginAuto === true,
           keupayaanLogMasuk: konteks.keupayaanLogMasuk,
+          kredensial: { ada: kredensial ? kredensial.status().ada === true : false },
           log: log.bacaTerakhir(10)
         });
         return;

@@ -9,6 +9,7 @@ import { adalahHosIdMe } from './sesi.mjs';
 import { URL_APLIKASI_IDME, pilihPautanAplikasiMoeis, HOS_MOEIS } from './aplikasi.mjs';
 
 const URL_KEHADIRAN_HARIAN = 'https://moeispel.moe.gov.my/sahsiah/kehadiran/pkhem/tabguru';
+const URL_LOGIN_IDME = 'https://idme.moe.gov.my/';
 const jeda = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function buatAdaptorPlaywright(page) {
@@ -96,6 +97,42 @@ export function buatAdaptorPlaywright(page) {
         !!document.querySelector('.g-recaptcha, iframe[src*="recaptcha"], input[name*="otp" i], input[autocomplete="one-time-code"]')
       ).catch(() => false);
       return ada ? { sebab: 'CAPTCHA/OTP dikesan; perlu campur tangan manusia.' } : null;
+    },
+    // --- Kaedah log masuk automatik idMe (OPT-IN) ---
+    // Ini SATU-SATUNYA tempat adapter menulis kredensial. Pemanggil tunggal
+    // ialah login-auto.mjs (guarded oleh suis loginAuto + frasa + CAPTCHA).
+    // Selektor BELUM disahkan hidup (larangan keras brief) — hanya jalankan
+    // di sini, jangan sekali-kali log nilai.
+    async navigasiLoginIdMe() {
+      await page.goto(URL_LOGIN_IDME, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await jeda(4000);
+    },
+    async isiBorangLogMasuk(pengguna, kataLaluan) {
+      const pilihanPengguna = [
+        'input[name="username"]', 'input[name="id"]', 'input[type="text"]',
+        'input[placeholder*="pengenalan" i]', 'input[placeholder*="IC" i]'
+      ];
+      const pilihanKataLaluan = ['input[type="password"]', 'input[name="password"]', 'input[name="kata" i]'];
+      await page.locator(pilihanPengguna.join(', ')).first().fill(pengguna);
+      await page.locator(pilihanKataLaluan.join(', ')).first().fill(kataLaluan);
+    },
+    async hantarBorangLogMasuk() {
+      const pilihan = ['button[type="submit"]', 'input[type="submit"]', 'button.btn-login'];
+      await page.locator(pilihan.join(', ')).first().click();
+      await jeda(5000);
+    },
+    async sahkanSesiSelepasLogin() {
+      await page.goto(URL_KEHADIRAN_HARIAN, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await jeda(5000);
+      const url = page.url();
+      let hos = '';
+      try { hos = new URL(url).hostname.toLowerCase(); } catch { hos = ''; }
+      if (hos === HOS_MOEIS) {
+        const adaKehadiran = await page.evaluate(() => !!document.querySelector('#kehadiran')).catch(() => false);
+        if (adaKehadiran) return { status: 'sesi-sah', hos };
+        return { status: 'sesi-tamat', hos, sebab: 'Hos MOEIS dicapai tetapi elemen #kehadiran tiada.' };
+      }
+      return { status: 'sesi-tamat', hos, sebab: 'Selepas hantar, hos ialah ' + (hos || '(tiada)') + ' (bukan MOEIS).' };
     },
     async bacaBilanganMurid() {
       return page.evaluate(() => document.querySelectorAll('#kehadiran input.case-hadir').length).catch(() => 0);

@@ -33,6 +33,11 @@ export const TETAPAN_LALAI = Object.freeze({
   autoMulaGiliran: false,
   kalendarSekolah: [],
   autoMulaDiaktifkanPada: '',
+  // Log masuk idMe AUTOMATIK — opt-in BERASINGAN daripada autoMulaGiliran.
+  // Lalai MATI. Apabila ON, companion cuba log masuk idMe sendiri (maks 2
+  // cubaan/proses) menggunakan kredensial dalam vault DPAPI tempatan, dan
+  // hanya jika frasa kunci keselamatan padan serta tiada CAPTCHA/OTP/2FA.
+  loginAuto: false,
   // Frasa "kunci keselamatan" anti-pancing idMe yang admin jangkakan dilihat
   // semasa log masuk (pilihan, bukan rahsia — nilai ini hanya untuk banding
   // paparan, bukan kelayakan). Kosong bermakna tiada jangkaan; uji-login
@@ -54,6 +59,7 @@ export function bacaTetapan(dirData) {
     if (!Number.isFinite(gabungan.intervalSaat) || gabungan.intervalSaat < 30) gabungan.intervalSaat = 30;
     gabungan.originDibenarkan = sahkanSenaraiOrigin(gabungan.originDibenarkan);
     gabungan.autoMulaGiliran = gabungan.autoMulaGiliran === true;
+    gabungan.loginAuto = gabungan.loginAuto === true;
     gabungan.kalendarSekolah = sahkanKalendarSekolah(gabungan.kalendarSekolah);
     if (!masaIsoSah(gabungan.autoMulaDiaktifkanPada)) gabungan.autoMulaDiaktifkanPada = '';
     return gabungan;
@@ -167,7 +173,7 @@ export function tapisTetapanDibenarkan(payload) {
 // boleh diubah melalui HTTP langsung; ia hanya daripada fail tetapan.json.
 export const MEDAN_TETAPAN_LOKAL_DIBENARKAN = [
   'apiUrl', 'label', 'intervalSaat', 'kunciKeselamatanDijangka',
-  'autoMulaGiliran', 'kalendarSekolah'
+  'autoMulaGiliran', 'kalendarSekolah', 'loginAuto'
 ];
 
 // Hos Apps Script yang sah untuk apiUrl. Tanpa ini, apiUrl yang salah tulis

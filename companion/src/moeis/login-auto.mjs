@@ -1,0 +1,170 @@
+// Log masuk idMe AUTOMATIK — OPT-IN (companion/src/moeis/login-auto.mjs).
+//
+// Ini SATU-SATUNYA laluan dalam companion yang menaip kredensial idMe, dan ia
+// hanya berjalan apabila SEMUA pengawal berikut lulus:
+//   1. Suis `loginAuto` (tetapan) ON — lalai MATI, berasingan daripada
+//      autoMulaGiliran.
+//   2. Kredensial idMe wujud dalam vault DPAPI tempatan.
+//   3. Sesi belum sah (kalau sudah sah, tiada log masuk diperlukan).
+//   4. Frasa "Kata Kunci Keselamatan" pada halaman idMe SEBENAR PADAN dengan
+//      frasa yang disimpan — anti-pancing. Tidak padan = ABORT, TIADA menaip.
+//   5. CAPTCHA/OTP/2FA TIDAK dikesan sebelum menaip ATAU selepas hantar —
+//      jika dikesan, berhenti dengan perluManusia:true, TIADA cubaan semula.
+//   6. Had 2 cubaan automatik sepanjang hayat proses (perlindungan kunci akaun).
+//
+// INVARIAN: tiada nilai kredensial (pengguna/kata laluan/frasa) pernah muncul
+// dalam keputusan pulangan, log, atau mesej ralat. Keputusan hanya membawa
+// status + sebab generik + senarai bukti bukan-nilai.
+//
+// Aliran ini BELUM disahkan terhadap idMe/MOEIS hidup (larangan keras brief
+// pelaksanaan) — ujian menggunakan adapter/laman palsu sahaja. Pengesahan
+// hidup berlaku kemudian dengan kehadiran pemilik, selepas kelulusan induk.
+import { sahkanHos } from './sesi.mjs';
+
+export const HAD_CUBAAN_MAKS = 2;
+
+// Aliran tulen terhadap satu `adapter` (lihat adaptorPlaywright.mjs untuk
+// pelaksanaan sebenar; ujian menyuntik adapter palsu). `kredensial` ialah
+// objek { pengguna, kataLaluan, kunciKeselamatan } daripada vault DPAPI.
+export async function jalankanLoginAuto(adapter, kredensial) {
+  const kunciDijangka = kredensial && kredensial.kunciKeselamatan ? String(kredensial.kunciKeselamatan) : '';
+  const pengguna = kredensial && kredensial.pengguna ? String(kredensial.pengguna) : '';
+  const kataLaluan = kredensial && kredensial.kataLaluan ? String(kredensial.kataLaluan) : '';
+
+  if (!pengguna || !kataLaluan || !kunciDijangka) {
+    return {
+      status: 'tiada-kredensial', perluManusia: true,
+      sebab: 'Kredensial idMe tidak lengkap; log masuk automatik dibatalkan.',
+      bukti: ['kredensial-tidak-lengkap']
+    };
+  }
+
+  // 1. Navigasi ke halaman log masuk idMe (lihat adapter).
+  await adapter.navigasiLoginIdMe();
+
+  // 2. CAPTCHA/OTP SEBELUM menaip apa-apa.
+  const captchaAwal = await adapter.semakCaptchaOtp();
+  if (captchaAwal) {
+    return {
+      status: 'perlu-manusia', perluManusia: true,
+      sebab: captchaAwal.sebab || 'CAPTCHA/OTP dikesan sebelum log masuk; tiada kredensial ditaip.',
+      bukti: ['captcha-otp-sebelum-menaip']
+    };
+  }
+
+  // 3. Semak hos KETAT (HTTPS + idme.moe.gov.my tepat) — anti-pancing DNS.
+  const urlSemasa = await adapter.urlHalaman();
+  const sah = sahkanHos(urlSemasa);
+  if (!sah.ok) {
+    return {
+      status: 'hos-tidak-sah', perluManusia: true,
+      sebab: sah.sebab + ' Tiada kredensial ditaip.',
+      bukti: ['hos-tidak-sah']
+    };
+  }
+
+  // 4. Frasa kunci keselamatan anti-pancing. Tidak padan (atau kosong) = ABORT
+  //    SEBELUM menaip kata laluan.
+  const kunciSebenar = await adapter.bacaKunciKeselamatan();
+  const padan = kunciSebenar != null && String(kunciSebenar) !== '' && String(kunciSebenar) === kunciDijangka;
+  if (!padan) {
+    return {
+      status: 'kunci-tidak-padan', perluManusia: true,
+      sebab: 'Frasa "Kata Kunci Keselamatan" idMe pada halaman tidak padan dengan yang disimpan. Kemungkinan halaman pancingan; tiada kredensial ditaip.',
+      bukti: ['kunci-tidak-padan']
+    };
+  }
+
+  // 5. Isi pengguna + kata laluan melalui enjin pelayar, kemudian hantar.
+  await adapter.isiBorangLogMasuk(pengguna, kataLaluan);
+  await adapter.hantarBorangLogMasuk();
+
+  // 6. Langkah kedua (OTP/CAPTCHA/2FA) selepas hantar: JANGAN pintas.
+  const langkah2 = await adapter.semakCaptchaOtp();
+  if (langkah2) {
+    return {
+      status: 'perlu-manusia', perluManusia: true,
+      sebab: 'Langkah kedua (OTP/CAPTCHA/2FA) dikesan selepas hantar; companion tidak memintasnya.',
+      bukti: ['otp-selepas-hantar']
+    };
+  }
+
+  // 7. Sahkan sesi terhasil.
+  const sesi = await adapter.sahkanSesiSelepasLogin();
+  if (sesi && sesi.status === 'sesi-sah') {
+    return { status: 'sesi-sah', perluManusia: false, sebab: 'Log masuk idMe automatik berjaya.', bukti: ['sesi-sah'] };
+  }
+  return {
+    status: 'perlu-manusia', perluManusia: true,
+    sebab: (sesi && sesi.sebab) || 'Sesi tidak dapat disahkan selepas hantar; semakan manual diperlukan.',
+    bukti: ['sesi-tidak-sah']
+  };
+}
+
+// Pengurus cubaan: menguatkuasakan had 2 cubaan automatik per proses dengan
+// backoff antara cubaan. `adaKredensial` memulangkan boolean (tanpa menyahsulit
+// nilai), `jalankan` ialah tindakan log masuk sebenar (proses anak yang
+// membaca vault sendiri dan menaip — nilai tidak pernah melalui proses ini).
+export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaMs = 5000 }) {
+  let cubaan = 0;
+
+  async function cubaAuto() {
+    if (cubaan >= HAD_CUBAAN_MAKS) {
+      return {
+        status: 'had-cubaan', perluManusia: true,
+        sebab: `Had ${HAD_CUBAAN_MAKS} cubaan log masuk automatik per proses dicapai; log masuk manusia diperlukan.`,
+        bukti: ['had-cubaan']
+      };
+    }
+    let ada = false;
+    try { ada = !!adaKredensial(); } catch { ada = false; }
+    if (!ada) {
+      return {
+        status: 'tiada-kredensial', perluManusia: true,
+        sebab: 'Kredensial idMe belum disimpan pada PC ini.',
+        bukti: ['tiada-kredensial']
+      };
+    }
+    cubaan += 1;
+    if (cubaan > 1 && jedaMs > 0) {
+      await new Promise((selesai) => setTimeout(selesai, jedaMs * (cubaan - 1)));
+    }
+    const hasil = await jalankan();
+    if (tulisLog) tulisLog('LOGIN_AUTO', String(hasil && hasil.status), String((hasil && hasil.sebab) || ''));
+    return hasil;
+  }
+
+  function bilCubaan() {
+    return cubaan;
+  }
+
+  return { cubaAuto, bilCubaan };
+}
+
+// Orkestrasi startup (tulen, semua kebergantungan disuntik). Dipanggil SELEPAS
+// bind loopback berjaya, SEBELUM pengawal auto-mula giliran dinilai.
+export async function cubaLoginAutoStartup({
+  bacaTetapan, adaKredensial, sesiDisahkan, cubaSekaliLogin, tulisLog
+}) {
+  const t = bacaTetapan();
+  if (t.loginAuto !== true) {
+    return { diminta: false, cuba: false, sebab: 'Log masuk idMe automatik dimatikan (lalai).' };
+  }
+  let ada = false;
+  try { ada = !!adaKredensial(); } catch { ada = false; }
+  if (!ada) {
+    return { diminta: true, cuba: false, sebab: 'Kredensial idMe belum disimpan; langkau log masuk automatik.' };
+  }
+  let sesiAda = false;
+  try {
+    const s = await sesiDisahkan();
+    sesiAda = !!(s && s.ada === true);
+  } catch {
+    sesiAda = false;
+  }
+  if (sesiAda) {
+    return { diminta: true, cuba: false, sebab: 'Sesi idMe sudah sah; tiada log masuk automatik diperlukan.' };
+  }
+  const hasil = await cubaSekaliLogin();
+  return { diminta: true, cuba: true, hasil };
+}

@@ -41,6 +41,8 @@ Buka pautan **tetapan tempatan** itu pada pelayar PC yang sama. Di situ:
 2. Tekan **Log masuk manual idMe** — tetingkap Edge terbuka, guru log masuk
    sendiri (companion tidak menaip apa-apa dan tidak mengklik kotak semak
    idMe). Sesi disimpan dalam profil Playwright berasingan PC itu.
+   (Pilihan: lihat bahagian *Log masuk idMe automatik* di bawah untuk menyimpan
+   kredensial dalam vault DPAPI tempatan dan mendayakan auto-login opt-in.)
 3. Jana **kod pasangan** (sah 10 minit, sekali guna).
 
    Nota ketepatan: kod pasangan hidup **dalam memori proses companion sahaja**
@@ -122,15 +124,43 @@ daripada masa proses bermula).
 - Satu tugasan hanya dicuba **sekali secara automatik** sepanjang hayat proses;
   cubaan semula memerlukan tindakan manual admin.
 
-### Log masuk idMe automatik DISEKAT
+### Log masuk idMe automatik (opt-in, lalai MATI)
 
-Companion standalone **tidak** mempunyai integrasi `browser_vault_*` yang
-diluluskan. Ia tidak membaca profil/cookie/kata laluan Edge, tidak bertanya
-kata laluan dalam UI/chat/log, dan tidak menaip apa-apa pada borang idMe.
-Sesi SSO persisten Edge + log masuk **manual manusia** kekal satu-satunya
-laluan. Sebab tepat: tanpa vault pelayar yang diluluskan, sebarang automasi
-kredensial bermakna companion menyimpan/memproses kata laluan sendiri — dilarang
-oleh sempadan keselamatan sistem ini.
+Companion kini mempunyai **vault kredensial idMe tempatan sendiri** dan log
+masuk automatik **opt-in** (suis `loginAuto`, lalai MATI, berasingan daripada
+`autoMulaGiliran`). Tanpa `loginAuto`, tiada apa-apa berubah — log masuk kekal
+manual (guru log masuk sendiri pada tetingkap Edge).
+
+**Cara pemilik memasukkan kredensial dengan selamat:**
+
+1. Pada PC guru sendiri, buka pautan **tetapan tempatan** (loopback+nonce).
+2. Di bahagian **Kredensial idMe**, isi **Pengguna idMe**, **Kata laluan idMe**
+   (medan bertitik `type=password`), dan **frasa "Kata Kunci Keselamatan" idMe
+   yang dijangka** — frasa tepat yang dipaparkan semasa log masuk (anti-pancing).
+3. Tekan **Simpan kredensial**. Nilai disulit serta-merta dengan DPAPI
+   (CurrentUser) ke `kredensial.dat`; medan dibersihkan sejurus simpan dan
+   nilai **tidak pernah dipaparkan semula**. Status hanya memaparkan boolean
+   + pengguna tersamar (cth `a***`).
+4. (Pilihan) Hidupkan suis **Log masuk idMe automatik semasa startup** untuk
+   membolehkan auto-login; biarkan MATI untuk log masuk manual.
+
+**Cara memadam kredensial:** tekan **Padam kredensial** pada bahagian yang sama,
+atau padam fail `kredensial.dat` dalam folder data (`node bin/hadir-companion.mjs status`
+memaparkan laluan folder data). Tiada salinan di mana-mana: tiada dalam Git,
+artifak bina, log, env var atau baris arahan.
+
+**Had & pengawal (gagal tertutup):**
+
+- Log masuk automatik menaip kredensial **hanya** selepas frasa "Kata Kunci
+  Keselamatan" pada halaman idMe **padan** dengan yang disimpan (tidak padan =
+  abort, tiada menaip, `perluManusia:true`); CAPTCHA/OTP/2FA **tidak pernah
+  dipintas** (berhenti `perluManusia:true`); maks **2 cubaan automatik per
+  proses** dengan backoff (perlindungan kunci akaun), selepas itu manusia.
+- Aliran automatik **belum disahkan terhadap idMe hidup**; pengesahan hidup
+  dilakukan kemudian dengan kehadiran pemilik.
+- DPAPI `CurrentUser` bermakna hanya akaun Windows yang sama boleh nyahsulit;
+  DPAPI tidak melindungi daripada proses lain yang berjalan sebagai pengguna
+  yang sama (lihat model ancaman dalam `BLUEPRINT.md`).
 
 ### Aliran pengguna (autostart + auto-mula)
 
@@ -159,9 +189,9 @@ npm semasa membina). Salin zip itu ke PC guru, buka, dan klik dua kali
 apabila `playwright-core` di-vendor. Guna `-TanpaVendor` untuk menghasilkan zip
 tanpa pergantungan (PC guru perlu `npm install --omit=dev` sekali).
 
-Artifak ini tidak mengandungi `tetapan.json`, `rahsia.dat`, profil pelayar, log
-atau data tempatan — komputer itu membina keadaannya sendiri pada penggunaan
-pertama.
+Artifak ini tidak mengandungi `tetapan.json`, `rahsia.dat`, `kredensial.dat`,
+profil pelayar, log atau data tempatan — komputer itu membina keadaannya
+sendiri pada penggunaan pertama.
 
 ## Had keupayaan yang diuji (kejujuran)
 
@@ -245,8 +275,11 @@ Storan DPAPI (`src/simpanan.mjs`): skrip PowerShell dihantar melalui STDIN
 (`-Command -`) dan muatan rahsia melalui pemboleh ubah persekitaran proses anak
 (`HADIR_PS_DATA`) — **bukan** melalui baris arahan, kerana baris arahan proses
 boleh dibaca proses lain pengguna yang sama. `rahsia.dat` menyimpan RAHSIA
-ENJIN dan HASH TOKEN klien; kod pasangan tidak pernah ditulis ke cakera, dan
-kata laluan idMe tidak pernah melalui companion langsung.
+ENJIN dan HASH TOKEN klien; `kredensial.dat` menyimpan kredensial idMe
+(pengguna + kata laluan + frasa anti-pancing) yang disulit DPAPI — kod pasangan
+tidak pernah ditulis ke cakera, dan nilai kredensial **tidak pernah** melalui
+env var, baris arahan, log, atau respons API (status hanya boolean + pengguna
+tersamar).
 
 Pepijat lain yang ditemui dan dibetulkan oleh ujian asap yang sama: halaman
 tetapan tempatan tidak boleh menerima nonce melalui `<script src="/lokal.js">`
@@ -260,10 +293,11 @@ SECARA SENYAP dengan status 0 dan keluaran kosong. Skrip kini satu baris, dan
 keluaran kosong dianggap kegagalan (fail tertutup).
 
 **Yang masih TIDAK boleh diklaim:** tiada langkah di atas menyentuh MOEIS atau
-idMe sebenar, tiada kata laluan pernah ditaip oleh kod, dan tiada kehadiran
-sebenar dihantar. Kesesuaian selektor halaman MOEIS (`src/moeis/adaptorPlaywright.mjs`)
-diwarisi daripada prototaip `moeis-bot` yang pernah berjaya, bukan hasil
-pengesahan baharu.
+idMe sebenar, dan tiada kata laluan pernah ditaip oleh kod terhadap idMe hidup
+(penaipan automatik hanya berlaku dalam aliran opt-in `loginAuto` yang **belum
+disahkan hidup**). Kesesuaian selektor halaman MOEIS
+(`src/moeis/adaptorPlaywright.mjs`) diwarisi daripada prototaip `moeis-bot`
+yang pernah berjaya, bukan hasil pengesahan baharu.
 
 ## Hasil semakan bebas (model keluarga berbeza)
 
@@ -295,3 +329,26 @@ penemuan 1 dan 3 dinaikkan daripada imbas kod sumber kepada ujian tingkah laku
 (cakera selepas aliran sebenar; klien menghantar `pemilik`) — hanya semakan bentuk
 `HadirWeb.gs` kekal sebagai ujian struktur kerana Apps Script tidak boleh dijalankan
 dalam Node.
+
+### Semakan bebas kredensial (Claude, keluarga model berbeza)
+
+Vault kredensial + log masuk automatik ini disemak oleh **Claude** (keluarga
+model berbeza daripada pelaksana) khusus atas pengendalian kredensial, dengan
+model ancaman meliputi penyerang tempatan, akaun Windows lain, sandaran, crash
+dump, log, UI/XSS, nonce dan risiko kunci akaun. Keputusan:
+**LULUS BERSYARAT** (tiada penemuan TINGGI; tiada laluan yang log/gema/simpan
+nilai kredensial dalam teks biasa). Dua nota:
+
+1. **Sederhana (had diakui):** pembilang 2 cubaan automatik adalah *per proses*
+   dan ditetapkan semula pada setiap mula semula proses — memenuhi huruf peraturan
+   ("maks 2 cubaan per proses"), tetapi siling sebenar terhadap idMe ialah
+   2-per-restart (gelung crash/restart boleh menghasilkan lebih). Cadangan
+   penyemak: kekalkan pembilang + cap masa dalam fail kecil untuk merentas
+   restart dalam tetingkap sejuk. **Keputusan pelaksana:** diterima sebagai had
+   yang didokumenkan (spesifikasi menyatakan "per proses"); pembilang kekal
+   dalam ingatan. Boleh dinaik taraf kemudian jika pemilik mahu.
+2. **Rendah (had diakui, corak sedia ada):** kegagalan `icacls` (ACL folder)
+   ditelan senyap secara sengaja supaya tiada maklumat bocor ke log; kini
+   melindungi direktori yang turut memuatkan `kredensial.dat`, jadi lapisan
+   kedua (selain DPAPI CurrentUser) boleh terdegradasi tanpa isyarat. Corak
+   sedia ada daripada `simpanan.mjs`, bukan regresi baharu.

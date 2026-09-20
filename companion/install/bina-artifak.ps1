@@ -31,7 +31,7 @@ if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 if (Test-Path $zip) { Remove-Item $zip -Force }
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
 
-$abaikan = @('node_modules', 'dist', 'data', 'log', 'profil-pelayar', 'rahsia.dat', 'tetapan.json')
+$abaikan = @('node_modules', 'dist', 'data', 'log', 'profil-pelayar', 'rahsia.dat', 'kredensial.dat', 'tetapan.json')
 Get-ChildItem $akar -Force | Where-Object { $abaikan -notcontains $_.Name } | ForEach-Object {
     Copy-Item $_.FullName -Destination $staging -Recurse -Force
 }

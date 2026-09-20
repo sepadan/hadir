@@ -102,7 +102,7 @@ export function sahkanProtectorBerfungsi(protector) {
   return true;
 }
 
-function kunciFolderIcacls(dirData) {
+export function kunciFolderIcacls(dirData) {
   if (process.platform !== 'win32') return;
   const pengguna = process.env.USERNAME || process.env.USER;
   if (!pengguna) return;
