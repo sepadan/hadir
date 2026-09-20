@@ -11,15 +11,44 @@
 // pelayar sebenar.
 const LEASE_HEARTBEAT_MS = 5 * 60 * 1000;
 
-export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
+export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik }) {
   const state = {
     aktif: false, sedangProses: false, kerjaSemasa: null, ralatTerakhir: '',
-    keputusanTerakhir: null, timer: null
+    keputusanTerakhir: null, sebabKelayakanTerakhir: '', bilLangkauTerakhir: 0,
+    modMula: 'mati', timer: null
   };
+  // Satu job hanya mendapat satu cubaan automatik sepanjang hayat proses.
+  // Jika runner melepaskan lease selepas ralat, poll berikutnya tidak akan
+  // mengambilnya lagi. Restart juga selamat kerana sempadan startup menolak
+  // job yang dicipta sebelum proses baharu bermula.
+  const pernahDiklaimAutomatik = new Set();
 
-  async function prosesSatuTugasan(ringkasan, benarkanCubaSemula) {
+  async function masihLayak(job, tahap) {
+    if (typeof semakKelayakanAutomatik !== 'function') return true;
+    const keputusan = await semakKelayakanAutomatik(job, tahap, { mod: state.modMula });
+    if (keputusan && keputusan.boleh === true) {
+      state.sebabKelayakanTerakhir = keputusan.sebab || 'Layak.';
+      return true;
+    }
+    state.sebabKelayakanTerakhir = (keputusan && keputusan.sebab) || 'Kelayakan automatik tidak dapat disahkan.';
+    return false;
+  }
+
+  async function prosesSatuTugasan(ringkasan, benarkanCubaSemula, automatik) {
+    if (automatik && pernahDiklaimAutomatik.has(ringkasan.id)) {
+      state.sebabKelayakanTerakhir = 'Tugasan ini sudah pernah dicuba automatik; cubaan semula memerlukan tindakan manual.';
+      return null;
+    }
+    if (automatik && !(await masihLayak(ringkasan, 'sebelum-klaim'))) return null;
     const klaim = await klien.klaim(ringkasan.id, pemilik, benarkanCubaSemula === true);
     if (!klaim) return null; // sudah diambil enjin lain, atau tidak layak diklaim
+    if (automatik) pernahDiklaimAutomatik.add(ringkasan.id);
+
+    const tugasanKelayakan = { ...ringkasan, ...klaim, status: ringkasan.status };
+    if (automatik && !(await masihLayak(tugasanKelayakan, 'selepas-klaim'))) {
+      await klien.lepas(klaim.id, pemilik).catch(() => {});
+      return null;
+    }
 
     state.kerjaSemasa = { id: klaim.id, kelas: klaim.kelas, tarikhIso: klaim.tarikhIso };
     let heartbeat = null;
@@ -30,14 +59,26 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
       log.tulisKerja(klaim.id + '-verifikasi', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
 
       if (verifikasi.hasil.status === 'tidak-berubah') {
+        if (automatik && !(await masihLayak(tugasanKelayakan, 'sebelum-mutasi'))) {
+          await klien.lepas(klaim.id, pemilik).catch(() => {});
+          return null;
+        }
         await klien.selesai(klaim.id, 'berjaya', verifikasi.hasil.sebab || 'Tiada perubahan diperlukan.', verifikasi.hasil.bilHadir ?? '', pemilik);
         return { id: klaim.id, keputusan: 'berjaya', mesej: 'tiada perubahan' };
       }
       if (verifikasi.hasil.status === 'konflik') {
+        if (automatik && !(await masihLayak(tugasanKelayakan, 'sebelum-mutasi'))) {
+          await klien.lepas(klaim.id, pemilik).catch(() => {});
+          return null;
+        }
         await klien.selesai(klaim.id, 'gagal', verifikasi.hasil.sebab, '', pemilik);
         return { id: klaim.id, keputusan: 'gagal', mesej: verifikasi.hasil.sebab };
       }
       if (verifikasi.hasil.status === 'gagal') {
+        if (automatik && !(await masihLayak(tugasanKelayakan, 'sebelum-mutasi'))) {
+          await klien.lepas(klaim.id, pemilik).catch(() => {});
+          return null;
+        }
         await klien.selesai(klaim.id, 'gagal', verifikasi.hasil.sebab, '', pemilik);
         return { id: klaim.id, keputusan: 'gagal', mesej: verifikasi.hasil.sebab };
       }
@@ -65,6 +106,13 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
       // iaitu "Simpan & Sahkan", bukan "Simpan" sahaja. Tanpa `sahkan`,
       // rekod tinggal berstatus "Menunggu pengesahan" di MOEIS dan guru
       // masih perlu menekan butang pengesahan sendiri.
+      // Semak sekali lagi selepas verifikasi dan tepat sebelum proses anak
+      // boleh menekan Simpan & Sahkan. Ini menutup pertukaran tarikh/kalendar
+      // atau opt-out yang berlaku semasa verifikasi berjalan.
+      if (automatik && !(await masihLayak(tugasanKelayakan, 'sebelum-mutasi'))) {
+        await klien.lepas(klaim.id, pemilik).catch(() => {});
+        return null;
+      }
       const hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: true });
       log.tulisKerja(klaim.id + '-hantar', (hantar.stdout || '') + (hantar.stderr || ''));
 
@@ -118,10 +166,18 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
       const senarai = await klien.senarai();
       const menunggu = (senarai || []).filter((j) => j.status === 'menunggu');
       const keputusan = [];
+      let dilangkau = 0;
       for (const j of menunggu) {
-        const r = await prosesSatuTugasan(j, false);
+        // `automatik` hanya benar apabila giliran dimulakan oleh auto-mula
+        // (state.modMula === 'auto'). Giliran manual (POST /api/mula) mengekalkan
+        // kelakuan HEAD: tiada penapis kalendar/kesegaran, tiada cubaan semula
+        // automatik dalam poll — auto-mula ialah TAMBAHAN opt-in, bukan pengubah
+        // giliran manual.
+        const r = await prosesSatuTugasan(j, false, state.modMula === 'auto');
         if (r) { keputusan.push(r); state.keputusanTerakhir = r; }
+        else dilangkau++;
       }
+      state.bilLangkauTerakhir = dilangkau;
       state.ralatTerakhir = '';
       return { diproses: keputusan.length, keputusan };
     } catch (ralat) {
@@ -143,7 +199,7 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
     state.sedangProses = true;
     try {
       const benarkanCubaSemula = opsyen && opsyen.benarkanCubaSemula !== undefined ? opsyen.benarkanCubaSemula : true;
-      const r = await prosesSatuTugasan({ id }, benarkanCubaSemula);
+      const r = await prosesSatuTugasan({ id }, benarkanCubaSemula, false);
       if (!r) return { diproses: 0, sebab: 'Tidak boleh diklaim (tugasan tidak menunggu atau dipegang enjin lain).' };
       state.keputusanTerakhir = r;
       return { diproses: 1, keputusan: [r] };
@@ -202,9 +258,10 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
     }
   }
 
-  function mulakan(intervalSaat) {
+  function mulakan(intervalSaat, opsyen) {
     if (state.aktif) return;
     state.aktif = true;
+    state.modMula = opsyen && opsyen.automatik === true ? 'auto' : 'manual';
     // Had bawah 30 saat: selang lebih rapat daripada ini membebankan Apps Script
     // dan boleh mencetuskan sekatan sementara IP (lihat TETAPAN_LALAI.tetapan).
     const jeda = Math.max(30, Number(intervalSaat) || 90) * 1000;
@@ -214,6 +271,7 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
 
   function hentikan() {
     state.aktif = false;
+    state.modMula = 'mati';
     if (state.timer) clearInterval(state.timer);
     state.timer = null;
   }
@@ -222,7 +280,11 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak }) {
     return {
       aktif: state.aktif, sedangProses: state.sedangProses,
       kerjaSemasa: state.kerjaSemasa, ralatTerakhir: state.ralatTerakhir,
-      keputusanTerakhir: state.keputusanTerakhir
+      keputusanTerakhir: state.keputusanTerakhir,
+      sebabKelayakanTerakhir: state.sebabKelayakanTerakhir,
+      bilLangkauTerakhir: state.bilLangkauTerakhir,
+      modMula: state.modMula,
+      bilPernahDiklaimAutomatik: pernahDiklaimAutomatik.size
     };
   }
 

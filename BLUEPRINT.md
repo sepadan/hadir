@@ -241,6 +241,36 @@ alih dan had keupayaan yang diuji: [`companion/docs/PEMASANGAN.md`](companion/do
   atau log masuk manual pada Edge companion; companion tidak pernah menaip,
   menyalin atau menyahsulit kredensial pelayar.
 
+**Dua suis opt-in (autostart + auto-mula), kedua-duanya lalai MATI:**
+- **Autostart Windows** — satu entri Run key HKCU `HADIRMoeisCompanion`
+  (`src/autostart-windows.mjs`, `reg.exe` argv tetap, tiada shell).
+  `POST /api/lokal/autostart` (UI tempatan, nonce sah) melaporkan keadaan
+  **sebenar daripada registry HKCU**, bukan flag tetapan; subperintah CLI
+  `autostart-hidup`/`autostart-mati`. Tiada lagi laluan jauh
+  `POST /api/autostart` — autostart hanya boleh diubah dari PC itu sendiri.
+- **Auto-mula giliran** — dinilai **sekali** selepas bind loopback berjaya
+  (`src/permulaan.mjs` → `src/orchestrasi-auto.mjs`), bukan semasa PC restart.
+  Pengawal kelayakan ini **hanya** terpakai apabila giliran dimulakan oleh
+  auto-mula; butang **Mula** manual (`POST /api/mula`) mengekalkan kelakuan
+  sedia ada — tiada penapis kalendar/kesegaran dan tiada cubaan semula
+  automatik dalam poll (`giliran.mjs` menghantar `automatik` berdasarkan
+  `state.modMula === 'auto'`).
+  Pengawal kelayakan (`src/auto-mula.mjs`): hanya tugasan `menunggu` untuk
+  tarikh **hari ini** (`Asia/Kuala_Lumpur`) yang ada dalam allowlist tarikh
+  sekolah tepat `kalendarSekolah` (kosong = gagal tertutup; Sabtu/Ahad
+  ditolak); umur maks 15 minit; `diciptaEpochMs` mesti lebih baharu daripada
+  sempadan aktivasi opt-in (`autoMulaDiaktifkanPada`) DAN masa mula proses
+  (`sempadanProsesMs`). Tiada cubaan semula automatik
+  (`gagal`/`tersimpan`/`sedang_dihantar`/lease luput/tugasan lapuk/cap masa
+  tidak sah); satu tugasan sekali sepanjang hayat proses; kelayakan diperiksa
+  semula sebelum klaim dan sebelum mutasi MOEIS; mematikan suis menghentikan
+  giliran auto tanpa hidup semula dalam proses sama.
+- **Keupayaan log masuk idMe** (`src/moeis/keupayaan.mjs`): `automatik: false`,
+  `mod: manual`. Companion standalone tiada integrasi `browser_vault_*` yang
+  diluluskan — ia tidak membaca profil/cookie/kata laluan Edge dan tidak
+  bertanya kata laluan dalam UI/chat/log. Sesi SSO persisten Edge + log masuk
+  manual manusia kekal.
+
 **Runner giliran (`src/giliran.mjs`):** idempotent, satu kerja aktif pada
 satu masa, log anak penuh (stdout+stderr, disensor) dalam
 `log/kerja/<jobid>-<iso>.log`. Setiap kitaran: klaim atomik →
@@ -514,6 +544,15 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
   melaksanakan STDIN baris demi baris, jadi skrip berbilang baris gagal SENYAP
   (status 0, keluaran kosong) — skrip kini satu baris dan keluaran kosong
   dianggap kegagalan (fail tertutup).
+- [x] **Dua opt-in tempatan companion + auto-mula berpengawal.** Autostart
+  Windows (entri HKCU `HADIRMoeisCompanion`, keadaan dibaca daripada registry
+  sebenar, bukan flag tetapan) dan auto-mula giliran selepas bind loopback
+  (allowlist tarikh sekolah tepat, hujung minggu ditolak, kesegaran 15 minit,
+  sempadan aktivasi+startup, tiada cubaan semula automatik, kelayakan diperiksa
+  semula sebelum klaim dan sebelum mutasi MOEIS). Log masuk idMe automatik
+  kekal disekat (manual) kerana tiada vault pelayar diluluskan. Backend
+  memulangkan `diciptaEpochMs` dalam `moeisJobSenarai` untuk pengawal kesegaran
+  (perlu deploy semula).
 
 **Baki pengesahan:** satu simpanan kehadiran sebenar dan satu sync AKSI/SEMAK
 masih perlu dijalankan oleh pengguna. Dicatat sebagai **isu #20 dalam hab** —
@@ -531,6 +570,7 @@ dan tidak mengklik kotak semak. Had penuh: `companion/docs/PEMASANGAN.md`.
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 20 September 2026 | 1.11.2 | Tambah **dua opt-in tempatan companion**: (a) autostart Windows — satu entri Run key HKCU `HADIRMoeisCompanion` diurus `src/autostart-windows.mjs` (`reg.exe` argv tetap, tiada shell); `POST /api/lokal/autostart` melaporkan keadaan **sebenar daripada registry HKCU**, laluan jauh `POST /api/autostart` dibuang; (b) auto-mula giliran selepas bind loopback berjaya — pengawal kelayakan fail-closed (`src/auto-mula.mjs`): allowlist tarikh sekolah tepat `kalendarSekolah` (kosong = gagal tertutup), Sabtu/Ahad ditolak, kesegaran 15 minit, `diciptaEpochMs` mesti lebih baharu daripada sempadan aktivasi opt-in DAN masa mula proses, tiada cubaan semula automatik, satu tugasan sekali sepanjang hayat proses, kelayakan diperiksa semula sebelum klaim dan sebelum mutasi MOEIS. Log masuk idMe automatik **disekat** (`src/moeis/keupayaan.mjs`: manual; tiada vault pelayar diluluskan). Backend `hadirMoeisJobSenarai_` kini memulangkan `diciptaEpochMs` (perlu deploy semula — tanpa itu auto-mula gagal tertutup). Buang kod mati `tulisAutostartRegistryLamaTidakDigunakan` | Ujian: `node tests/hadir.test.cjs` exit 0; `node --test companion/tests/*.test.mjs` 149 ujian — 148 lulus, 1 dilangkau, 0 gagal; `node companion/tests/asap-e2e.mjs` 50/50 lulus (fixture palsu sahaja). Semakan bebas keluarga berbeza (Claude) mula-mula GAGAL (1 penemuan TINGGI): poll yang sama menapis giliran MANUAL juga kerana `automatik` dipaksa `true`; dibetulkan (`state.modMula === 'auto'`) dengan ujian regresi, lalu semakan semula LULUS. Tiada kehadiran ditulis, tiada registry/pelayar/rangkaian sebenar disentuh |
 | 18 September 2026 | 1.11.1 | Pembetulan companion selepas ujian pelayar sebenar: (a) **UI tetapan tempatan tidak boleh menyimpan apa-apa** — pelayar menghantar `Origin: http://127.0.0.1:<port>` pada setiap POST tempatan dan header `X-HADIR-Lokal` mencetuskan preflight, tetapi semakan Origin menolaknya sebelum semakan nonce; origin loopback kini diterima **hanya** untuk `/api/lokal/*` yang masih mewajibkan nonce sah, laluan lain kekal 403. (b) Subperintah CLI `kod-pasangan` sentiasa gagal (kod hidup dalam memori proses `serve` sahaja) — kini mengarahkan pengguna ke UI tempatan, bukan mencetak kod palsu. (c) Selang giliran lalai 20→**90 saat** dan had bawah 10→**30 saat**: 180 permintaan/jam mencetuskan sekatan sementara Google pada titik pemulangan data untuk IP PC itu | Ujian regresi baharu `tests/origin-lokal-ui.test.mjs` (6 ujian) **disahkan gagal tanpa pembetulan (a)** dan lulus dengannya; disahkan juga dalam pelayar sebenar (kod pasangan dijana). Suite companion 108 ujian: 107 lulus, 1 dilangkau; asap 43/43. Tiada kehadiran dihantar dan tiada rekod murid disentuh semasa ujian |
 | 18 September 2026 | 1.11.0 | Tambah **Enjin PC (Companion)** rasmi (`companion/`, Node ESM) menggantikan penggunaan manual terminal `moeis-bot`: pelayan loopback fail-closed (Host+Origin allowlist tepat+token Bearer timingSafeEqual, tiada wildcard CORS, had kadar auth), storan rahsia DPAPI (CurrentUser, ACL icacls, gagal tertutup tanpa fallback teks biasa), pasangan kod sekali guna, UI tetapan tempatan (nonce), CLI, skrip pemasangan/artifak. Backend: klaim atomik + lease (`moeisJobKlaim`/`moeisJobLepas`, `ScriptLock`), status tugasan baharu `sedang_dihantar`/`tersimpan`, migrasi lembut `HADIR_MOEIS_JOB_LEBAR` 11→13 (lajur `PEMILIK`/`LEASE_SELEPAS`). Runner giliran idempotent (MATI lalai, satu kerja sesaat, log anak penuh disensor). Enjin pengisian membetulkan audit prototaip moeis-bot: tab Kehadiran Harian dibuka sebelum bacaan, tarikh `DD/MM/YYYY` disahkan sebelum diteruskan, dialog simpan eksplisit (`.simpan`/`.simpansah`, tiada `.confirm` generik), pengesahan selepas muat semula membaca identiti+kategori+sebab setiap murid (bukan ringkasan bilangan sahaja). Kad admin **Enjin PC (Companion)** baharu dalam **Hantar ke MOEIS**: sambung/uji/mula/henti/jalankan-semula/putuskan. Aset dan cache PWA dinaikkan serentak | Ujian automatik (`node --test companion/tests/`) menggunakan double halaman (`HalamanPalsu`) dan double storan/klien HADIR sahaja — **tiada pelayar/rangkaian sebenar, tiada data murid sebenar**. Backend HADIR perlu di-deploy semula untuk `moeisJobKlaim`/`moeisJobLepas` sebelum companion boleh menghidupkan giliran (fail-closed 409 jika belum). Ujian asap E2E tempatan (loopback+DPAPI sebenar, tiada pelayar/MOEIS): 43/43 lulus (suite unit/integrasi companion: 102 ujian, 101 lulus, 1 dilangkau); ia menemui dan mengesahkan pembetulan pepijat DPAPI (PowerShell 5.1 perlukan `Add-Type -AssemblyName System.Security`) dan pepijat UI tempatan (nonce tidak boleh dihantar melalui `<script src>` — halaman kini dibuka dengan `?n=<nonce>`, header hanya untuk `/api/lokal/*`). `uji-login`, log masuk manual dan pengesanan sesi idMe sudah diimplementasi dan diuji hanya terhadap double halaman — **belum disahkan terhadap MOEIS/idMe hidup**; log masuk idMe kekal manual oleh manusia. Semakan bebas keluarga model berbeza (DeepSeek) memberi LULUS BERSYARAT dengan 9 penemuan (1 tinggi, 4 sederhana, 4 rendah) — semuanya dibetulkan: cookie sesi tidak lagi ditulis ke fail teks biasa, payload murid melalui STDIN tanpa IC, `moeisJobSelesai` kini memerlukan pemilik+status klaim sepadan, apiUrl/Origin allowlist tidak lagi boleh diluaskan oleh klien jauh, `/api/status` tidak melancarkan pelayar (cache), had kadar auth dibahagikan mengikut baldi, pengesanan sokongan klaim ketat, semakan hos idMe ketat, dan heartbeat lease direkod apabila gagal |
 | 17 September 2026 | 1.10.0 | Tambah Kategori + Sebab MOEIS wajib ketika menanda tidak hadir (senarai rasmi disalin statik pada frontend dan backend; pengesahan sentiasa di pelayan), disimpan bersama kehadiran dalam tab baharu `HADIR_MOEIS_SEBAB`. Tambah menu admin **Hantar ke MOEIS**: status "Lengkap"/"Belum lengkap: n" setiap kelas hari ini, kemas kini sebab terus dari skrin itu, dan `moeisJobBuat`/`moeisJobSenarai`/`moeisJobSelesai` mencipta serta menjejak tugasan giliran dalam tab baharu `HADIR_MOEIS_JOB` (elak pendua melainkan tugasan lalu gagal). HADIR hanya menyediakan data — enjin `moeis-bot` berasingan pada PC guru yang menghantar ke MOEIS, disahkan dengan rahsia Script Properties `HADIR_MOEIS_ENGINE_SECRET`. Aset dan cache PWA dinaikkan serentak | Tiada nama/IC murid sebenar disentuh dalam ujian; ujian automatik mengesahkan pengesahan kategori/sebab, pengiraan belum lengkap, sekatan hantar tidak lengkap dan elak pendua tugasan. Penghantaran sebenar ke MOEIS oleh enjin PC belum disahkan pengguna |

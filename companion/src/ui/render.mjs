@@ -22,7 +22,7 @@ body{font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:640px;margin:32px
 h1{font-size:1.3rem}
 h2{font-size:1rem;margin-top:28px}
 label{display:block;margin-top:16px;font-weight:600}
-input[type=password],input[type=text],input[type=number]{width:100%;padding:8px;margin-top:4px;box-sizing:border-box}
+input[type=password],input[type=text],input[type=number],textarea{width:100%;padding:8px;margin-top:4px;box-sizing:border-box}
 button{margin-top:12px;padding:8px 16px;cursor:pointer}
 .amaran{background:#fff3cd;padding:12px;border-radius:6px;margin-top:16px}
 .status{margin-top:8px;font-size:0.9rem;white-space:pre-wrap}
@@ -64,6 +64,7 @@ opt-in sahaja (lihat bawah).</div>
 <div id="statusKod" class="status"></div>
 
 <h2>Sesi MOEIS/idMe</h2>
+<div class="amaran">Tiada integrasi vault pelayar diluluskan; log masuk idMe kekal manual.</div>
 <p>Uji log masuk hanya MEMBACA hos + kunci keselamatan anti-pancing dan
 keadaan sesi semasa — ia <strong>tidak pernah</strong> menaip kata laluan,
 tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
@@ -74,9 +75,17 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 <button id="btnLogin">Buka Edge untuk log masuk</button>
 <div id="statusLogin" class="status"></div>
 
-<h2>Autostart</h2>
+<h2>Automasi tempatan (dua suis berasingan)</h2>
 <label><input id="autostart" type="checkbox" style="width:auto;display:inline" /> Mulakan companion automatik semasa log masuk Windows (opt-in)</label>
 <button id="btnAutostart">Kemas kini autostart</button>
+<div id="statusAutostart" class="status"></div>
+
+<label><input id="autoMulaGiliran" type="checkbox" style="width:auto;display:inline" /> Auto-mula giliran selepas companion berjaya bind (opt-in)</label>
+<label for="kalendarSekolah">Allowlist tarikh sekolah tepat (YYYY-MM-DD, satu baris satu tarikh)</label>
+<textarea id="kalendarSekolah" rows="6" spellcheck="false" placeholder="2026-09-21&#10;2026-09-22"></textarea>
+<p class="status">Allowlist kosong gagal tertutup. Sabtu/Ahad, cuti, kerja lama,
+kerja dari sebelum startup, cap masa rosak, gagal, tersimpan dan lease luput
+tidak diproses automatik. Had umur tugasan ialah 15 minit.</p>
 
 <script>
 (function () {
@@ -115,6 +124,11 @@ export function halamanLokalJs() {
     panggil('/api/lokal/status', 'GET').then(function (r) {
       if (!r.ok) { papar('panelStatus', r.ralat || 'Ralat memuat status.'); return; }
       var g = r.giliran || {}, moeis = r.moeis || {};
+      var auto = r.autoMula || {}, autostart = r.autostart || {}, keupayaan = r.keupayaanLogMasuk || {};
+      var tetapan = r.tetapan || {};
+      document.getElementById('autostart').checked = autostart.berdaftar === true && autostart.sepadan === true;
+      document.getElementById('autoMulaGiliran').checked = tetapan.autoMulaGiliran === true;
+      document.getElementById('kalendarSekolah').value = (tetapan.kalendarSekolah || []).join('\\n');
       papar('panelStatus',
         'Giliran: ' + (g.aktif ? 'HIDUP' : 'MATI (lalai)') + '\\n' +
         'Klaim atomik backend HADIR: ' + (g.klaimDisokong === true
@@ -124,7 +138,13 @@ export function halamanLokalJs() {
           ? ('ada' + (moeis.umurSesi != null ? ' (disemak ' + moeis.umurSesi + 's lalu)' : ''))
           : (moeis.sesiAda === false ? 'tiada/tamat — perlu log masuk manual' : 'belum diperiksa (tekan "Uji log masuk")')) + '\\n' +
         'Rahsia enjin: ' + (r.rahsiaEnjinAda ? 'ada' : 'BELUM ditetapkan') + '\\n' +
-        'Autostart: ' + (r.autostart ? 'HIDUP' : 'mati (lalai)')
+        'Autostart Windows sebenar: ' + (autostart.berdaftar
+          ? (autostart.sepadan ? 'HIDUP' : 'AMARAN: entri tidak sepadan')
+          : 'mati (lalai)') + '\\n' +
+        'Auto-mula giliran: ' + (auto.bermula ? 'BERMULA' : 'tidak bermula') +
+          ' — ' + (auto.sebab || 'belum dinilai') + '\\n' +
+        'Log masuk automatik: ' + (keupayaan.automatik ? 'disokong' : 'BLOCKED') +
+          ' — ' + (keupayaan.sebab || 'Keupayaan tidak diketahui.')
       );
     }).catch(function (e) { papar('panelStatus', 'Ralat: ' + e.message); });
   }
@@ -141,11 +161,16 @@ export function halamanLokalJs() {
   });
 
   document.getElementById('btnTetapan').addEventListener('click', function () {
+    var kalendar = document.getElementById('kalendarSekolah').value.split(/\\r?\\n/)
+      .map(function (x) { return x.trim(); }).filter(Boolean);
     panggil('/api/lokal/tetapan', 'POST', {
       apiUrl: document.getElementById('apiUrl').value,
-      kunciKeselamatanDijangka: document.getElementById('kunciKeselamatan').value
+      kunciKeselamatanDijangka: document.getElementById('kunciKeselamatan').value,
+      autoMulaGiliran: document.getElementById('autoMulaGiliran').checked,
+      kalendarSekolah: kalendar
     }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Tetapan disimpan.' : (r.ralat || 'Ralat.'));
+      muatStatus();
     });
   });
 
@@ -179,7 +204,10 @@ export function halamanLokalJs() {
 
   document.getElementById('btnAutostart').addEventListener('click', function () {
     var aktif = document.getElementById('autostart').checked;
-    panggil('/api/lokal/autostart', 'POST', { aktif: aktif }).then(muatStatus);
+    panggil('/api/lokal/autostart', 'POST', { aktif: aktif }).then(function (r) {
+      papar('statusAutostart', r.ok ? r.autostart.sebab : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
   });
 })();`;
 }

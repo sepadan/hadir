@@ -27,6 +27,12 @@ export const TETAPAN_LALAI = Object.freeze({
   // diproses dalam beberapa detik, jadi 90 saat lebih selamat dan tetap pantas.
   intervalSaat: 90,
   autostart: false,
+  // Dua suis berasingan: `autostart` ialah warisan paparan sahaja (keadaan
+  // sebenar sentiasa ditanya daripada HKCU); autoMulaGiliran ialah opt-in
+  // tempatan dan gagal tertutup tanpa allowlist tarikh sekolah tepat.
+  autoMulaGiliran: false,
+  kalendarSekolah: [],
+  autoMulaDiaktifkanPada: '',
   // Frasa "kunci keselamatan" anti-pancing idMe yang admin jangkakan dilihat
   // semasa log masuk (pilihan, bukan rahsia — nilai ini hanya untuk banding
   // paparan, bukan kelayakan). Kosong bermakna tiada jangkaan; uji-login
@@ -47,10 +53,34 @@ export function bacaTetapan(dirData) {
     const gabungan = { ...TETAPAN_LALAI, ...mentah };
     if (!Number.isFinite(gabungan.intervalSaat) || gabungan.intervalSaat < 30) gabungan.intervalSaat = 30;
     gabungan.originDibenarkan = sahkanSenaraiOrigin(gabungan.originDibenarkan);
+    gabungan.autoMulaGiliran = gabungan.autoMulaGiliran === true;
+    gabungan.kalendarSekolah = sahkanKalendarSekolah(gabungan.kalendarSekolah);
+    if (!masaIsoSah(gabungan.autoMulaDiaktifkanPada)) gabungan.autoMulaDiaktifkanPada = '';
     return gabungan;
   } catch {
     return { ...TETAPAN_LALAI };
   }
+}
+
+function masaIsoSah(nilai) {
+  return typeof nilai === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(nilai) && Number.isFinite(Date.parse(nilai));
+}
+
+function tarikhIsoTepatSah(nilai) {
+  if (typeof nilai !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(nilai)) return false;
+  const [tahun, bulan, hari] = nilai.split('-').map(Number);
+  const d = new Date(Date.UTC(tahun, bulan - 1, hari));
+  return d.getUTCFullYear() === tahun && d.getUTCMonth() + 1 === bulan && d.getUTCDate() === hari;
+}
+
+// Allowlist tarikh TEPAT, bukan julat dan bukan senarai cuti. Jika satu entri
+// rosak, keseluruhan allowlist dikosongkan supaya kesilapan tidak membuka hari
+// yang tidak dimaksudkan.
+export function sahkanKalendarSekolah(senarai) {
+  if (!Array.isArray(senarai) || !senarai.length) return [];
+  const bersih = senarai.map((x) => String(x || '').trim());
+  if (bersih.some((x) => !tarikhIsoTepatSah(x))) return [];
+  return [...new Set(bersih)].sort();
 }
 
 // Setiap entri allowlist Origin mesti Origin HTTPS yang sah tanpa laluan/nama
@@ -135,7 +165,10 @@ export function tapisTetapanDibenarkan(payload) {
 // seseorang yang berada di depan PC (bukti: nonce) boleh menetapkan hos
 // backend dan frasa kunci keselamatan idMe. `originDibenarkan` tetap TIDAK
 // boleh diubah melalui HTTP langsung; ia hanya daripada fail tetapan.json.
-export const MEDAN_TETAPAN_LOKAL_DIBENARKAN = ['apiUrl', 'label', 'intervalSaat', 'kunciKeselamatanDijangka'];
+export const MEDAN_TETAPAN_LOKAL_DIBENARKAN = [
+  'apiUrl', 'label', 'intervalSaat', 'kunciKeselamatanDijangka',
+  'autoMulaGiliran', 'kalendarSekolah'
+];
 
 // Hos Apps Script yang sah untuk apiUrl. Tanpa ini, apiUrl yang salah tulis
 // (atau berniat jahat) boleh menghantar rahsia enjin ke hos lain.

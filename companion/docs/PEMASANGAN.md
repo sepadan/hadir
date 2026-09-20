@@ -73,15 +73,77 @@ Ini **navigasi sahaja**: companion tidak menaip kata laluan, tidak menekan
 kotak semak log masuk, dan tidak menghantar borang log masuk (disahkan oleh
 ujian sumber dalam `tests/sesi.test.mjs`).
 
-## Autostart (opt-in sahaja)
+## Dua suis opt-in (autostart Windows + auto-mula giliran)
 
-Tiada apa didaftarkan secara automatik. Untuk mulakan companion semasa log
-masuk Windows, tekan togol **autostart** pada tetapan tempatan, atau:
+Companion ada DUA suis opt-in berasingan, kedua-duanya **lalai MATI**:
 
-```powershell
-node bin/hadir-companion.mjs autostart-hidup
-node bin/hadir-companion.mjs autostart-mati
-```
+1. **Autostart Windows** — mendaftar/membuang entri Run key HKCU
+   `HADIRMoeisCompanion` supaya `serve` bermula semasa logon Windows. Entri
+   ditulis/dibuang terus ke registry melalui `reg.exe` (argv tetap, tiada
+   shell). Togol UI tempatan memanggil `POST /api/lokal/autostart`; keadaan
+   yang dilaporkan sentiasa dibaca **daripada registry sebenar (HKCU)**, bukan
+   daripada flag tetapan. Subperintah CLI: `autostart-hidup` / `autostart-mati`.
+2. **Auto-mula giliran** — selepas bind loopback berjaya, giliran dihidupkan
+   automatik hanya jika semua pengawal di bawah lulus. Togol ini disimpan dalam
+   `tetapan.json` (`autoMulaGiliran`), kekal MATI sehingga dihidupkan eksplisit
+   di UI tempatan. Mematikan suis menghentikan giliran auto dan ia **tidak
+   hidup semula** dalam proses yang sama. Pengawal ini **hanya** terpakai
+   apabila giliran dimulakan oleh auto-mula; butang **Mula** manual di HADIR
+   Admin mengekalkan kelakuan sedia ada (tiada penapis kalendar/kesegaran).
+
+### Pengawal auto-mula (gagal tertutup)
+
+Auto-mula dinilai **SEKALI**, selepas bind loopback `127.0.0.1` berjaya (bukan
+semasa PC hidup/restart). Pengawal di bawah **hanya** terpakai kepada tugasan
+yang diproses oleh giliran yang dimulakan oleh auto-mula; giliran yang dimulakan
+manual dengan butang **Mula** tidak ditapis kalendar/kesegaran. Tugasan layak
+diproses automatik hanya jika:
+
+- berstatus `menunggu` (fresh), untuk **TARIKH HARI INI** dalam zon
+  `Asia/Kuala_Lumpur`;
+- tarikh itu **ada dalam allowlist** tarikh sekolah tepat `kalendarSekolah`
+  (allowlist kosong = gagal tertutup); **Sabtu/Ahad ditolak**;
+- **umur maksimum 15 minit** sejak penciptaan;
+- cap masa penciptaan (`diciptaEpochMs`) **lebih baharu daripada** sempadan
+  aktivasi opt-in (`autoMulaDiaktifkanPada`) **DAN** masa mula proses
+  (`sempadanProsesMs`).
+
+Kelayakan ini diperiksa semula **sebelum klaim dan tepat sebelum mutasi
+MOEIS** — pertukaran tarikh/kalendar/togol semasa kerja tidak dicache.
+
+Kerja yang dicipta semasa PC mati/restart **tidak diambil automatik** — pilihan
+konservatif yang disengajakan (sempadan startup menolak tugasan yang lebih lama
+daripada masa proses bermula).
+
+### Tiada cubaan semula automatik
+
+- Tiada cubaan semula automatik untuk `gagal`, `tersimpan`, `sedang_dihantar`,
+  lease luput, tugasan lapuk atau cap masa tidak sah.
+- Satu tugasan hanya dicuba **sekali secara automatik** sepanjang hayat proses;
+  cubaan semula memerlukan tindakan manual admin.
+
+### Log masuk idMe automatik DISEKAT
+
+Companion standalone **tidak** mempunyai integrasi `browser_vault_*` yang
+diluluskan. Ia tidak membaca profil/cookie/kata laluan Edge, tidak bertanya
+kata laluan dalam UI/chat/log, dan tidak menaip apa-apa pada borang idMe.
+Sesi SSO persisten Edge + log masuk **manual manusia** kekal satu-satunya
+laluan. Sebab tepat: tanpa vault pelayar yang diluluskan, sebarang automasi
+kredensial bermakna companion menyimpan/memproses kata laluan sendiri — dilarang
+oleh sempadan keselamatan sistem ini.
+
+### Aliran pengguna (autostart + auto-mula)
+
+PC logon (autostart ON) → `serve` bind 127.0.0.1 → auto-mula dinilai → giliran
+bermula jika semua pengawal lulus → guru tekan **Hantar** di telefon → tugasan
+fresh `menunggu` dicipta → tugasan itu diambil oleh giliran auto.
+
+### Keperluan deploy backend (medan `diciptaEpochMs`)
+
+Pengawal kesegaran membaca `diciptaEpochMs` daripada `hadirMoeisJobSenarai_`
+(`apps-script/HadirWeb.gs`). **Tanpa deploy semula** backend, medan ini tiada →
+auto-mula menolak semua tugasan (gagal tertutup, selamat). Deploy **New
+version** pada deployment sedia ada (lihat `apps-script/README.md`).
 
 ## Bina artifak mudah alih
 

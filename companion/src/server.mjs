@@ -15,13 +15,17 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { hostSah, originDibenarkan, tetapkanHeaderCorsPenuh, tetapkanHeaderPreflight } from './cors.mjs';
 import {
-  adaMedanRahsiaDilarang, tapisTetapanDibenarkan, tapisTetapanLokalDibenarkan, sahkanApiUrl
+  adaMedanRahsiaDilarang, tapisTetapanDibenarkan, tapisTetapanLokalDibenarkan,
+  sahkanApiUrl, sahkanKalendarSekolah
 } from './tetapan.mjs';
 
 // Medan tetapan yang hanya boleh diubah pada PC itu sendiri (fail tetapan.json
 // atau UI tempatan dengan nonce). Klien jauh yang mencubanya ditolak dengan
 // mesej jelas — bukan diabaikan secara senyap.
-const MEDAN_LOKAL_SAHAJA = ['originDibenarkan', 'apiUrl', 'kunciKeselamatanDijangka'];
+const MEDAN_LOKAL_SAHAJA = [
+  'originDibenarkan', 'apiUrl', 'kunciKeselamatanDijangka',
+  'autoMulaGiliran', 'kalendarSekolah', 'autoMulaDiaktifkanPada', 'autostart'
+];
 
 const HAD_BADAN_BYTES = 32 * 1024;
 const HAD_GAGAL_AUTH = 10;
@@ -267,7 +271,43 @@ async function pengendali(req, res) {
           const sahUrl = sahkanApiUrl(payload.apiUrl);
           if (!sahUrl.ok) { hantarJson(res, 400, { ok: false, ralat: sahUrl.sebab }); return; }
         }
-        tetapan.tulis(tapisTetapanLokalDibenarkan(payload));
+        if (Object.prototype.hasOwnProperty.call(payload, 'kalendarSekolah')) {
+          const kalendar = sahkanKalendarSekolah(payload.kalendarSekolah);
+          if (!Array.isArray(payload.kalendarSekolah) ||
+              (payload.kalendarSekolah.length && !kalendar.length)) {
+            hantarJson(res, 400, { ok: false, ralat: 'kalendarSekolah mesti senarai tarikh tepat YYYY-MM-DD yang sah.' });
+            return;
+          }
+        }
+        const sebelum = tetapan.baca();
+        const patch = tapisTetapanLokalDibenarkan(payload);
+        if (Object.prototype.hasOwnProperty.call(patch, 'autoMulaGiliran')) {
+          patch.autoMulaGiliran = patch.autoMulaGiliran === true;
+          if (patch.autoMulaGiliran && sebelum.autoMulaGiliran !== true) {
+            const kini = typeof konteks.sekarangMs === 'function' ? konteks.sekarangMs() : Date.now();
+            patch.autoMulaDiaktifkanPada = new Date(kini).toISOString();
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'kalendarSekolah')) {
+          patch.kalendarSekolah = sahkanKalendarSekolah(patch.kalendarSekolah);
+        }
+        tetapan.tulis(patch);
+        if (Object.prototype.hasOwnProperty.call(patch, 'autoMulaGiliran')) {
+          if (patch.autoMulaGiliran === false) {
+            if (giliran.status().modMula === 'auto') giliran.hentikan();
+            Object.assign(konteks.autoMulaStatus, {
+              diminta: false,
+              bermula: false,
+              sebab: 'Auto-mula dimatikan pada UI tempatan; giliran auto dihentikan sehingga diminta atau proses dimulakan semula mengikut tetapan.'
+            });
+          } else if (sebelum.autoMulaGiliran !== true) {
+            Object.assign(konteks.autoMulaStatus, {
+              diminta: true,
+              bermula: false,
+              sebab: 'Opt-in disimpan. Auto-mula hanya dinilai selepas restart; giliran kekal MATI sehingga diminta atau proses dimulakan semula.'
+            });
+          }
+        }
         hantarJson(res, 200, { ok: true, tetapan: tetapan.baca() });
         return;
       }
@@ -279,14 +319,19 @@ async function pengendali(req, res) {
           giliran: { ...giliran.status(), klaimDisokong },
           moeis: await konteks.statusSesiMoeis(),
           rahsiaEnjinAda: simpanan.adaRahsiaEnjin(),
-          autostart: t.autostart
+          autostart: konteks.autostart.status(),
+          autoMula: konteks.autoMulaStatus || { diminta: t.autoMulaGiliran === true, bermula: false, sebab: 'Belum dinilai.' },
+          keupayaanLogMasuk: konteks.keupayaanLogMasuk,
+          tetapan: {
+            autoMulaGiliran: t.autoMulaGiliran === true,
+            kalendarSekolah: t.kalendarSekolah || []
+          }
         });
         return;
       }
       if (laluan === '/api/lokal/autostart') {
-        konteks.autostartTulis(!!payload.aktif);
-        tetapan.tulis({ autostart: !!payload.aktif });
-        hantarJson(res, 200, { ok: true, autostart: !!payload.aktif });
+        const statusAutostart = konteks.autostart.tetapkan(payload.aktif === true);
+        hantarJson(res, 200, { ok: true, autostart: statusAutostart });
         return;
       }
       if (laluan === '/api/lokal/keluar') {
@@ -348,7 +393,8 @@ async function pengendali(req, res) {
           giliran: { ...giliran.status(), klaimDisokong },
           pasangan: pasangan.senaraiKlien(),
           moeis: await konteks.statusSesiMoeis(),
-          autostart: t.autostart,
+          autoMula: konteks.autoMulaStatus || { diminta: t.autoMulaGiliran === true, bermula: false, sebab: 'Belum dinilai.' },
+          keupayaanLogMasuk: konteks.keupayaanLogMasuk,
           log: log.bacaTerakhir(10)
         });
         return;
@@ -426,13 +472,6 @@ async function pengendali(req, res) {
         }
         tetapan.tulis(tapisTetapanDibenarkan(payload));
         hantarJson(res, 200, { ok: true, tetapan: tetapan.baca() });
-        return;
-      }
-      if (laluan === '/api/autostart' && req.method === 'POST') {
-        if (payload.sah !== true) { hantarJson(res, 400, { ok: false, ralat: 'Pengesahan diperlukan.' }); return; }
-        konteks.autostartTulis(!!payload.aktif);
-        tetapan.tulis({ autostart: !!payload.aktif });
-        hantarJson(res, 200, { ok: true, autostart: !!payload.aktif });
         return;
       }
       if (laluan === '/api/pasangan/batal' && req.method === 'POST') {

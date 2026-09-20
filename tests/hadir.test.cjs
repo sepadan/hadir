@@ -312,6 +312,8 @@ sah(backend.includes("['berjaya', 'gagal', 'tersimpan'].indexOf(keputusan)"),
   'hadirMoeisJobSelesai_ mesti menerima keputusan "tersimpan" (disimpan, menunggu pengesahan)');
 sah(backend.includes("tersimpan: 'Tersimpan — menunggu pengesahan'"), 'Label status tersimpan tiada');
 sah(backend.includes('idTugasan: job ? job.id : '), 'Senarai kelas admin mesti membawa id tugasan supaya companion boleh dijalankan semula');
+sah(backend.includes('diciptaEpochMs'),
+  'Kontrak enjin mesti membawa cap masa penciptaan epoch yang tidak kabur untuk pengawal tugasan fresh');
 
 // Pembetulan semakan bebas (18 September 2026) — dikunci pada suite repo:
 // laporan keputusan mesti datang daripada pemegang klaim sahaja, dan payload

@@ -19,12 +19,23 @@ import { buatPengurusPasangan } from '../src/pasangan.mjs';
 import { buatLog } from '../src/log.mjs';
 import { buatKlienHadir } from '../src/klien-hadir.mjs';
 import { buatGiliran } from '../src/giliran.mjs';
+import { nilaiKelayakanTugasan } from '../src/auto-mula.mjs';
+import { cubaAutoMula } from '../src/orchestrasi-auto.mjs';
+import { dengarSelepasBind } from '../src/permulaan.mjs';
+import { buatPengurusAutostartWindows } from '../src/autostart-windows.mjs';
 import { buangIc } from '../src/moeis/payload.mjs';
+import { keupayaanLogMasuk } from '../src/moeis/keupayaan.mjs';
 import { buatPelayanHttp, buatNonceLokal } from '../src/server.mjs';
 import { halamanLokalHtml, halamanLokalJs } from '../src/ui/render.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const perintah = process.argv[2] || 'serve';
+const pengurusAutostart = buatPengurusAutostartWindows({
+  platform: process.platform,
+  execFileSync,
+  exePath: process.execPath,
+  scriptPath: path.join(HERE, 'hadir-companion.mjs')
+});
 
 function argFlag(nama, lalai) {
   const i = process.argv.indexOf('--' + nama);
@@ -143,8 +154,9 @@ async function main() {
   }
 
   if (perintah === 'autostart-hidup' || perintah === 'autostart-mati') {
-    tulisAutostartRegistry(perintah === 'autostart-hidup');
-    console.log('Autostart:', perintah === 'autostart-hidup' ? 'DIHIDUPKAN' : 'DIMATIKAN');
+    const statusAutostart = pengurusAutostart.tetapkan(perintah === 'autostart-hidup');
+    console.log('Autostart:', statusAutostart.berdaftar && statusAutostart.sepadan ? 'DIHIDUPKAN' : 'DIMATIKAN');
+    console.log(statusAutostart.sebab);
     return;
   }
 
@@ -157,6 +169,8 @@ async function main() {
   if (perintah === 'status') {
     console.log('Direktori data:', dirData);
     console.log('Tetapan:', JSON.stringify(bacaTetapan(dirData), null, 2));
+    console.log('Autostart HKCU sebenar:', JSON.stringify(pengurusAutostart.status(), null, 2));
+    console.log('Keupayaan log masuk:', JSON.stringify(keupayaanLogMasuk(), null, 2));
     return;
   }
 
@@ -174,6 +188,14 @@ async function main() {
 
   const tetapanApi = buatTetapanApi();
   const t0 = tetapanApi.baca();
+  // Sempadan startup sengaja konservatif: kerja yang dicipta ketika PC mati
+  // tidak diambil automatik selepas logon.
+  const sempadanProsesMs = Date.now();
+  const autoMulaStatus = {
+    diminta: t0.autoMulaGiliran === true,
+    bermula: false,
+    sebab: 'Menunggu pelayan loopback berjaya bind.'
+  };
   const simpananGeneric = buatSimpananRahsia({ dirData });
   const simpananApi = buatSimpananApi(simpananGeneric);
   const pasangan = buatPengurusPasangan({ simpanan: simpananGeneric });
@@ -184,7 +206,27 @@ async function main() {
     klien: buatKlienDaripadaTetapan(tetapanApi, simpananApi),
     pemilik: pemilikEnjin,
     log,
-    jalankanTugasanAnak
+    jalankanTugasanAnak,
+    // Pengawal ini HANYA dipanggil untuk giliran AUTO: `masihLayak` dalam
+    // giliran.mjs hanya berjalan apabila `automatik === true` (iaitu
+    // state.modMula === 'auto'). Giliran manual (POST /api/mula, butang Mula)
+    // TIDAK pernah melalui semakan ini — kalendar/kesegaran tidak menapis
+    // giliran manual (penemuan semakan bebas).
+    // Dibaca semula SETIAP kali: sebelum klaim, selepas klaim dan tepat
+    // sebelum mutasi MOEIS. Tarikh/kalendar/togol tidak dicache ketika startup.
+    semakKelayakanAutomatik: async (job, tahap) => {
+      const t = tetapanApi.baca();
+      if (t.autoMulaGiliran !== true) {
+        return { boleh: false, sebab: 'Auto-mula telah dimatikan pada PC ini; tugasan tidak disentuh.' };
+      }
+      const keputusan = nilaiKelayakanTugasan(job, {
+        tetapan: t,
+        sekarangMs: Date.now(),
+        sempadanProsesMs
+      });
+      if (!keputusan.boleh) log.tulis(`KELAYAKAN_${tahap}: ${keputusan.sebab}`);
+      return keputusan;
+    }
   });
 
   // --- Cache status (penemuan semakan bebas) ---
@@ -250,10 +292,27 @@ async function main() {
     return hasil;
   }
 
+  async function sesiStartupDisahkan() {
+    const c = bacaStatusSesi();
+    if (c && Date.now() - c.masa < TTL_SESI_MS && c.sesiAda === true) {
+      return { ada: true, sebab: 'Sesi SSO persisten masih sah menurut cache tempatan.' };
+    }
+    const hasil = await jalankanUjiLoginSebenar();
+    return {
+      ada: hasil && hasil.status === 'sesi-sah',
+      sebab: (hasil && hasil.sebab) ||
+        `Status sesi: ${(hasil && hasil.status) || 'tidak diketahui'}; log masuk manual diperlukan.`
+    };
+  }
+
   const konteks = {
     port: t0.port, nonceLokal, pasangan, tetapan: tetapanApi, simpanan: simpananApi,
     giliran, log, versi: '1.0.0', pcNama: os.hostname(),
     halamanLokalHtml, halamanLokalJs,
+    sekarangMs: () => Date.now(),
+    autoMulaStatus,
+    keupayaanLogMasuk: keupayaanLogMasuk(),
+    autostart: pengurusAutostart,
     // `segarkan: true` hanya daripada tindakan eksplisit manusia; status
     // rutin menggunakan cache (tiada panggilan keluar, tiada pelayar).
     klaimDisokong: async (opsyen) => {
@@ -297,37 +356,47 @@ async function main() {
         const senarai = await klien.senarai();
         return (senarai || []).map((j) => ({
           id: j.id, kelas: j.kelas, tarikhIso: j.tarikhIso, status: j.status, mesej: j.mesej,
+          diciptaEpochMs: j.diciptaEpochMs,
           bilTidakHadir: Array.isArray(j.murid) ? j.murid.length : 0
         }));
       } catch {
         return [];
       }
-    },
-    autostartTulis: tulisAutostartRegistry
+    }
   };
 
   const pelayan = buatPelayanHttp(konteks);
-  pelayan.listen(t0.port, '127.0.0.1', () => {
-    console.log(`Companion HADIR-MOEIS mendengar pada http://127.0.0.1:${t0.port}/ (loopback sahaja)`);
-    console.log(`Buka tetapan tempatan: http://127.0.0.1:${t0.port}/?n=${nonceLokal}`);
-    log.tulis('Companion dimulakan.');
+  dengarSelepasBind({
+    pelayan,
+    port: t0.port,
+    apabilaBind: () => {
+      console.log(`Companion HADIR-MOEIS mendengar pada http://127.0.0.1:${t0.port}/ (loopback sahaja)`);
+      console.log(`Buka tetapan tempatan: http://127.0.0.1:${t0.port}/?n=${nonceLokal}`);
+      log.tulis('Companion dimulakan; bind loopback berjaya.');
+    },
+    selepasBind: async () => {
+      const hasil = await cubaAutoMula({
+        bacaTetapan: tetapanApi.baca,
+        sekarangMs: () => Date.now(),
+        sempadanProsesMs,
+        adaRahsiaEnjin: simpananApi.adaRahsiaEnjin,
+        klaimDisokong: () => konteks.klaimDisokong({ segarkan: true }),
+        sesiDisahkan: sesiStartupDisahkan,
+        mulakanGiliran: giliran.mulakan,
+        tulisLog: (jenis, mesej) => log.tulis(`${jenis}: ${mesej}`)
+      });
+      Object.assign(autoMulaStatus, hasil);
+      if (!hasil.bermula) console.error('Auto-mula giliran tidak bermula:', hasil.sebab);
+    },
+    apabilaRalat: (ralat, fasa) => {
+      const mesej = `PERMULAAN_${fasa.toUpperCase()}: ${ralat.message}`;
+      console.error(mesej);
+      try { log.tulis(mesej); } catch { /* stdout masih memaparkan ralat */ }
+      if (fasa === 'bind') process.exitCode = 1;
+      autoMulaStatus.bermula = false;
+      autoMulaStatus.sebab = mesej;
+    }
   });
-}
-
-function tulisAutostartRegistry(aktif) {
-  if (process.platform !== 'win32') return;
-  const nilai = 'HADIRMoeisCompanion';
-  if (aktif) {
-    const exe = process.execPath;
-    const skrip = path.join(HERE, 'hadir-companion.mjs');
-    execFileSync('reg.exe', ['add', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
-      '/v', nilai, '/t', 'REG_SZ', '/d', `"${exe}" "${skrip}" serve`, '/f'], { stdio: 'ignore' });
-  } else {
-    try {
-      execFileSync('reg.exe', ['delete', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
-        '/v', nilai, '/f'], { stdio: 'ignore' });
-    } catch { /* tiada entri sedia ada — tidak mengapa */ }
-  }
 }
 
 main().catch((ralat) => {

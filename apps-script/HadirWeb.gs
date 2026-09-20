@@ -821,10 +821,17 @@ function hadirMoeisJobSenarai_(token, rahsia) {
   var modAdmin = false;
   if (token) { hadirSesi_(token, true); modAdmin = true; }
   else hadirSahRahsiaMoeis_(rahsia);
-  return hadirBacaJobBaris_().map(function (r) {
+  var paparan = hadirBacaJobBaris_();
+  var s = ss.getSheetByName('HADIR_MOEIS_JOB');
+  var nilai = (!s || s.getLastRow() < 2) ? [] :
+    s.getRange(2, 1, s.getLastRow() - 1, HADIR_MOEIS_JOB_LEBAR).getValues();
+  return paparan.map(function (r, indeks) {
+    var diciptaMentah = nilai[indeks] && nilai[indeks][5];
+    var diciptaEpochMs = diciptaMentah instanceof Date ? diciptaMentah.getTime() : NaN;
     var rekod = {
       id: r[0], tarikhIso: r[1], kelas: r[2], status: r[3], mesej: r[4],
-      dicipta: r[5], dikemaskini: r[6], masaSelesai: r[7],
+      dicipta: r[5], diciptaEpochMs: isFinite(diciptaEpochMs) ? diciptaEpochMs : null,
+      dikemaskini: r[6], masaSelesai: r[7],
       bilHadirSelepas: r[8] === '' ? null : Number(r[8]),
       kelasMoeisId: r[10] || ''
     };

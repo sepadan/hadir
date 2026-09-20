@@ -97,7 +97,13 @@ try {
 
   // --- FASA A: empangan nonce UI tempatan ---
   let r = await minta(port, { laluan: '/' });
-  sah('GET / tanpa nonce -> 403', r.status === 403, r.status);
+  // GET / tanpa nonce kini ALIHAN UI tempatan (bukan 403) — selaras HEAD
+  // (6111f12, drift dari v1.11.1). Pelayar yang membuka "/" tanpa nonce
+  // diarah ke /?n=<nonce> supaya butang "Buka tetapan tempatan" tidak mati
+  // pada "access denied"; nonce tidak bocor kerana asal pembuka tidak boleh
+  // membaca URL 127.0.0.1, dan semua /api/lokal/* masih wajib header nonce.
+  sah('GET / tanpa nonce -> 302 alihan UI tempatan (?n=)',
+    r.status === 302 && /^\/\?n=/.test(r.headers.location || ''), r.status + ' ' + (r.headers.location || ''));
   r = await minta(port, { laluan: '/?n=' + nonce });
   sah('GET /?n=<nonce> -> 200 HTML tetapan tempatan', r.status === 200 && /Tetapan tempatan/.test(r.teks), r.status);
   r = await minta(port, { laluan: '/lokal.js?n=salah' });
@@ -146,6 +152,12 @@ try {
   sah('status: senarai klien berlabel, tiada hashToken',
     Array.isArray(r.json?.pasangan) && r.json.pasangan.length === 1 && !/hashToken/.test(JSON.stringify(r.json.pasangan)), 'ok');
   sah('status: giliran MATI secara lalai (default OFF)', r.json?.giliran?.aktif === false, 'aktif=' + r.json?.giliran?.aktif);
+  // Auto-mula & keupayaan log masuk: kedua-dua suis lalai MATI/manual.
+  sah('status: autoMula.bermula === false (auto-mula mati lalai)',
+    r.json?.autoMula?.bermula === false, JSON.stringify(r.json?.autoMula));
+  sah('status: keupayaanLogMasuk automatik=false + mod=manual (tiada vault diluluskan)',
+    r.json?.keupayaanLogMasuk?.automatik === false && r.json?.keupayaanLogMasuk?.mod === 'manual',
+    JSON.stringify(r.json?.keupayaanLogMasuk));
   // Penemuan semakan bebas: /api/status TIDAK BOLEH memicu pelancaran Edge
   // atau panggilan keluar. Pada pemulaan bersih tiada cache sesi, jadi status
   // mesti melaporkan "belum diperiksa" — bukan melancarkan pelayar.
@@ -155,7 +167,13 @@ try {
   r = await minta(port, { method: 'POST', laluan: '/api/tetapan', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ kataLaluan: 'jangan-terima' }) });
   sah('/api/tetapan menolak medan kata laluan -> 400', r.status === 400, r.status);
   r = await minta(port, { method: 'POST', laluan: '/api/tetapan', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ autostart: true }) });
-  sah('/api/tetapan menolak autostart (opt-in hanya melalui UI tempatan)', r.status === 200 && r.json?.tetapan?.autostart === false, JSON.stringify(r.json?.tetapan?.autostart));
+  // `autostart` kini dalam MEDAN_LOKAL_SAHAJA: klien jauh dijawab 400 (bukan
+  // diabaikan senyap). Autostart hanya melalui UI tempatan (nonce) -> /api/lokal/autostart.
+  sah('/api/tetapan menolak autostart daripada klien jauh -> 400 (medan PC tempatan)', r.status === 400, r.status + ' ' + (r.json?.ralat || ''));
+  r = await minta(port, { method: 'POST', laluan: '/api/tetapan', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ autoMulaGiliran: true }) });
+  sah('/api/tetapan menolak autoMulaGiliran daripada klien jauh -> 400 (medan PC tempatan)', r.status === 400, r.status + ' ' + (r.json?.ralat || ''));
+  r = await minta(port, { method: 'POST', laluan: '/api/tetapan', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ kalendarSekolah: ['2026-09-21'] }) });
+  sah('/api/tetapan menolak kalendarSekolah daripada klien jauh -> 400 (medan PC tempatan)', r.status === 400, r.status + ' ' + (r.json?.ralat || ''));
   // Sempadan kepercayaan: klien jauh TIDAK boleh meluaskan allowlist Origin,
   // mengalihkan apiUrl (rahsia enjin dihantar ke situ), atau menetapkan frasa
   // kunci keselamatan idMe.
@@ -171,6 +189,19 @@ try {
   sah('UI tempatan menolak apiUrl hos asing -> 400', r.status === 400, r.status + ' ' + (r.json?.ralat || ''));
   r = await minta(port, { method: 'POST', laluan: '/api/lokal/tetapan', headers: { ...JSONCT, 'X-HADIR-Lokal': nonce }, badan: JSON.stringify({ originDibenarkan: ['https://jahat.example'] }) });
   sah('UI tempatan juga tidak boleh mengubah originDibenarkan melalui HTTP -> 400', r.status === 400, r.status);
+  // Status SEBENAR autostart daripada registry HKCU (BACA SAHAJA — reg.exe
+  // query, tiada tulisan). /api/lokal/status ialah laluan API tempatan, jadi
+  // nonce wajib melalui header X-HADIR-Lokal (query ?n= hanya untuk halaman
+  // / dan /lokal.js). TIDAK memanggil /api/lokal/autostart (itu menulis
+  // registry sebenar), dan TIDAK menghidupkan giliran.
+  r = await minta(port, { laluan: '/api/lokal/status', headers: { 'X-HADIR-Lokal': nonce } });
+  sah('/api/lokal/status melaporkan autostart sebenar (disokong Windows + belum berdaftar)',
+    r.status === 200 && r.json?.autostart?.disokong === true && r.json?.autostart?.berdaftar === false,
+    JSON.stringify(r.json?.autostart));
+  sah('/api/lokal/status: autoMula.bermula === false (auto-mula belum dinilai)',
+    r.json?.autoMula?.bermula === false, JSON.stringify(r.json?.autoMula));
+  r = await minta(port, { method: 'POST', laluan: '/api/lokal/tetapan', headers: { ...JSONCT, 'X-HADIR-Lokal': nonce }, badan: JSON.stringify({ kalendarSekolah: ['bukan-tarikh'] }) });
+  sah('/api/lokal/tetapan menolak kalendarSekolah bukan tarikh tepat -> 400', r.status === 400, r.status + ' ' + (r.json?.ralat || ''));
   r = await minta(port, { method: 'POST', laluan: '/api/mula', headers: { ...auth, ...JSONCT }, badan: '{}' });
   sah('/api/mula tanpa rahsia enjin -> 409 gagal tertutup', r.status === 409, r.status + ' ' + (r.json?.ralat || ''));
   r = await minta(port, { method: 'POST', laluan: '/api/kerja-jalan', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ id: 'x' }) });
@@ -178,7 +209,10 @@ try {
   r = await minta(port, { method: 'POST', laluan: '/api/kerja-sah', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ id: 'x', sah: true }) });
   sah('/api/kerja-sah tanpa rahsia -> 409 sebelum sebarang panggilan keluar', r.status === 409, r.status + ' ' + (r.json?.ralat || ''));
   r = await minta(port, { method: 'POST', laluan: '/api/autostart', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ aktif: true }) });
-  sah('/api/autostart tanpa sah:true -> 400 (opt-in eksplisit)', r.status === 400, r.status);
+  // Laluan jauh POST /api/autostart SENGAJA DIBUANG selepas opt-in companion:
+  // autostart hanya boleh diubah dari UI tempatan (nonce) melalui
+  // /api/lokal/autostart. Klien jauh kini dapat 404 (bukan 400).
+  sah('POST /api/autostart (klien jauh) -> 404 (laluan dibuang; autostart hanya UI tempatan)', r.status === 404, r.status);
   r = await minta(port, { method: 'GET', laluan: '/api/kerja', headers: auth });
   sah('GET /api/kerja -> 200 senarai kosong + nota (tiada panggilan keluar)',
     r.status === 200 && Array.isArray(r.json?.senarai) && r.json.senarai.length === 0, r.status);

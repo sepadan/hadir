@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   TETAPAN_LALAI, bacaTetapan, tulisTetapanAtomik,
   tapisTetapanDibenarkan, tapisTetapanLokalDibenarkan, sahkanApiUrl,
-  MEDAN_TETAPAN_DIBENARKAN, MEDAN_TETAPAN_LOKAL_DIBENARKAN
+  MEDAN_TETAPAN_DIBENARKAN, MEDAN_TETAPAN_LOKAL_DIBENARKAN, sahkanKalendarSekolah
 } from '../src/tetapan.mjs';
 
 // Sempadan tetapan ialah kawalan keselamatan: klien JAUH tidak boleh meluaskan
@@ -30,12 +30,28 @@ test('tapisTetapanLokalDibenarkan membenarkan apiUrl tetapi BUKAN originDibenark
   const patch = tapisTetapanLokalDibenarkan({
     apiUrl: 'https://script.google.com/macros/s/x/exec',
     label: 'PC Guru', kunciKeselamatanDijangka: 'SK PR',
+    autoMulaGiliran: true, kalendarSekolah: ['2026-09-21'],
     originDibenarkan: ['https://jahat.example']
   });
   assert.ok(patch.apiUrl);
   assert.equal(patch.originDibenarkan, undefined);
   assert.ok(MEDAN_TETAPAN_LOKAL_DIBENARKAN.includes('apiUrl'));
+  assert.equal(patch.autoMulaGiliran, true);
+  assert.deepEqual(patch.kalendarSekolah, ['2026-09-21']);
   assert.ok(!MEDAN_TETAPAN_LOKAL_DIBENARKAN.includes('originDibenarkan'));
+});
+
+test('auto-mula dan kalendar kekal local-only; kalendar mesti tarikh tepat sah', () => {
+  assert.equal(TETAPAN_LALAI.autoMulaGiliran, false);
+  assert.deepEqual(TETAPAN_LALAI.kalendarSekolah, []);
+  assert.ok(!MEDAN_TETAPAN_DIBENARKAN.includes('autoMulaGiliran'));
+  assert.ok(!MEDAN_TETAPAN_DIBENARKAN.includes('kalendarSekolah'));
+  assert.ok(MEDAN_TETAPAN_LOKAL_DIBENARKAN.includes('autoMulaGiliran'));
+  assert.ok(MEDAN_TETAPAN_LOKAL_DIBENARKAN.includes('kalendarSekolah'));
+  assert.deepEqual(sahkanKalendarSekolah(['2026-09-21', '2026-09-21', '2026-09-22']), ['2026-09-21', '2026-09-22']);
+  assert.deepEqual(sahkanKalendarSekolah([]), []);
+  assert.deepEqual(sahkanKalendarSekolah(['2026-02-30']), []);
+  assert.deepEqual(sahkanKalendarSekolah(['2026-09-21', '21/09/2026']), []);
 });
 
 test('sahkanApiUrl: menolak http, hos asing, userinfo; menerima URL Apps Script', () => {

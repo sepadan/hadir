@@ -40,7 +40,16 @@ export function konteksAsas(port, override) {
     kerjaJalan: async () => ({ diproses: 0 }),
     kerjaSah: async () => ({ diproses: 0 }),
     kerjaSenaraiDisensor: async () => [],
-    autostartTulis: () => {}
+    sekarangMs: () => Date.now(),
+    autoMulaStatus: { diminta: false, bermula: false, sebab: 'Dimatikan.' },
+    keupayaanLogMasuk: {
+      automatik: false, mod: 'manual',
+      sebab: 'Tiada integrasi vault pelayar diluluskan; log masuk idMe kekal manual.'
+    },
+    autostart: {
+      status: () => ({ disokong: true, berdaftar: false, sepadan: false, sebab: 'Tidak didaftarkan.' }),
+      tetapkan: () => ({ disokong: true, berdaftar: false, sepadan: false, sebab: 'Tidak didaftarkan.' })
+    }
   };
   return Object.assign(asas, override);
 }

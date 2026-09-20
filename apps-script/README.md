@@ -67,6 +67,13 @@ menandakan tugasan `berjaya` tanpa memegang klaim. Enjin lama (moeis-bot
 prototaip) yang masih menghantar lima argumen **tidak lagi berfungsi** —
 gunakan `companion/`.
 
+**Auto-mula berpengawal (v1.11.2):** `hadirMoeisJobSenarai_` kini memulangkan
+`diciptaEpochMs` (masa penciptaan tugasan, milisaat epoch) bersama setiap
+tugasan. Pengawal kesegaran auto-mula companion membaca medan ini; **tanpa
+deploy semula** medan itu tiada (`null`) → auto-mula menolak semua tugasan
+(gagal tertutup, selamat). Deploy **New version** pada deployment sedia ada
+supaya auto-mula berfungsi.
+
 ## Relay tiga sistem
 
 `terimaSyncMurid` dan `terimaSyncGuru` menerima data daripada AKSI/SEMAK hanya
