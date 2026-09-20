@@ -260,6 +260,97 @@ test('giliran.sahkanTugasan: masih ada perubahan/konflik -> gagal (tindakan manu
   assert.equal(r.diproses, 1);
 });
 
+// ---------------- Log masuk idMe automatik job-time (retry semasa sesi tamat) ----------------
+
+test('cycle-time: cubaLoginAutoKerja dipanggil TEPAT SEKALI setiap jalankanSatuKitaran, tugasan diteruskan', async () => {
+  const klien = klienPalsu([{ id: 'jla1', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] }]);
+  let panggilanLoginAuto = 0;
+  const cubaLoginAutoKerjaFake = async () => { panggilanLoginAuto++; return { diminta: true, cuba: true }; };
+  const modDipanggil = [];
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    modDipanggil.push(opsyen.mod);
+    if (opsyen.mod === 'verifikasi') return { stdout: '', stderr: '', hasil: { status: 'perlu-hantar', perubahan: 1, kod: 0 } };
+    return { stdout: '', stderr: '', hasil: { status: 'disahkan', sebab: 'ok', bilHadir: 5, kod: 0 } };
+  };
+  const log = logPalsu();
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log, jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(panggilanLoginAuto, 1, 'cubaLoginAutoKerja mesti dipanggil tepat sekali (titik kitaran, sebelum klaim)');
+  assert.deepEqual(modDipanggil, ['verifikasi', 'hantar']);
+  assert.equal(klien._selesaiPanggilan[0].keputusan, 'berjaya');
+  assert.equal(r.diproses, 1);
+});
+
+test('loginAuto tidak disuntik: jalankanSatuKitaran berjalan seperti biasa, tiada percubaan log masuk', async () => {
+  const klien = klienPalsu([{ id: 'jla2', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] }]);
+  let panggilanLoginAuto = 0;
+  const jalankanTugasanAnak = async () => ({ stdout: '', stderr: '', hasil: { status: 'tidak-berubah', sebab: 'x', kod: 0 } });
+  const log = logPalsu();
+  // cubaLoginAutoKerja SENGAJA tidak dihantar ke buatGiliran (opsyen).
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log, jalankanTugasanAnak });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(panggilanLoginAuto, 0, 'fungsi tempatan yang tidak disuntik tidak boleh dipanggil oleh giliran');
+  assert.equal(r.diproses, 1);
+  assert.equal(klien._selesaiPanggilan[0].keputusan, 'berjaya');
+});
+
+test('sesi tamat semasa verifikasi: SATU percubaan log masuk automatik, kerja berjaya selepas cuba semula', async () => {
+  const klien = klienPalsuLengkap({ id: 'jse1', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] });
+  let panggilanLoginAuto = 0;
+  const cubaLoginAutoKerjaFake = async () => { panggilanLoginAuto++; return { diminta: true, cuba: true }; };
+  let panggilan = 0;
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    panggilan++;
+    if (panggilan === 1) {
+      assert.equal(opsyen.mod, 'verifikasi');
+      return { stdout: '', stderr: '', hasil: { status: 'gagal', kod: 11, punca: 'sesi-tamat', perluManusia: true, sebab: 'Sesi idMe tamat.' } };
+    }
+    if (panggilan === 2) {
+      assert.equal(opsyen.mod, 'verifikasi');
+      return { stdout: '', stderr: '', hasil: { status: 'perlu-hantar', perubahan: 1, kod: 0 } };
+    }
+    assert.equal(opsyen.mod, 'hantar');
+    return { stdout: '', stderr: '', hasil: { status: 'disahkan', sebab: 'ok', bilHadir: 5, kod: 0 } };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake });
+  const r = await g.jalankanTugasan('jse1', { benarkanCubaSemula: true });
+  assert.equal(panggilanLoginAuto, 1, 'log masuk automatik dicuba tepat sekali');
+  assert.equal(panggilan, 3, 'verifikasi, verifikasi-ulang, hantar');
+  assert.equal(klien._selesaiPanggilan[klien._selesaiPanggilan.length - 1].keputusan, 'berjaya');
+  assert.equal(r.diproses, 1);
+});
+
+test('sesi tamat berterusan: tidak lebih daripada SATU cubaan semula tugasan, kemudian gagal', async () => {
+  const klien = klienPalsuLengkap({ id: 'jse2', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] });
+  let panggilanLoginAuto = 0;
+  const cubaLoginAutoKerjaFake = async () => { panggilanLoginAuto++; return { diminta: true, cuba: true }; };
+  let panggilan = 0;
+  const jalankanTugasanAnak = async () => {
+    panggilan++;
+    return { stdout: '', stderr: '', hasil: { status: 'gagal', kod: 11, punca: 'sesi-tamat', perluManusia: true, sebab: 'Sesi idMe tamat.' } };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake });
+  await g.jalankanTugasan('jse2', { benarkanCubaSemula: true });
+  assert.equal(panggilanLoginAuto, 1, 'log masuk automatik tidak boleh dicuba lebih daripada sekali per tugasan');
+  assert.equal(panggilan, 2, 'verifikasi + satu cubaan semula sahaja, tiada gelung tanpa hujung');
+  assert.equal(klien._selesaiPanggilan.filter((p) => p.keputusan === 'gagal').length, 1);
+});
+
+test('CAPTCHA (punca captcha) TIDAK PERNAH dicuba log masuk semula automatik', async () => {
+  const klien = klienPalsuLengkap({ id: 'jse3', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] });
+  let panggilanLoginAuto = 0;
+  const cubaLoginAutoKerjaFake = async () => { panggilanLoginAuto++; return { diminta: true, cuba: true }; };
+  let panggilan = 0;
+  const jalankanTugasanAnak = async () => {
+    panggilan++;
+    return { stdout: '', stderr: '', hasil: { status: 'gagal', kod: 11, punca: 'captcha', perluManusia: true, sebab: 'CAPTCHA dikesan.' } };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake });
+  await g.jalankanTugasan('jse3', { benarkanCubaSemula: true });
+  assert.equal(panggilanLoginAuto, 0, 'CAPTCHA memerlukan manusia; tiada log masuk automatik dicuba');
+  assert.equal(panggilan, 1);
+});
+
 test('POST /api/mula -> 409 apabila klaim atomik tidak disokong; giliran kekal mati', async () => {
   let mulaDipanggil = false;
   const { pelayan, port } = await mulakanPelayanUjian({

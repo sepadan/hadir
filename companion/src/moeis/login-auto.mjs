@@ -141,19 +141,39 @@ export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaM
   return { cubaAuto, bilCubaan };
 }
 
-// Orkestrasi startup (tulen, semua kebergantungan disuntik). Dipanggil SELEPAS
-// bind loopback berjaya, SEBELUM pengawal auto-mula giliran dinilai.
-export async function cubaLoginAutoStartup({
-  bacaTetapan, adaKredensial, sesiDisahkan, cubaSekaliLogin, tulisLog
+// Objek status mutable, dikongsi antara startup dan job-time (lihat
+// buatStatusLoginAuto/snapshotLoginAutoStatus di bawah) — memberikan status
+// endpoints + UI tempatan sesuatu yang boleh dipaparkan pada bila-bila masa,
+// tanpa menyimpan sebarang nilai kredensial.
+export function buatStatusLoginAuto() {
+  return {
+    diminta: false, adaKredensial: false, sesiSah: null, percubaan: 0,
+    had: HAD_CUBAAN_MAKS, hasilTerakhir: '', sebab: 'Belum dinilai.'
+  };
+}
+
+// Orkestrasi tulen terpandu (semua kebergantungan disuntik), dikongsi antara
+// laluan startup (cubaLoginAutoStartup) dan laluan job-time (cubaLoginAutoKerja)
+// — kedua-duanya berkongsi HAD_CUBAAN_MAKS yang sama melalui `cubaSekaliLogin`
+// (buatPengurusLoginAuto.cubaAuto, satu kaunter per proses).
+async function cubaLoginAutoTerpandu({
+  bacaTetapan, adaKredensial, sesiDisahkan, cubaSekaliLogin, tulisLog, status, bilCubaan
 }) {
   const t = bacaTetapan();
   if (t.loginAuto !== true) {
-    return { diminta: false, cuba: false, sebab: 'Log masuk idMe automatik dimatikan (lalai).' };
+    const sebab = 'Log masuk idMe automatik dimatikan (lalai).';
+    if (status) Object.assign(status, { diminta: false, adaKredensial: false, sesiSah: null, hasilTerakhir: '', sebab });
+    if (tulisLog) tulisLog('LOGIN_AUTO', 'dilangkau', sebab);
+    return { diminta: false, cuba: false, sebab };
   }
   let ada = false;
   try { ada = !!adaKredensial(); } catch { ada = false; }
+  if (status) status.adaKredensial = ada;
   if (!ada) {
-    return { diminta: true, cuba: false, sebab: 'Kredensial idMe belum disimpan; langkau log masuk automatik.' };
+    const sebab = 'Kredensial idMe belum disimpan; langkau log masuk automatik.';
+    if (status) Object.assign(status, { hasilTerakhir: 'kredensial-tiada', sebab });
+    if (tulisLog) tulisLog('LOGIN_AUTO', 'dilangkau', sebab);
+    return { diminta: true, cuba: false, sebab };
   }
   let sesiAda = false;
   try {
@@ -162,9 +182,64 @@ export async function cubaLoginAutoStartup({
   } catch {
     sesiAda = false;
   }
+  if (status) status.sesiSah = sesiAda;
   if (sesiAda) {
-    return { diminta: true, cuba: false, sebab: 'Sesi idMe sudah sah; tiada log masuk automatik diperlukan.' };
+    const sebab = 'Sesi idMe sudah sah; tiada log masuk automatik diperlukan.';
+    if (status) Object.assign(status, { hasilTerakhir: '', sebab });
+    if (tulisLog) tulisLog('LOGIN_AUTO', 'dilangkau', sebab);
+    return { diminta: true, cuba: false, sebab };
   }
   const hasil = await cubaSekaliLogin();
+  if (status) {
+    Object.assign(status, {
+      sesiSah: !!(hasil && hasil.status === 'sesi-sah'),
+      hasilTerakhir: (hasil && hasil.status) ? hasil.status : 'tidak-diketahui',
+      sebab: (hasil && hasil.sebab) || 'Hasil log masuk automatik tidak diketahui.'
+    });
+  }
+  if (status && typeof bilCubaan === 'function') status.percubaan = bilCubaan();
   return { diminta: true, cuba: true, hasil };
+}
+
+// Orkestrasi startup (tulen, semua kebergantungan disuntik). Dipanggil SELEPAS
+// bind loopback berjaya, SEBELUM pengawal auto-mula giliran dinilai.
+export function cubaLoginAutoStartup(deps) {
+  return cubaLoginAutoTerpandu(deps);
+}
+
+// Orkestrasi job-time: dipanggil SEBELUM klaim (kitaran) atau SELEPAS proses
+// anak keluar (percubaan semula satu tugasan) — profil Edge sentiasa bebas
+// pada dua titik ini. Kongsi HAD_CUBAAN_MAKS yang sama dengan startup.
+export function cubaLoginAutoKerja(deps) {
+  return cubaLoginAutoTerpandu(deps);
+}
+
+// Ayat status plain-Malay untuk UI tempatan / status endpoints.
+export function ayatLoginAuto(st) {
+  if (!st.diminta) return 'Suis loginAuto MATI — log masuk automatik idMe tidak aktif.';
+  if (!st.adaKredensial) return 'Kredensial idMe tiada — log masuk automatik dilangkau.';
+  if (st.sesiSah === true) return 'Diminta tetapi sesi idMe sudah sah — tiada log masuk automatik diperlukan.';
+  if (st.hasilTerakhir === 'sesi-sah') return 'Berjaya — log masuk idMe automatik berjaya, sesi kini sah.';
+  if (st.hasilTerakhir === 'had-cubaan') return 'Had cubaan dicapai — log masuk manusia diperlukan.';
+  if (st.hasilTerakhir === 'perlu-manusia') return 'Perlu manusia: ' + (st.sebab || 'langkah kedua (OTP/CAPTCHA/2FA) atau semakan manual.');
+  if (st.hasilTerakhir === 'kunci-tidak-padan') return 'Perlu manusia: frasa keselamatan tidak padan — tiada kredensial ditaip.';
+  if (st.hasilTerakhir === 'hos-tidak-sah') return 'Perlu manusia: hos idMe tidak sah — tiada kredensial ditaip.';
+  return st.sebab || 'Belum dinilai.';
+}
+
+// Petikan baca-sahaja status semasa untuk status endpoints (/api/status,
+// /api/lokal/status) — tiada nilai kredensial, hanya boolean/status generik.
+export function snapshotLoginAutoStatus(status, { bacaTetapan, adaKredensial, bilCubaan }) {
+  const t = bacaTetapan();
+  let ada = false;
+  try { ada = !!adaKredensial(); } catch { ada = false; }
+  const diminta = t.loginAuto === true;
+  const sesiSah = status ? status.sesiSah : null;
+  const hasilTerakhir = status ? status.hasilTerakhir : '';
+  const percubaan = typeof bilCubaan === 'function' ? bilCubaan() : (status ? status.percubaan : 0);
+  return {
+    diminta, adaKredensial: ada, sesiSah,
+    percubaan, had: HAD_CUBAAN_MAKS, hasilTerakhir,
+    sebab: ayatLoginAuto({ diminta, adaKredensial: ada, sesiSah, hasilTerakhir, sebab: status ? status.sebab : '' })
+  };
 }

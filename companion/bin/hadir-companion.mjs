@@ -16,7 +16,10 @@ import { fileURLToPath } from 'node:url';
 import { dapatkanDirData, bacaTetapan, tulisTetapanAtomik, bacaJson, tulisJsonAtomik } from '../src/tetapan.mjs';
 import { buatSimpananRahsia, buatSimpananApi } from '../src/simpanan.mjs';
 import { buatStoranKredensial } from '../src/kredensial.mjs';
-import { buatPengurusLoginAuto, cubaLoginAutoStartup } from '../src/moeis/login-auto.mjs';
+import {
+  buatPengurusLoginAuto, cubaLoginAutoStartup, buatStatusLoginAuto,
+  cubaLoginAutoKerja as cubaLoginAutoKerjaTerpandu, snapshotLoginAutoStatus
+} from '../src/moeis/login-auto.mjs';
 import { buatPengurusPasangan } from '../src/pasangan.mjs';
 import { buatLog } from '../src/log.mjs';
 import { buatKlienHadir } from '../src/klien-hadir.mjs';
@@ -207,12 +210,16 @@ async function main() {
   const pasangan = buatPengurusPasangan({ simpanan: simpananGeneric });
   const log = buatLog({ dirData });
   const nonceLokal = buatNonceLokal();
+  const statusLoginAuto = buatStatusLoginAuto();
+
+  let cubaLoginAutoKerja = async () => ({ diminta: false, cuba: false, sebab: 'Belum tersedia (pelayan belum siap).' });
 
   const giliran = buatGiliran({
     klien: buatKlienDaripadaTetapan(tetapanApi, simpananApi),
     pemilik: pemilikEnjin,
     log,
     jalankanTugasanAnak,
+    cubaLoginAutoKerja: () => cubaLoginAutoKerja(),
     // Pengawal ini HANYA dipanggil untuk giliran AUTO: `masihLayak` dalam
     // giliran.mjs hanya berjalan apabila `automatik === true` (iaitu
     // state.modMula === 'auto'). Giliran manual (POST /api/mula, butang Mula)
@@ -302,7 +309,13 @@ async function main() {
   // (bin/login-auto.mjs) daripada vault — tidak melalui proses pelayan ini dan
   // tidak melalui argumen CLI/env.
   async function jalankanLoginAutoSebenar() {
-    pastikanProfilBebas();
+    // Tiada pastikanProfilBebas() di sini dengan sengaja: log masuk automatik
+    // hanya PERNAH dipicu pada tiga titik yang profil Edge sudah pasti bebas
+    // (tiada proses anak lain memegangnya) — startup (sebelum giliran wujud),
+    // job-time kitaran (sebelum state.sedangProses ditetapkan) dan job-time
+    // percubaan semula (selepas proses anak push.mjs sudah keluar). Endpoint
+    // uji-login/log-masuk-manual manual kekal dengan pengawal pastikanProfilBebas
+    // sendiri kerana ia boleh dipicu bila-bila masa oleh admin.
     const hasil = await jalankanAnakSkrip('login-auto.mjs', ['--data-dir', dirData], 5 * 60 * 1000);
     if (hasil && hasil.status === 'sesi-sah') {
       tulisStatusSesi({ status: 'sesi-sah', hos: 'moeispel.moe.gov.my', bukti: ['login-auto'] });
@@ -331,6 +344,29 @@ async function main() {
     };
   }
 
+  // Job-time: semakan CACHE SAHAJA (tiada Edge dilancarkan) — berbeza daripada
+  // sesiStartupDisahkan() yang boleh memicu uji-login sebenar. Semakan kitaran
+  // dipanggil pada setiap kitaran giliran; ia mesti murah dan tidak pernah
+  // membuka pelayar sendiri (cubaSekaliLogin/pengurusLoginAuto sahaja yang
+  // membuka Edge, dan itu pun hanya apabila sesi tidak sah menurut cache).
+  async function sesiKerjaDisahkan() {
+    const c = bacaStatusSesi();
+    if (c && Date.now() - c.masa < TTL_SESI_MS && c.sesiAda === true) {
+      return { ada: true, sebab: 'Sesi idMe sah menurut cache tempatan.' };
+    }
+    return { ada: false, sebab: 'Sesi idMe tidak sah/tidak diketahui menurut cache; log masuk automatik akan cuba memulihkan.' };
+  }
+
+  cubaLoginAutoKerja = () => cubaLoginAutoKerjaTerpandu({
+    bacaTetapan: tetapanApi.baca,
+    adaKredensial: () => storeKredensial.ada(),
+    sesiDisahkan: sesiKerjaDisahkan,
+    cubaSekaliLogin: () => pengurusLoginAuto.cubaAuto(),
+    tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
+    status: statusLoginAuto,
+    bilCubaan: () => pengurusLoginAuto.bilCubaan()
+  });
+
   const konteks = {
     port: t0.port, nonceLokal, pasangan, tetapan: tetapanApi, simpanan: simpananApi,
     kredensial: storeKredensial,
@@ -340,6 +376,11 @@ async function main() {
     autoMulaStatus,
     keupayaanLogMasuk: keupayaanLogMasuk(),
     autostart: pengurusAutostart,
+    loginAutoStatus: () => snapshotLoginAutoStatus(statusLoginAuto, {
+      bacaTetapan: tetapanApi.baca,
+      adaKredensial: () => storeKredensial.ada(),
+      bilCubaan: () => pengurusLoginAuto.bilCubaan()
+    }),
     // `segarkan: true` hanya daripada tindakan eksplisit manusia; status
     // rutin menggunakan cache (tiada panggilan keluar, tiada pelayar).
     klaimDisokong: async (opsyen) => {
@@ -410,7 +451,9 @@ async function main() {
         adaKredensial: () => storeKredensial.ada(),
         sesiDisahkan: sesiStartupDisahkan,
         cubaSekaliLogin: () => pengurusLoginAuto.cubaAuto(),
-        tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`)
+        tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
+        status: statusLoginAuto,
+        bilCubaan: () => pengurusLoginAuto.bilCubaan()
       });
       if (loginAuto.cuba) {
         log.tulis(`LOGIN_AUTO_STARTUP: ${loginAuto.hasil ? loginAuto.hasil.status : 'tidak-diketahui'}`);

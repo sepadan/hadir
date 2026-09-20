@@ -106,7 +106,8 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 <div id="statusAutostart" class="status"></div>
 
 <label><input id="autoMulaGiliran" type="checkbox" style="width:auto;display:inline" /> Auto-mula giliran selepas companion berjaya bind (opt-in)</label>
-<label><input id="loginAuto" type="checkbox" style="width:auto;display:inline" /> Log masuk idMe automatik semasa startup (opt-in, lalai MATI, berasingan daripada auto-mula giliran)</label>
+<label><input id="loginAuto" type="checkbox" style="width:auto;display:inline" /> Log masuk idMe automatik — cuba semula secara automatik bila sesi tamat semasa giliran berjalan (opt-in, lalai MATI)</label>
+<div id="loginAutoStatus" class="status" style="margin-top:2px"></div>
 <label for="tarikhBaru">Tambah tarikh sekolah (YYYY-MM-DD) — allowlist auto-mula giliran</label>
 <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
   <input id="tarikhBaru" type="text" autocomplete="off" placeholder="2026-12-05" style="flex:1" />
@@ -180,6 +181,8 @@ export function halamanLokalJs() {
       document.getElementById('autostart').checked = autostart.berdaftar === true && autostart.sepadan === true;
       document.getElementById('autoMulaGiliran').checked = tetapan.autoMulaGiliran === true;
       document.getElementById('loginAuto').checked = tetapan.loginAuto === true;
+      var la = r.loginAutoStatus || {};
+      papar('loginAutoStatus', (la.sebab || 'Belum dinilai.') + (la.percubaan > 0 ? ' (cubaan ' + la.percubaan + '/' + la.had + ')' : ''));
       kalendarSemasa = (tetapan.kalendarSekolah || []).slice();
       renderKalendar();
       var kal = r.kalendar || {};
@@ -259,6 +262,19 @@ export function halamanLokalJs() {
       loginAuto: document.getElementById('loginAuto').checked
     }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Tetapan disimpan.' : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
+  });
+
+  document.getElementById('loginAuto').addEventListener('change', function () {
+    panggil('/api/lokal/tetapan', 'POST', { loginAuto: document.getElementById('loginAuto').checked }).then(function (r) {
+      papar('statusTetapan', r.ok ? 'Suis loginAuto disimpan.' : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
+  });
+  document.getElementById('autoMulaGiliran').addEventListener('change', function () {
+    panggil('/api/lokal/tetapan', 'POST', { autoMulaGiliran: document.getElementById('autoMulaGiliran').checked }).then(function (r) {
+      papar('statusTetapan', r.ok ? 'Suis auto-mula giliran disimpan.' : (r.ralat || 'Ralat.'));
       muatStatus();
     });
   });

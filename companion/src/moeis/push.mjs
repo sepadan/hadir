@@ -87,7 +87,10 @@ export async function jalankanPengisian(adapter, job, opsyen = {}) {
         }
       }
       if (isuSesi) {
-        return hasilAsas(job, { status: 'gagal', sebab: isuSesi.sebab || 'Perlu campur tangan manusia.', kod: 11, perluManusia: true });
+        return hasilAsas(job, {
+          status: 'gagal', sebab: isuSesi.sebab || 'Perlu campur tangan manusia.', kod: 11, perluManusia: true,
+          punca: berkaitanIdMe ? 'sesi-tamat' : 'captcha'
+        });
       }
     }
 

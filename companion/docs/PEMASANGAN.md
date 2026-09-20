@@ -169,8 +169,10 @@ manual (guru log masuk sendiri pada tetingkap Edge).
    (CurrentUser) ke `kredensial.dat`; medan dibersihkan sejurus simpan dan
    nilai **tidak pernah dipaparkan semula**. Status hanya memaparkan boolean
    + pengguna tersamar (cth `a***`).
-4. (Pilihan) Hidupkan suis **Log masuk idMe automatik semasa startup** untuk
-   membolehkan auto-login; biarkan MATI untuk log masuk manual.
+4. (Pilihan) Hidupkan suis **Log masuk idMe automatik** untuk membolehkan
+   auto-login; biarkan MATI untuk log masuk manual. Suis ini juga membolehkan
+   enjin mencuba semula log masuk automatik **semasa giliran berjalan** (lihat
+   *Bila enjin akan dan tidak akan log masuk automatik* di bawah).
 
 **Cara memadam kredensial:** tekan **Padam kredensial** pada bahagian yang sama,
 atau padam fail `kredensial.dat` dalam folder data (`node bin/hadir-companion.mjs status`
@@ -189,6 +191,50 @@ artifak bina, log, env var atau baris arahan.
 - DPAPI `CurrentUser` bermakna hanya akaun Windows yang sama boleh nyahsulit;
   DPAPI tidak melindungi daripada proses lain yang berjalan sebagai pengguna
   yang sama (lihat model ancaman dalam `BLUEPRINT.md`).
+
+### Bila enjin akan (dan TIDAK akan) log masuk automatik
+
+Sebelum ini, enjin hanya cuba log masuk automatik **sekali semasa startup**. Jika
+sesi idMe tamat kemudian (enjin masih berjalan), tugasan beratur gagal dengan
+"sesi tamat" dan guru perlu log masuk manual. Sekarang, apabila `loginAuto`
+HIDUP dan kredensial wujud, enjin juga cuba log masuk automatik pada masa-masa
+ini:
+
+- **Pada permulaan setiap kitaran giliran** (sebelum mengambil/memproses
+  tugasan) — jika sesi idMe tidak sah menurut cache tempatan.
+- **Apabila tugasan melaporkan "sesi tamat"** semasa verifikasi ATAU hantar —
+  enjin cuba log masuk automatik sekali, kemudian mencuba tugasan itu sekali
+  lagi.
+
+Enjin **TIDAK** log masuk automatik apabila:
+
+- Suis `loginAuto` **MATI** (lalai).
+- Kredensial idMe **belum disimpan** pada PC itu.
+- Sesi idMe **sudah sah** (tiada keperluan).
+- CAPTCHA/OTP/2FA dikesan (sentiasa `perlu manusia`, tiada cubaan semula).
+- Frasa "Kata Kunci Keselamatan" pada halaman idMe **tidak padan** (anti-pancing).
+- **Had 2 cubaan** automatik sepanjang hayat proses **sudah dicapai**.
+
+### Had 2 cubaan dan apa perlu buat apabila enjin berhenti untuk manusia
+
+Had ialah **2 cubaan automatik setiap kali enjin dihidupkan** (setiap proses),
+**dikongsi** antara cubaan startup dan semua cubaan semasa tugasan — bukan 2
+setiap tugasan. Selepas 2 cubaan gagal (cth OTP diperlukan, frasa tidak padan,
+atau sesi masih tidak sah), enjin **berhenti mencuba** sehingga ada tindakan
+jelas oleh pemilik: log masuk manual sekali, atau mulakan semula companion. Ini
+menghalang kunci akaun idMe.
+
+Baris status di bawah suis `loginAuto` dalam tetapan tempatan memaparkan keadaan
+semasa (cth "Diminta tetapi sesi idMe sudah sah", "Kredensial idMe tiada",
+"Berjaya", "Had cubaan dicapai", "Perlu manusia: OTP"). Setiap keputusan
+(dilangkau atau dicuba) juga ditulis ke `companion.log` (tag `LOGIN_AUTO`),
+tanpa sebarang nilai kredensial.
+
+**Apabila enjin berhenti untuk manusia:** pada PC itu, tekan **Buka Edge untuk
+log masuk**, log masuk idMe sendiri, kemudian tekan **Uji log masuk** sehingga
+status menunjukkan sesi sah. Selepas itu giliran boleh disambung semula seperti
+biasa. Untuk membenarkan cubaan automatik semula dalam proses yang sama,
+mulakan semula companion (`node bin/hadir-companion.mjs serve`).
 
 ### Aliran pengguna (autostart + auto-mula)
 

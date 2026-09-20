@@ -64,7 +64,11 @@ export function konteksAsas(port, override) {
     autostart: {
       status: () => ({ disokong: true, berdaftar: false, sepadan: false, sebab: 'Tidak didaftarkan.' }),
       tetapkan: () => ({ disokong: true, berdaftar: false, sepadan: false, sebab: 'Tidak didaftarkan.' })
-    }
+    },
+    loginAutoStatus: () => ({
+      diminta: false, adaKredensial: false, sesiSah: null, percubaan: 0, had: 2,
+      hasilTerakhir: '', sebab: 'Belum dinilai.'
+    })
   };
   return Object.assign(asas, override);
 }

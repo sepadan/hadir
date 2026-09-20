@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { jalankanLoginAuto, buatPengurusLoginAuto, cubaLoginAutoStartup } from '../src/moeis/login-auto.mjs';
+import {
+  jalankanLoginAuto, buatPengurusLoginAuto, cubaLoginAutoStartup, cubaLoginAutoKerja,
+  buatStatusLoginAuto, snapshotLoginAutoStatus, ayatLoginAuto
+} from '../src/moeis/login-auto.mjs';
 import { buatHalamanLoginPalsu, KREDENSIAL_PALSU } from './fixtures/halamanPalsuLogin.mjs';
 
 const KRED = { ...KREDENSIAL_PALSU };
@@ -152,4 +155,106 @@ test('orkestrasi startup: loginAuto ON tanpa kredensial -> langkau', async () =>
   assert.equal(hasil.cuba, false);
   assert.equal(sesi, 0, 'jangan semak sesi pun jika tiada kredensial');
   assert.equal(cuba, 0);
+});
+
+// ---------------- cubaLoginAutoKerja (job-time, sama orkestrasi terpandu) ----------------
+
+test('cubaLoginAutoKerja: loginAuto MATI -> tiada kesan sampingan', async () => {
+  const panggilan = [];
+  const hasil = await cubaLoginAutoKerja({
+    bacaTetapan: () => ({ loginAuto: false }),
+    adaKredensial: () => { panggilan.push('adaKredensial'); return true; },
+    sesiDisahkan: async () => { panggilan.push('sesi'); return { ada: false }; },
+    cubaSekaliLogin: async () => { panggilan.push('cuba'); return {}; },
+    tulisLog: () => {}
+  });
+  assert.equal(hasil.diminta, false);
+  assert.equal(hasil.cuba, false);
+  assert.deepEqual(panggilan, []);
+});
+
+test('cubaLoginAutoKerja: ON + kredensial + sesi SAH -> tiada cubaan', async () => {
+  let cuba = 0;
+  const hasil = await cubaLoginAutoKerja({
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => true,
+    sesiDisahkan: async () => ({ ada: true }),
+    cubaSekaliLogin: async () => { cuba++; return {}; },
+    tulisLog: () => {}
+  });
+  assert.equal(hasil.cuba, false);
+  assert.equal(cuba, 0);
+});
+
+test('cubaLoginAutoKerja: ON + kredensial + sesi TIDAK sah -> satu cubaan', async () => {
+  let cuba = 0;
+  const hasil = await cubaLoginAutoKerja({
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => true,
+    sesiDisahkan: async () => ({ ada: false }),
+    cubaSekaliLogin: async () => { cuba++; return { status: 'sesi-sah' }; },
+    tulisLog: () => {}
+  });
+  assert.equal(hasil.cuba, true);
+  assert.equal(cuba, 1);
+});
+
+// ---------------- status/snapshot/ayat ----------------
+
+test('buatStatusLoginAuto: bentuk lalai betul', () => {
+  const st = buatStatusLoginAuto();
+  assert.deepEqual(st, {
+    diminta: false, adaKredensial: false, sesiSah: null, percubaan: 0,
+    had: 2, hasilTerakhir: '', sebab: 'Belum dinilai.'
+  });
+});
+
+test('ayatLoginAuto: ayat mengikut keutamaan yang didokumenkan', () => {
+  assert.match(ayatLoginAuto({ diminta: false }), /Suis loginAuto MATI/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: false }), /Kredensial idMe tiada/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: true }), /Diminta tetapi sesi idMe sudah sah/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'sesi-sah' }), /Berjaya/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'had-cubaan' }), /Had cubaan dicapai/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'perlu-manusia', sebab: 'OTP dikesan' }), /Perlu manusia/);
+});
+
+test('snapshotLoginAutoStatus: menggabungkan tetapan + status semasa + ayat', () => {
+  const status = buatStatusLoginAuto();
+  Object.assign(status, { sesiSah: false, hasilTerakhir: 'sesi-sah', sebab: 'ok', percubaan: 1 });
+  const snap = snapshotLoginAutoStatus(status, {
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => true,
+    bilCubaan: () => 1
+  });
+  assert.deepEqual(Object.keys(snap).sort(), ['adaKredensial', 'diminta', 'had', 'hasilTerakhir', 'percubaan', 'sebab', 'sesiSah'].sort());
+  assert.equal(snap.diminta, true);
+  assert.equal(snap.adaKredensial, true);
+  assert.equal(snap.percubaan, 1);
+  assert.equal(snap.had, 2);
+  assert.match(snap.sebab, /Berjaya/);
+});
+
+// ---------------- had cubaan dikongsi antara startup dan job-time ----------------
+
+test('had cubaan dikongsi: startup + job-time berkongsi SATU kaunter proses', async () => {
+  let jalanDipanggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { jalanDipanggil++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'gagal (ujian)' }; },
+    jedaMs: 0
+  });
+  const deps = {
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => true,
+    sesiDisahkan: async () => ({ ada: false }),
+    cubaSekaliLogin: () => pengurus.cubaAuto(),
+    tulisLog: () => {}
+  };
+  const pertama = await cubaLoginAutoStartup(deps);
+  const kedua = await cubaLoginAutoKerja(deps);
+  const ketiga = await cubaLoginAutoKerja(deps);
+  assert.equal(jalanDipanggil, 2, 'jalankan mesti dipanggil tepat 2 kali merentas startup + job-time');
+  assert.equal(pertama.hasil.status, 'perlu-manusia');
+  assert.equal(kedua.hasil.status, 'perlu-manusia');
+  assert.equal(ketiga.hasil.status, 'had-cubaan');
 });

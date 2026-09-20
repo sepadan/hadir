@@ -165,3 +165,28 @@ test('CAPTCHA/OTP bukan kes idMe: jangan cuba melancarkan aplikasi', async () =>
   assert.equal(dilancarkan, 0, 'captcha memerlukan manusia, bukan pelancaran aplikasi');
   assert.equal(hasil.kod, 11);
 });
+
+// `punca` ialah SATU-SATUNYA isyarat yang giliran.mjs guna untuk membezakan
+// sesi idMe tamat (boleh cuba log masuk automatik semula) daripada CAPTCHA
+// (tidak boleh dicuba semula automatik sekali-kali).
+test('punca: sesi idMe tamat (URL idme.moe.gov.my) -> punca sesi-tamat', async () => {
+  const adapter = {
+    ...buatHalamanPalsu({ muridAwal: MURID_MOEIS_CONTOH }),
+    async semakSesiDanCaptcha() { return { sebab: 'Sesi idMe tamat; log masuk manual diperlukan pada PC ini.' }; },
+    async urlHalaman() { return 'https://idme.moe.gov.my/home'; }
+  };
+  const hasil = await jalankanPengisian(adapter, JOB_CONTOH, { mod: 'verifikasi' });
+  assert.equal(hasil.kod, 11);
+  assert.equal(hasil.punca, 'sesi-tamat');
+});
+
+test('punca: CAPTCHA (URL MOEIS) -> punca captcha', async () => {
+  const adapter = {
+    ...buatHalamanPalsu({ muridAwal: MURID_MOEIS_CONTOH }),
+    async semakSesiDanCaptcha() { return { sebab: 'CAPTCHA/OTP dikesan; perlu campur tangan manusia.' }; },
+    async urlHalaman() { return 'https://moeispel.moe.gov.my/sahsiah/kehadiran/pkhem/tabguru'; }
+  };
+  const hasil = await jalankanPengisian(adapter, JOB_CONTOH, { mod: 'verifikasi' });
+  assert.equal(hasil.kod, 11);
+  assert.equal(hasil.punca, 'captcha');
+});

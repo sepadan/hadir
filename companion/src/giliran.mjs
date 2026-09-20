@@ -11,7 +11,9 @@
 // pelayar sebenar.
 const LEASE_HEARTBEAT_MS = 5 * 60 * 1000;
 
-export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik }) {
+function adalahSesiTamat(hasil) { return !!(hasil && hasil.punca === 'sesi-tamat'); }
+
+export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik, cubaLoginAutoKerja }) {
   const state = {
     aktif: false, sedangProses: false, kerjaSemasa: null, ralatTerakhir: '',
     keputusanTerakhir: null, sebabKelayakanTerakhir: '', bilLangkauTerakhir: 0,
@@ -52,11 +54,19 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
 
     state.kerjaSemasa = { id: klaim.id, kelas: klaim.kelas, tarikhIso: klaim.tarikhIso };
     let heartbeat = null;
+    let sudahCubaLoginSemula = false;
     try {
       const jalan = (mod, opsyen) => jalankanTugasanAnak(klaim, { mod, ...opsyen });
 
-      const verifikasi = await jalan('verifikasi', {});
+      let verifikasi = await jalan('verifikasi', {});
       log.tulisKerja(klaim.id + '-verifikasi', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
+
+      if (adalahSesiTamat(verifikasi.hasil) && !sudahCubaLoginSemula) {
+        sudahCubaLoginSemula = true;
+        if (typeof cubaLoginAutoKerja === 'function') { try { await cubaLoginAutoKerja(); } catch { /* best-effort */ } }
+        verifikasi = await jalan('verifikasi', {});
+        log.tulisKerja(klaim.id + '-verifikasi-ulang', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
+      }
 
       if (verifikasi.hasil.status === 'tidak-berubah') {
         if (automatik && !(await masihLayak(tugasanKelayakan, 'sebelum-mutasi'))) {
@@ -113,8 +123,15 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
         await klien.lepas(klaim.id, pemilik).catch(() => {});
         return null;
       }
-      const hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: true });
+      let hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: true });
       log.tulisKerja(klaim.id + '-hantar', (hantar.stdout || '') + (hantar.stderr || ''));
+
+      if (adalahSesiTamat(hantar.hasil) && !sudahCubaLoginSemula) {
+        sudahCubaLoginSemula = true;
+        if (typeof cubaLoginAutoKerja === 'function') { try { await cubaLoginAutoKerja(); } catch { /* best-effort */ } }
+        hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: true });
+        log.tulisKerja(klaim.id + '-hantar-ulang', (hantar.stdout || '') + (hantar.stderr || ''));
+      }
 
       const h = hantar.hasil;
       if (h.status === 'disahkan') {
@@ -161,6 +178,9 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
 
   async function jalankanSatuKitaran() {
     if (state.sedangProses) return { dilangkau: true };
+    if (typeof cubaLoginAutoKerja === 'function') {
+      try { await cubaLoginAutoKerja(); } catch { /* best-effort; never block the cycle */ }
+    }
     state.sedangProses = true;
     try {
       const senarai = await klien.senarai();

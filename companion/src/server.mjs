@@ -356,7 +356,10 @@ async function pengendali(req, res) {
             autoMulaGiliran: t.autoMulaGiliran === true,
             loginAuto: t.loginAuto === true,
             kalendarSekolah: t.kalendarSekolah || []
-          }
+          },
+          loginAutoStatus: (typeof konteks.loginAutoStatus === 'function'
+            ? konteks.loginAutoStatus()
+            : { diminta: t.loginAuto === true, adaKredensial: kredensial ? kredensial.ada() === true : false, sesiSah: null, percubaan: 0, had: 2, hasilTerakhir: '', sebab: 'Belum dinilai.' })
         });
         return;
       }
@@ -430,7 +433,10 @@ async function pengendali(req, res) {
           keupayaanLogMasuk: konteks.keupayaanLogMasuk,
           kredensial: { ada: kredensial ? kredensial.status().ada === true : false },
           kalendar: ringkasanKalendar(t, kini),
-          log: log.bacaTerakhir(10)
+          log: log.bacaTerakhir(10),
+          loginAutoStatus: (typeof konteks.loginAutoStatus === 'function'
+            ? konteks.loginAutoStatus()
+            : { diminta: t.loginAuto === true, adaKredensial: kredensial ? kredensial.ada() === true : false, sesiSah: null, percubaan: 0, had: 2, hasilTerakhir: '', sebab: 'Belum dinilai.' })
         });
         return;
       }
