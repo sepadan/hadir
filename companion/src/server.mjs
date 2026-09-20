@@ -18,6 +18,7 @@ import {
   adaMedanRahsiaDilarang, tapisTetapanDibenarkan, tapisTetapanLokalDibenarkan,
   sahkanApiUrl, sahkanKalendarSekolah
 } from './tetapan.mjs';
+import { ringkasanKalendar } from './auto-mula.mjs';
 
 // Medan tetapan yang hanya boleh diubah pada PC itu sendiri (fail tetapan.json
 // atau UI tempatan dengan nonce). Klien jauh yang mencubanya ditolak dengan
@@ -340,6 +341,7 @@ async function pengendali(req, res) {
       if (laluan === '/api/lokal/status') {
         const klaimDisokong = await konteks.klaimDisokong();
         const t = tetapan.baca();
+        const kini = typeof konteks.sekarangMs === 'function' ? konteks.sekarangMs() : Date.now();
         hantarJson(res, 200, {
           ok: true, versi, pc: pcNama,
           giliran: { ...giliran.status(), klaimDisokong },
@@ -349,6 +351,7 @@ async function pengendali(req, res) {
           autoMula: konteks.autoMulaStatus || { diminta: t.autoMulaGiliran === true, bermula: false, sebab: 'Belum dinilai.' },
           keupayaanLogMasuk: konteks.keupayaanLogMasuk,
           kredensial: kredensial ? kredensial.status() : { ada: false, rosak: false, pengguna: '', kunciAda: false },
+          kalendar: ringkasanKalendar(t, kini),
           tetapan: {
             autoMulaGiliran: t.autoMulaGiliran === true,
             loginAuto: t.loginAuto === true,
@@ -414,6 +417,7 @@ async function pengendali(req, res) {
       if (laluan === '/api/status' && req.method === 'GET') {
         const klaimDisokong = await konteks.klaimDisokong();
         const t = tetapan.baca();
+        const kini = typeof konteks.sekarangMs === 'function' ? konteks.sekarangMs() : Date.now();
         hantarJson(res, 200, {
           ok: true,
           versi, pc: pcNama,
@@ -425,6 +429,7 @@ async function pengendali(req, res) {
           loginAuto: t.loginAuto === true,
           keupayaanLogMasuk: konteks.keupayaanLogMasuk,
           kredensial: { ada: kredensial ? kredensial.status().ada === true : false },
+          kalendar: ringkasanKalendar(t, kini),
           log: log.bacaTerakhir(10)
         });
         return;

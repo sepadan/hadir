@@ -3,6 +3,10 @@
 // setiap poll. Modul ini tulen: tiada rangkaian, pelayar, registry atau fail.
 export const ZON_MASA_SEKOLAH = 'Asia/Kuala_Lumpur';
 export const UMUR_MAKS_TUGASAN_MINIT = 15;
+// Amaran awal (hari sebelum allowlist kalendar sekolah tamat) untuk memberi
+// pemilik masa menambah tarikh sebelum auto-mula gagal tertutup pada hari yang
+// tidak lagi dilindungi allowlist.
+export const AMARAN_HARI_KALENDAR = 7;
 
 function bahagianMalaysia(sekarangMs) {
   if (!Number.isFinite(sekarangMs)) return null;
@@ -79,5 +83,67 @@ export function nilaiKelayakanTugasan(job, { tetapan, sekarangMs, sempadanProses
     return { boleh: false, sebab: `Tugasan terlalu lama (had ${UMUR_MAKS_TUGASAN_MINIT} minit); semakan manual diperlukan.` };
   }
   return { boleh: true, sebab: 'Tugasan fresh dan layak diproses automatik.' };
+}
+
+// --- Amaran kalendar sekolah (baca sahaja, tulen) ---
+// ringkasanKalendar ialah fungsi TULEN: tiada rangkaian, pelayar, registry atau
+// fail. Ia menerima `tetapan` dan `sekarangMs` (disuntik) lalu mengembalikan
+// ringkasan allowlist kalendarSekolah untuk dipaparkan (banner UI) dan untuk
+// dilaporkan dalam /api/lokal/status dan /api/status.
+
+function tarikhTepatSah(nilai) {
+  if (typeof nilai !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(nilai)) return false;
+  const [tahun, bulan, hari] = nilai.split('-').map(Number);
+  const d = new Date(Date.UTC(tahun, bulan - 1, hari));
+  return d.getUTCFullYear() === tahun && d.getUTCMonth() + 1 === bulan && d.getUTCDate() === hari;
+}
+
+function hariAntaraIso(isoMula, isoTamat) {
+  const [tm, bm, hm] = isoMula.split('-').map(Number);
+  const [tt, bt, ht] = isoTamat.split('-').map(Number);
+  return Math.round((Date.UTC(tt, bt - 1, ht) - Date.UTC(tm, bm - 1, hm)) / 86400000);
+}
+
+export function ringkasanKalendar(tetapan, sekarangMs) {
+  const senarai = Array.isArray(tetapan && tetapan.kalendarSekolah) ? tetapan.kalendarSekolah : [];
+  const dinormalkan = senarai.map((x) => String(x || '').trim());
+  // Cermin sahkanKalendarSekolah (tetapan.mjs): senarai kosong ATAU sebarang
+  // entri tidak sah membatalkan seluruh allowlist (gagal tertutup). Amaran
+  // TIDAK BOLEH menghasilkan keadaan "selamat" palsu daripada data separa sah.
+  const rosak = dinormalkan.some((x) => !tarikhTepatSah(x));
+  const sah = (!dinormalkan.length || rosak) ? [] : [...new Set(dinormalkan)].sort();
+
+  const hariIni = bahagianMalaysia(sekarangMs);
+  const bilangan = sah.length;
+  const pertama = sah.length ? sah[0] : null;
+  const terakhir = sah.length ? sah[sah.length - 1] : null;
+  const hariTinggal = (sah.length && hariIni) ? hariAntaraIso(hariIni.tarikhIso, terakhir) : null;
+
+  let amaran;
+  let sebab;
+  if (rosak) {
+    amaran = true;
+    sebab = 'Kalendar sekolah mengandungi entri tidak sah; allowlist gagal tertutup sehingga tarikh tepat diperbetulkan.';
+  } else if (!sah.length) {
+    amaran = true;
+    sebab = 'Kalendar sekolah kosong; auto-mula gagal tertutup sehingga tarikh sekolah ditambah.';
+  } else if (!hariIni) {
+    amaran = true;
+    sebab = 'Masa semasa tidak sah; kalendar tidak dapat dinilai dan auto-mula gagal tertutup.';
+  } else if (hariTinggal < 0) {
+    amaran = true;
+    sebab = `Kalendar sekolah sudah tamat pada ${terakhir} (${-hariTinggal} hari lepas); auto-mula tidak akan berjalan sehingga tarikh baharu ditambah.`;
+  } else if (hariTinggal === 0) {
+    amaran = true;
+    sebab = `Tarikh sekolah terakhir ialah hari ini (${terakhir}); tiada tarikh untuk hari berikutnya — tambah tarikh baharu segera.`;
+  } else if (hariTinggal <= AMARAN_HARI_KALENDAR) {
+    amaran = true;
+    sebab = `Tarikh sekolah terakhir ${terakhir} tinggal ${hariTinggal} hari lagi — tambah tarikh baharu sebelum ia tamat.`;
+  } else {
+    amaran = false;
+    sebab = `Kalendar sekolah sah sehingga ${terakhir} (${hariTinggal} hari lagi).`;
+  }
+
+  return { bilangan, pertama, terakhir, hariTinggal, amaran, sebab };
 }
 

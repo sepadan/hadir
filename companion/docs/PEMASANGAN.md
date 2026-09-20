@@ -117,6 +117,34 @@ Kerja yang dicipta semasa PC mati/restart **tidak diambil automatik** — piliha
 konservatif yang disengajakan (sempadan startup menolak tugasan yang lebih lama
 daripada masa proses bermula).
 
+### Amaran tamat kalendar + editor allowlist (UI tempatan)
+
+Allowlist `kalendarSekolah` ialah senarai tarikh sekolah tepat (`YYYY-MM-DD`).
+Amaran kalendar ialah **amaran awal** sahaja — ia **tidak mengubah** keputusan
+pengawal auto-mula. Apabila allowlist kosong, sudah tamat, atau tarikh
+terakhirnya dalam **7 hari**, banner **merah** muncul di bahagian atas halaman
+tetapan tempatan bersama ayat Melayu yang menyatakan kes tepat (tarikh terakhir
++ berapa hari tinggal). Apabila selamat, banner hijau memaparkan tarikh tamat
+dan hari tinggal.
+
+**Cara pemilik menambah/membuang tarikh sekolah (tanpa menyentuh fail atau
+meminta agen):**
+
+1. Pada PC guru sendiri, buka pautan **tetapan tempatan** (loopback + nonce).
+2. Di bahagian **Automasi tempatan**, taip satu tarikh tepat (`YYYY-MM-DD`,
+   cth `2026-12-05`) dan tekan **Tambah** — tarikh muncul dalam senarai.
+3. Untuk membuang, tekan **Buang** di sebelah tarikh itu.
+4. Tekan **Simpan kalendar** untuk menghantar senarai penuh ke
+   `POST /api/lokal/tetapan` (header nonce sahaja — hanya PC ini boleh
+   mengubahnya). Jika mana-mana tarikh bukan tarikh tepat, server menolak
+   seluruh senarai dan memaparkan mesejnya **verbatim**; tiada tarikh yang
+   hilang senyap — senarai yang disimpan ialah tepat apa yang dipaparkan.
+
+**Maksud amaran:** apabila banner merah muncul, auto-mula akan **gagal
+tertutup** (tidak memproses apa-apa) pada hari yang tidak lagi dilindungi
+allowlist. Tambah tarikh baharu dan tekan **Simpan kalendar** sebelum hari itu
+untuk mengekalkan auto-mula berjalan.
+
 ### Tiada cubaan semula automatik
 
 - Tiada cubaan semula automatik untuk `gagal`, `tersimpan`, `sedang_dihantar`,

@@ -27,6 +27,12 @@ button{margin-top:12px;padding:8px 16px;cursor:pointer}
 .amaran{background:#fff3cd;padding:12px;border-radius:6px;margin-top:16px}
 .status{margin-top:8px;font-size:0.9rem;white-space:pre-wrap}
 .panel{background:#f5f8fb;border-radius:8px;padding:12px;margin-top:10px;font-size:0.88rem;display:grid;gap:4px}
+.banner{background:#fff3cd;padding:12px;border-radius:6px;margin-top:16px;font-weight:600}
+.banner-amaran{background:#f8d7da;border:2px solid #dc3545;color:#7a2020}
+.banner-ok{background:#d4edda;border:1px solid #28a745;color:#155724}
+.senarai-tarikh{list-style:none;padding:0;margin-top:8px}
+.senarai-tarikh li{margin:4px 0;display:flex;gap:8px;align-items:center}
+.senarai-tarikh li button{margin:0;padding:2px 10px}
 </style>
 </head>
 <body>
@@ -41,6 +47,8 @@ padan; selain itu ia tidak pernah menaip kata laluan/PIN/OTP.</p>
 <div class="amaran">Giliran penghantaran MATI secara lalai. Log masuk idMe
 automatik juga opt-in (loginAuto, lalai MATI). Autostart Windows opt-in
 sahaja (lihat bawah).</div>
+
+<div id="bannerKalendar" class="banner" style="display:none"></div>
 
 <h2>Status</h2>
 <div id="panelStatus" class="panel">Memuatkan status…</div>
@@ -99,8 +107,14 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 
 <label><input id="autoMulaGiliran" type="checkbox" style="width:auto;display:inline" /> Auto-mula giliran selepas companion berjaya bind (opt-in)</label>
 <label><input id="loginAuto" type="checkbox" style="width:auto;display:inline" /> Log masuk idMe automatik semasa startup (opt-in, lalai MATI, berasingan daripada auto-mula giliran)</label>
-<label for="kalendarSekolah">Allowlist tarikh sekolah tepat (YYYY-MM-DD, satu baris satu tarikh)</label>
-<textarea id="kalendarSekolah" rows="6" spellcheck="false" placeholder="2026-09-21&#10;2026-09-22"></textarea>
+<label for="tarikhBaru">Tambah tarikh sekolah (YYYY-MM-DD) — allowlist auto-mula giliran</label>
+<div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+  <input id="tarikhBaru" type="text" autocomplete="off" placeholder="2026-12-05" style="flex:1" />
+  <button id="btnTambahTarikh" style="margin-top:0">Tambah</button>
+</div>
+<ul id="kalendarSekolah" class="senarai-tarikh"></ul>
+<button id="btnSimpanKalendar">Simpan kalendar</button>
+<div id="statusKalendar" class="status"></div>
 <p class="status">Allowlist kosong gagal tertutup. Sabtu/Ahad, cuti, kerja lama,
 kerja dari sebelum startup, cap masa rosak, gagal, tersimpan dan lease luput
 tidak diproses automatik. Had umur tugasan ialah 15 minit.</p>
@@ -138,6 +152,25 @@ export function halamanLokalJs() {
 
   function papar(id, teks) { document.getElementById(id).textContent = teks; }
 
+  var kalendarSemasa = [];
+  function renderKalendar() {
+    var ul = document.getElementById('kalendarSekolah');
+    ul.innerHTML = '';
+    kalendarSemasa.forEach(function (tarikh, indeks) {
+      var li = document.createElement('li');
+      li.appendChild(document.createTextNode(tarikh + ' '));
+      var butang = document.createElement('button');
+      butang.type = 'button';
+      butang.textContent = 'Buang';
+      butang.addEventListener('click', function () {
+        kalendarSemasa.splice(indeks, 1);
+        renderKalendar();
+      });
+      li.appendChild(butang);
+      ul.appendChild(li);
+    });
+  }
+
   function muatStatus() {
     panggil('/api/lokal/status', 'GET').then(function (r) {
       if (!r.ok) { papar('panelStatus', r.ralat || 'Ralat memuat status.'); return; }
@@ -147,7 +180,17 @@ export function halamanLokalJs() {
       document.getElementById('autostart').checked = autostart.berdaftar === true && autostart.sepadan === true;
       document.getElementById('autoMulaGiliran').checked = tetapan.autoMulaGiliran === true;
       document.getElementById('loginAuto').checked = tetapan.loginAuto === true;
-      document.getElementById('kalendarSekolah').value = (tetapan.kalendarSekolah || []).join('\\n');
+      kalendarSemasa = (tetapan.kalendarSekolah || []).slice();
+      renderKalendar();
+      var kal = r.kalendar || {};
+      var banner = document.getElementById('bannerKalendar');
+      if (kal.sebab) {
+        banner.style.display = 'block';
+        banner.textContent = 'Kalendar sekolah: ' + kal.sebab;
+        banner.className = kal.amaran ? 'banner banner-amaran' : 'banner banner-ok';
+      } else {
+        banner.style.display = 'none';
+      }
       papar('panelStatus',
         'Giliran: ' + (g.aktif ? 'HIDUP' : 'MATI (lalai)') + '\\n' +
         'Klaim atomik backend HADIR: ' + (g.klaimDisokong === true
@@ -209,17 +252,44 @@ export function halamanLokalJs() {
   });
 
   document.getElementById('btnTetapan').addEventListener('click', function () {
-    var kalendar = document.getElementById('kalendarSekolah').value.split(/\\r?\\n/)
-      .map(function (x) { return x.trim(); }).filter(Boolean);
     panggil('/api/lokal/tetapan', 'POST', {
       apiUrl: document.getElementById('apiUrl').value,
       kunciKeselamatanDijangka: document.getElementById('kunciKeselamatan').value,
       autoMulaGiliran: document.getElementById('autoMulaGiliran').checked,
-      loginAuto: document.getElementById('loginAuto').checked,
-      kalendarSekolah: kalendar
+      loginAuto: document.getElementById('loginAuto').checked
     }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Tetapan disimpan.' : (r.ralat || 'Ralat.'));
       muatStatus();
+    });
+  });
+
+  document.getElementById('btnTambahTarikh').addEventListener('click', function () {
+    var nilai = document.getElementById('tarikhBaru').value.trim();
+    var bahagian = nilai.split('-');
+    var formatOk = bahagian.length === 3 && bahagian[0].length === 4 && bahagian[1].length === 2 && bahagian[2].length === 2;
+    if (!formatOk) {
+      papar('statusKalendar', 'Format tarikh mesti YYYY-MM-DD (cth 2026-12-05).');
+      return;
+    }
+    if (kalendarSemasa.indexOf(nilai) >= 0) {
+      papar('statusKalendar', 'Tarikh itu sudah ada dalam senarai.');
+      return;
+    }
+    kalendarSemasa.push(nilai);
+    kalendarSemasa.sort();
+    document.getElementById('tarikhBaru').value = '';
+    renderKalendar();
+    papar('statusKalendar', '');
+  });
+
+  document.getElementById('btnSimpanKalendar').addEventListener('click', function () {
+    panggil('/api/lokal/tetapan', 'POST', { kalendarSekolah: kalendarSemasa }).then(function (r) {
+      if (r.ok) {
+        papar('statusKalendar', 'Kalendar disimpan.');
+        muatStatus();
+      } else {
+        papar('statusKalendar', r.ralat || 'Ralat.');
+      }
     });
   });
 
