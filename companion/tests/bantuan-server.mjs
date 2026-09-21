@@ -68,6 +68,10 @@ export function konteksAsas(port, override) {
     loginAutoStatus: () => ({
       diminta: false, adaKredensial: false, sesiSah: null, percubaan: 0, had: 2,
       hasilTerakhir: '', benarkanTerusTanpaFrasa: false, sebab: 'Belum dinilai.'
+    }),
+    jagaSesi: () => ({
+      berjalan: false, didayakan: false, hasilPokeTerakhir: 'belum', sihatTerakhir: false,
+      bilPoke: 0, bilLangkau: 0, masaPokeTerakhir: 0, jedaEfektif: 300000, sedangPoke: false
     })
   };
   return Object.assign(asas, override);

@@ -13,6 +13,21 @@ const LEASE_HEARTBEAT_MS = 5 * 60 * 1000;
 
 function adalahSesiTamat(hasil) { return !!(hasil && hasil.punca === 'sesi-tamat'); }
 
+// Hasil 'langkau' bermakna profil Edge sedang digunakan oleh operasi pelayar
+// lain (siasatan sesi / log masuk) — tugasan TIDAK boleh melancarkan pelayar
+// kedua. Giliran melepaskan lease dan mencuba semula pada kitaran seterusnya;
+// TIADA paksa-bunuh pelayar aktif. (Kunci pelayar disambungkan dalam
+// bin/hadir-companion.mjs di dalam jalankanTugasanAnak.)
+function adalahLangkau(hasil) { return !!(hasil && hasil.status === 'langkau'); }
+
+// Jaminan eksplisit daripada launcher DIPERCAYAI (bin/hadir-companion.mjs)
+// bahawa langkau ini berlaku SEBELUM mana-mana proses anak dilancarkan atau
+// tulisan dibuat — mis. kunci profil Edge gagal diperoleh dan fungsi pulang
+// serta-merta tanpa memanggil execFile. Launcher yang tidak menetapkan medan
+// ini (termasuk semua double ujian sedia ada) dianggap TIDAK menjamin apa-apa
+// — lalai selamat ialah TIDAK PERNAH cuba semula.
+function pastiTiadaSpawn(hasil) { return !!(hasil && hasil.pastiTiadaSpawn === true); }
+
 export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik, cubaLoginAutoKerja, segarkanSesiCache, jedaSegarSesiMs = 10 * 60 * 1000, sekarangMs }) {
   const state = {
     aktif: false, sedangProses: false, kerjaSemasa: null, ralatTerakhir: '',
@@ -38,6 +53,24 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
         sebab: (r && r.hasil && r.hasil.sebab) || ''
       };
     } catch { return { perluManusia: false, sebab: '' }; }
+  }
+
+  // Lepaskan lease selepas 'langkau' dan pulangkan sama ada tugasan ini boleh
+  // dibuang daripada pernahDiklaimAutomatik untuk cubaan semula automatik.
+  // Kedua-dua syarat mesti dipenuhi: (a) launcher menjamin SECARA EKSPLISIT
+  // tiada proses anak dilancarkan/tulisan dibuat (pastiTiadaSpawn), DAN
+  // (b) klien.lepas() benar-benar berjaya (bukan sekadar dicuba). Jika
+  // pelepasan gagal (ralat rangkaian dsb.) kita TIDAK tahu status lease di
+  // backend — kekal fail-closed dan JANGAN benarkan cubaan semula senyap.
+  // Tulisan separuh/tidak diketahui TIDAK PERNAH dianggap layak cuba semula.
+  async function lepasSelepasLangkau(id, hasilLangkau) {
+    const jaminan = pastiTiadaSpawn(hasilLangkau);
+    try {
+      await klien.lepas(id, pemilik);
+      return jaminan;
+    } catch {
+      return false;
+    }
   }
 
   async function masihLayak(job, tahap) {
@@ -93,6 +126,16 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
           verifikasi = await jalan('verifikasi', {});
           log.tulisKerja(klaim.id + '-verifikasi-ulang', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
         }
+      }
+
+      if (adalahLangkau(verifikasi.hasil)) {
+        // Profil Edge digunakan oleh operasi pelayar lain — langkau tugasan ini
+        // (lepaskan lease) dan cuba semula pada kitaran seterusnya. JANGAN
+        // tafsir sebagai 'perlu-hantar' dan JANGAN paksa-bunuh pelayar aktif.
+        state.sebabKelayakanTerakhir = (verifikasi.hasil.sebab) || 'Profil Edge sedang digunakan oleh operasi pelayar lain.';
+        const bolehCubaSemula = await lepasSelepasLangkau(klaim.id, verifikasi.hasil);
+        if (automatik && bolehCubaSemula) pernahDiklaimAutomatik.delete(ringkasan.id);
+        return null;
       }
 
       if (verifikasi.hasil.status === 'tidak-berubah') {
@@ -166,6 +209,21 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
           hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: true });
           log.tulisKerja(klaim.id + '-hantar-ulang', (hantar.stdout || '') + (hantar.stderr || ''));
         }
+      }
+
+      if (adalahLangkau(hantar.hasil)) {
+        // Sama seperti di atas — langkau, jangan lapor 'gagal' kekal dan jangan
+        // paksa-bunuh pelayar aktif. NOTA: pada titik ini mod 'verifikasi'
+        // SUDAH berjaya (tiada langkau), jadi 'hantar' bermula pada kunci
+        // pelayar yang bebas — langkau di sini hanya berlaku jika kunci
+        // direbut oleh operasi lain SELEPAS verifikasi. Launcher dipercayai
+        // hanya menetapkan pastiTiadaSpawn apabila fungsi pulang SEBELUM
+        // execFile (tiada spawn mod hantar), jadi jaminan "tiada tulisan"
+        // tetap sah walaupun mod verifikasi sudah berjalan sebelum ini.
+        state.sebabKelayakanTerakhir = (hantar.hasil.sebab) || 'Profil Edge sedang digunakan oleh operasi pelayar lain.';
+        const bolehCubaSemula = await lepasSelepasLangkau(klaim.id, hantar.hasil);
+        if (automatik && bolehCubaSemula) pernahDiklaimAutomatik.delete(ringkasan.id);
+        return null;
       }
 
       const h = hantar.hasil;

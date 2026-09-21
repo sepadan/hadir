@@ -514,3 +514,122 @@ test('pemulihan tersekat: lease korup (bukan nombor) dengan pemilik bukan kosong
   assert.equal(r.diproses, 0, 'lease korup + pemilik bukan kosong tidak boleh dirampas');
   assert.equal(dipanggil, false);
 });
+
+test('langkau (profil Edge digunakan): lepaskan lease, TIDAK lapor gagal kekal, TIDAK paksa-bunuh', async () => {
+  // Apabila jalankanTugasanAnak memulangkan status 'langkau' (profil Edge
+  // digunakan oleh operasi pelayar lain), giliran mesti melepaskan lease dan
+  // mencuba semula pada kitaran seterusnya — BUKAN melaporkan 'gagal' kekal ke
+  // HADIR dan BUKAN melancarkan pelayar kedua.
+  const klien = klienPalsu([{ id: 'j-langkau', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-21', murid: [] }]);
+  const jalankanTugasanAnak = async (job, opsyen) => ({
+    stdout: '', stderr: '',
+    hasil: { status: 'langkau', sebab: 'Profil Edge sedang digunakan oleh siasatan:uji-login.mjs; tugasan dilangkau.' }
+  });
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(r.diproses, 0, 'tugasan yang dilangkau tidak dikira diproses');
+  assert.equal(klien._lepasPanggilan.length, 1, 'lease mesti dilepaskan pada langkau');
+  assert.equal(klien._lepasPanggilan[0].id, 'j-langkau');
+  assert.equal(klien._selesaiPanggilan.length, 0, 'langkau TIDAK boleh dilaporkan sebagai kegagalan kekal');
+});
+
+// ---------------- Pepijat: langkau automatik mengunci id selama-lamanya dalam pernahDiklaimAutomatik ----------------
+//
+// `pernahDiklaimAutomatik` menghalang giliran AUTO mencuba semula tugasan
+// yang sudah pernah diklaim sekali (satu cubaan automatik sepanjang hayat
+// proses). Sebelum pembetulan ini, laluan 'langkau' menambah id ke set itu
+// SEBELUM mengetahui hasilnya, kemudian melepaskan lease dan pulang null
+// TANPA membuang id semula — kitaran auto seterusnya melangkau tugasan itu
+// SELAMA-LAMANYA walaupun profil Edge sudah bebas, kerana 'langkau' bukan
+// kegagalan sebenar (tiada spawn/tiada tulisan berlaku). Pembetulan: id
+// dibuang HANYA apabila launcher menjamin SECARA EKSPLISIT (pastiTiadaSpawn)
+// tiada spawn/tulisan berlaku DAN pelepasan lease benar-benar berjaya.
+
+test('DUA kitaran auto sebenar: langkau (jaminan tiada spawn) pertama, tugasan sama berjaya pada kedua', async () => {
+  const klien = klienPalsu([{ id: 'j-auto-langkau', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-21', murid: [] }]);
+  let panggilan = 0;
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    panggilan++;
+    if (panggilan === 1) {
+      // Kitaran pertama: kunci profil Edge gagal diperoleh SERTA-MERTA —
+      // launcher dipercayai pulang sebelum sebarang execFile/tulisan.
+      return {
+        stdout: '', stderr: '',
+        hasil: { status: 'langkau', sebab: 'Profil Edge sedang digunakan.', pastiTiadaSpawn: true }
+      };
+    }
+    // Kitaran kedua: profil sudah bebas, tugasan sepatutnya diproses biasa.
+    assert.equal(opsyen.mod, 'verifikasi');
+    return { stdout: '', stderr: '', hasil: { status: 'tidak-berubah', sebab: 'tiada perubahan', kod: 0 } };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-auto', log: logPalsu(), jalankanTugasanAnak });
+  g.mulakan(30, { automatik: true });
+  try {
+    const r1 = await g.jalankanSatuKitaran();
+    assert.equal(r1.diproses, 0, 'kitaran pertama dilangkau, tiada tugasan diproses');
+    assert.equal(g.status().bilPernahDiklaimAutomatik, 0,
+      'id mesti DIBUANG daripada guard selepas langkau berjamin-tiada-spawn + lepas lease berjaya');
+
+    const r2 = await g.jalankanSatuKitaran();
+    assert.equal(panggilan, 2, 'jalankanTugasanAnak mesti dipanggil semula pada kitaran kedua (bukan dilangkau guard)');
+    assert.equal(r2.diproses, 1, 'kitaran kedua (profil bebas) mesti memproses tugasan yang sama');
+    assert.equal(klien._selesaiPanggilan.length, 1);
+    assert.equal(klien._selesaiPanggilan[0].keputusan, 'berjaya');
+  } finally {
+    g.hentikan();
+  }
+});
+
+test('langkau automatik dengan PELEPASAN LEASE GAGAL: guard dikekalkan (fail-closed), tiada cubaan semula', async () => {
+  const klien = klienPalsu([{ id: 'j-auto-lepas-gagal', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-21', murid: [] }]);
+  klien.lepas = async () => { throw new Error('rangkaian terputus semasa lepas lease'); };
+  let panggilan = 0;
+  const jalankanTugasanAnak = async () => {
+    panggilan++;
+    return {
+      stdout: '', stderr: '',
+      hasil: { status: 'langkau', sebab: 'Profil Edge sedang digunakan.', pastiTiadaSpawn: true }
+    };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-auto', log: logPalsu(), jalankanTugasanAnak });
+  g.mulakan(30, { automatik: true });
+  try {
+    const r1 = await g.jalankanSatuKitaran();
+    assert.equal(r1.diproses, 0);
+    assert.equal(g.status().bilPernahDiklaimAutomatik, 1,
+      'id mesti KEKAL dalam guard apabila pelepasan lease GAGAL walaupun launcher menjamin tiada spawn');
+
+    const r2 = await g.jalankanSatuKitaran();
+    assert.equal(r2.diproses, 0, 'kitaran kedua mesti melangkau tugasan yang sama (guard fail-closed)');
+    assert.equal(panggilan, 1, 'jalankanTugasanAnak TIDAK boleh dipanggil semula selepas guard mengekalkan sekatan');
+  } finally {
+    g.hentikan();
+  }
+});
+
+test('langkau automatik TANPA jaminan eksplisit launcher (pastiTiadaSpawn tiada): guard dikekalkan walau lease lepas berjaya', async () => {
+  // Launcher yang tidak menetapkan pastiTiadaSpawn (mis. double ujian sedia
+  // ada, atau versi launcher lama) mesti dianggap TIDAK menjamin apa-apa —
+  // giliran tidak boleh menganggap tiada tulisan berlaku hanya kerana status
+  // 'langkau' dilaporkan. Lalai selamat: guard kekal, tiada cubaan semula.
+  const klien = klienPalsu([{ id: 'j-auto-tiada-jaminan', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-21', murid: [] }]);
+  let panggilan = 0;
+  const jalankanTugasanAnak = async () => {
+    panggilan++;
+    return { stdout: '', stderr: '', hasil: { status: 'langkau', sebab: 'Profil Edge sedang digunakan.' } };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-auto', log: logPalsu(), jalankanTugasanAnak });
+  g.mulakan(30, { automatik: true });
+  try {
+    const r1 = await g.jalankanSatuKitaran();
+    assert.equal(r1.diproses, 0);
+    assert.equal(g.status().bilPernahDiklaimAutomatik, 1, 'tanpa jaminan eksplisit launcher, guard mesti kekal (lalai selamat)');
+    assert.equal(klien._lepasPanggilan.length, 1, 'lease tetap dilepaskan walaupun guard kekal');
+
+    const r2 = await g.jalankanSatuKitaran();
+    assert.equal(r2.diproses, 0);
+    assert.equal(panggilan, 1, 'tiada cubaan semula automatik tanpa jaminan eksplisit');
+  } finally {
+    g.hentikan();
+  }
+});

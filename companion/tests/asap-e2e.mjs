@@ -178,6 +178,8 @@ try {
   sah('/api/tetapan menolak autoMulaGiliran daripada klien jauh -> 400 (medan PC tempatan)', r.status === 400, r.status + ' ' + (r.json?.ralat || ''));
   r = await minta(port, { method: 'POST', laluan: '/api/tetapan', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ kalendarSekolah: ['2026-09-21'] }) });
   sah('/api/tetapan menolak kalendarSekolah daripada klien jauh -> 400 (medan PC tempatan)', r.status === 400, r.status + ' ' + (r.json?.ralat || ''));
+  r = await minta(port, { method: 'POST', laluan: '/api/tetapan', headers: { ...auth, ...JSONCT }, badan: JSON.stringify({ jagaSesi: true }) });
+  sah('/api/tetapan menolak jagaSesi (keep-alive) daripada klien jauh -> 400 (medan PC tempatan)', r.status === 400, r.status + ' ' + (r.json?.ralat || ''));
   // Sempadan kepercayaan: klien jauh TIDAK boleh meluaskan allowlist Origin,
   // mengalihkan apiUrl (rahsia enjin dihantar ke situ), atau menetapkan frasa
   // kunci keselamatan idMe.

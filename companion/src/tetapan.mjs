@@ -45,6 +45,15 @@ export const TETAPAN_LALAI = Object.freeze({
   // bergantung SEPENUHNYA pada semakan HTTPS+hos idMe yang ketat dan kotak
   // semak pengesahan — frasa imej TIDAK PERNAH di-OCR/diteka.
   benarkanTerusTanpaFrasa: false,
+  // Penjaga sesi (keep-alive) idMe/MOEIS — opt-in BERASINGAN, lalai MATI.
+  // Apabila ON, companion menyentuh sesi MOEIS secara berkala (siasatan
+  // baca-sahaja uji-login, TIADA kredensial) semasa giliran AKTIF supaya sesi
+  // tidak luput di tengah baris tugasan. Ini ialah HALA TUJU yang diluluskan
+  // pemilik, tetapi keberkesanannya BELUM dibuktikan: "luput ~15-20 minit"
+  // ialah pemerhatian, BUKAN masa tamat tetap yang diukur, dan sama ada poke
+  // sebenarnya menghalang luput belum disahkan terhadap idMe hidup. Lalai
+  // MATI (gagal tertutup) sehingga ujian hidup membuktikannya.
+  jagaSesi: false,
   // Frasa "kunci keselamatan" anti-pancing idMe yang admin jangkakan dilihat
   // semasa log masuk (pilihan, bukan rahsia — nilai ini hanya untuk banding
   // paparan, bukan kelayakan). Kosong bermakna tiada jangkaan; uji-login
@@ -68,6 +77,7 @@ export function bacaTetapan(dirData) {
     gabungan.autoMulaGiliran = gabungan.autoMulaGiliran === true;
     gabungan.loginAuto = gabungan.loginAuto === true;
     gabungan.benarkanTerusTanpaFrasa = gabungan.benarkanTerusTanpaFrasa === true;
+    gabungan.jagaSesi = gabungan.jagaSesi === true;
     gabungan.kalendarSekolah = sahkanKalendarSekolah(gabungan.kalendarSekolah);
     if (!masaIsoSah(gabungan.autoMulaDiaktifkanPada)) gabungan.autoMulaDiaktifkanPada = '';
     return gabungan;
@@ -198,7 +208,8 @@ export function tapisTetapanDibenarkan(payload) {
 // boleh diubah melalui HTTP langsung; ia hanya daripada fail tetapan.json.
 export const MEDAN_TETAPAN_LOKAL_DIBENARKAN = [
   'apiUrl', 'label', 'intervalSaat', 'kunciKeselamatanDijangka',
-  'autoMulaGiliran', 'kalendarSekolah', 'loginAuto', 'benarkanTerusTanpaFrasa'
+  'autoMulaGiliran', 'kalendarSekolah', 'loginAuto', 'benarkanTerusTanpaFrasa',
+  'jagaSesi'
 ];
 
 // Hos Apps Script yang sah untuk apiUrl. Tanpa ini, apiUrl yang salah tulis

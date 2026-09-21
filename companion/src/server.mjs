@@ -26,7 +26,7 @@ import { ringkasanKalendar } from './auto-mula.mjs';
 const MEDAN_LOKAL_SAHAJA = [
   'originDibenarkan', 'apiUrl', 'kunciKeselamatanDijangka',
   'autoMulaGiliran', 'kalendarSekolah', 'autoMulaDiaktifkanPada', 'autostart', 'loginAuto',
-  'benarkanTerusTanpaFrasa'
+  'benarkanTerusTanpaFrasa', 'jagaSesi'
 ];
 
 const HAD_BADAN_BYTES = 32 * 1024;
@@ -357,11 +357,13 @@ async function pengendali(req, res) {
             autoMulaGiliran: t.autoMulaGiliran === true,
             loginAuto: t.loginAuto === true,
             benarkanTerusTanpaFrasa: t.benarkanTerusTanpaFrasa === true,
+            jagaSesi: t.jagaSesi === true,
             kalendarSekolah: t.kalendarSekolah || []
           },
           loginAutoStatus: (typeof konteks.loginAutoStatus === 'function'
             ? konteks.loginAutoStatus()
-            : { diminta: t.loginAuto === true, adaKredensial: kredensial ? kredensial.ada() === true : false, sesiSah: null, percubaan: 0, had: 2, hasilTerakhir: '', sebab: 'Belum dinilai.' })
+            : { diminta: t.loginAuto === true, adaKredensial: kredensial ? kredensial.ada() === true : false, sesiSah: null, percubaan: 0, had: 2, hasilTerakhir: '', sebab: 'Belum dinilai.' }),
+          jagaSesi: (typeof konteks.jagaSesi === 'function' ? konteks.jagaSesi() : null)
         });
         return;
       }
@@ -438,7 +440,8 @@ async function pengendali(req, res) {
           log: log.bacaTerakhir(10),
           loginAutoStatus: (typeof konteks.loginAutoStatus === 'function'
             ? konteks.loginAutoStatus()
-            : { diminta: t.loginAuto === true, adaKredensial: kredensial ? kredensial.ada() === true : false, sesiSah: null, percubaan: 0, had: 2, hasilTerakhir: '', sebab: 'Belum dinilai.' })
+            : { diminta: t.loginAuto === true, adaKredensial: kredensial ? kredensial.ada() === true : false, sesiSah: null, percubaan: 0, had: 2, hasilTerakhir: '', sebab: 'Belum dinilai.' }),
+          jagaSesi: (typeof konteks.jagaSesi === 'function' ? konteks.jagaSesi() : null)
         });
         return;
       }

@@ -4,6 +4,7 @@ import {
   jalankanLoginAuto, buatPengurusLoginAuto, cubaLoginAutoStartup, cubaLoginAutoKerja,
   buatStatusLoginAuto, snapshotLoginAutoStatus, ayatLoginAuto
 } from '../src/moeis/login-auto.mjs';
+import { buatHadKadarLogin } from '../src/moeis/had-login.mjs';
 import { buatHalamanLoginPalsu, KREDENSIAL_PALSU } from './fixtures/halamanPalsuLogin.mjs';
 
 const KRED = { ...KREDENSIAL_PALSU };
@@ -323,6 +324,68 @@ test('pengurus: tiada kredensial -> tiada-kredensial tanpa memanggil jalankan', 
   const hasil = await pengurus.cubaAuto();
   assert.equal(hasil.status, 'tiada-kredensial');
   assert.equal(panggil, 0);
+});
+
+// --- Integrasi had KADAR log masuk automatik (persisten merentas restart) ---
+
+function storanKadarPalsu() {
+  let nilai = null;
+  return {
+    baca: () => (nilai ? JSON.parse(JSON.stringify(nilai)) : null),
+    tulis: (s) => { nilai = JSON.parse(JSON.stringify(s)); }
+  };
+}
+
+test('pengurus + hadKadar: cubaan ke-3 disekat sebagai had-kadar (bukan had-cubaan)', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  let panggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggil++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'gagal (ujian)' }; },
+    jedaMs: 0,
+    hadKadar
+  });
+  await pengurus.cubaAuto();
+  await pengurus.cubaAuto();
+  const ketiga = await pengurus.cubaAuto();
+  assert.equal(panggil, 2, 'jalankan mesti dipanggil tepat 2 kali');
+  assert.equal(ketiga.status, 'had-kadar');
+  assert.equal(ketiga.perluManusia, true);
+  assert.equal(pengurus.bilCubaan(), 2, 'bilCubaan mesti melaporkan bilangan dalam tetingkap kadar');
+});
+
+test('pengurus + hadKadar: siling kadar KEKAL merentas restart (dua pengurus kongsi storan)', async () => {
+  const storan = storanKadarPalsu();
+  const buat = () => buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+
+  const proses1 = buatPengurusLoginAuto({ adaKredensial: () => true, jalankan: async () => ({ status: 'perlu-manusia', perluManusia: true, sebab: 'gagal' }), jedaMs: 0, hadKadar: buat() });
+  await proses1.cubaAuto();
+  await proses1.cubaAuto();
+
+  // "Restart" — pengurus baharu membaca storan kadar yang sama.
+  let panggil2 = 0;
+  const proses2 = buatPengurusLoginAuto({ adaKredensial: () => true, jalankan: async () => { panggil2++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'gagal' }; }, jedaMs: 0, hadKadar: buat() });
+  const hasil = await proses2.cubaAuto();
+  assert.equal(panggil2, 0, 'restart tidak boleh menetapkan semula siling kadar');
+  assert.equal(hasil.status, 'had-kadar');
+});
+
+test('pengurus + hadKadar: kejayaan mengosongkan siling kadar (akaun tidak dikunci)', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  let panggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggil++; return panggil === 1 ? { status: 'perlu-manusia', perluManusia: true, sebab: 'gagal' } : { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar
+  });
+  await pengurus.cubaAuto(); // gagal -> catat percubaan (1)
+  assert.equal(hadKadar.bilPercubaan(), 1);
+  await pengurus.cubaAuto(); // berjaya -> kosongkan pembilang
+  assert.equal(hadKadar.bilPercubaan(), 0, 'kejayaan mesti mengosongkan pembilang kadar');
+  assert.equal(hadKadar.bolehCuba(), true);
 });
 
 test('orkestrasi startup: loginAuto lalai MATI -> tiada kesan sampingan', async () => {

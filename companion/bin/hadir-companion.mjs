@@ -30,10 +30,18 @@ import { dengarSelepasBind } from '../src/permulaan.mjs';
 import { buatPengurusAutostartWindows } from '../src/autostart-windows.mjs';
 import { buangIc } from '../src/moeis/payload.mjs';
 import { keupayaanLogMasuk } from '../src/moeis/keupayaan.mjs';
+import { buatPenjagaSesi, JEDA_JAGA_SESI_MS } from '../src/moeis/jaga-sesi.mjs';
+import { buatKunciPelayar } from '../src/kunci-pelayar.mjs';
 import { buatPelayanHttp, buatNonceLokal } from '../src/server.mjs';
 import { halamanLokalHtml, halamanLokalJs } from '../src/ui/render.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+// Kunci eksklusif pelayar (proses-tunggal): SATU profil Edge dikongsi oleh
+// uji-login, log-masuk-manual, login-auto DAN tugasan push.mjs. Ia menyambung
+// kepada dua fungsi pelancar anak (jalankanAnakSkrip / jalankanTugasanAnak)
+// supaya pemeriksaan-dan-set adalah atomik — tiada tetingkap TOCTOU antara
+// semakan `sedangProses` dan pelancaran pelayar kedua.
+const kunciPelayar = buatKunciPelayar();
 const perintah = process.argv[2] || 'serve';
 const pengurusAutostart = buatPengurusAutostartWindows({
   platform: process.platform,
@@ -104,27 +112,80 @@ async function klaimDisokong(klien, simpananApi) {
 // buangIc() — enjin memadankan murid mengikut nama dan `data-idpelajar` sahaja
 // (penemuan semakan bebas: PII yang boleh dielak sepenuhnya).
 function jalankanTugasanAnak(job, opsyen) {
+  // Kunci eksklusif pelayar: jika siasatan/login sedang memegang profil Edge,
+  // JANGAN lancarkan push.mjs kedua (akan bertembung pada kunci profil).
+  // Langkau dengan status 'langkau' — giliran melepaskan lease dan mencuba
+  // semula pada kitaran seterusnya. TIADA paksa-bunuh pelayar aktif.
+  //
+  // `pastiTiadaSpawn: true` ialah JAMINAN EKSPLISIT kepada giliran.mjs bahawa
+  // fungsi ini pulang SEBELUM mana-mana execFile/tulisan dibuat — kunci gagal
+  // diperoleh serta-merta, tiada kesan sampingan mungkin berlaku. Ini
+  // membenarkan giliran.mjs membuang id daripada pernahDiklaimAutomatik supaya
+  // auto-mula boleh mencuba semula tugasan yang sama pada kitaran seterusnya
+  // (tanpa jaminan ini, sekali langkau bermakna tugasan itu TIDAK PERNAH
+  // dicuba semula secara automatik). JANGAN tetapkan medan ini pada
+  // mana-mana laluan selepas execFile() dipanggil.
+  const kunci = kunciPelayar.cubaKunci('tugasan');
+  if (!kunci.boleh) {
+    return Promise.resolve({
+      kod: 0, stdout: '', stderr: '',
+      hasil: {
+        status: 'langkau',
+        sebab: 'Profil Edge sedang digunakan oleh ' + kunci.pemegang + '; tugasan dilangkau (tiada pelayar kedua dilancarkan).',
+        pastiTiadaSpawn: true
+      }
+    });
+  }
   return new Promise((selesai) => {
-    const args = [
-      path.join(HERE, 'jalan-push.mjs'),
-      '--mod', opsyen.mod,
-      '--data-dir', dirData
-    ];
-    if (opsyen.sahkan) args.push('--sahkan');
-    if (opsyen.paksa) args.push('--paksa');
-    const anak = execFile(process.execPath, args, { timeout: 15 * 60 * 1000, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        const teks = String(stdout || '');
-        const barisHasilTeks = teks.trim().split('\n').filter((l) => l.startsWith('HASIL:')).pop();
-        let hasil = null;
-        try { hasil = barisHasilTeks ? JSON.parse(barisHasilTeks.slice('HASIL:'.length)) : null; } catch { hasil = null; }
-        if (!hasil) hasil = { status: 'gagal', sebab: 'Tiada penanda HASIL daripada proses anak.', kod: 2 };
-        selesai({ kod: err && typeof err.code === 'number' ? err.code : (err ? 1 : 0), stdout: teks, stderr: String(stderr || ''), hasil });
+    const bebaskan = () => kunciPelayar.lepaskan(kunci.pemegang);
+    // Seluruh pelancaran dibungkus try/catch: jika execFile() sendiri
+    // melontar secara SEGERA (bukan melalui panggil balik) atau penyediaan
+    // args melontar, kunci MESTI tetap dibebaskan di sini — jika tidak,
+    // kunci tersekat selama-lamanya (sehingga proses companion dimulakan
+    // semula) kerana panggil balik yang membebaskannya tidak akan dipanggil.
+    try {
+      const args = [
+        path.join(HERE, 'jalan-push.mjs'),
+        '--mod', opsyen.mod,
+        '--data-dir', dirData
+      ];
+      if (opsyen.sahkan) args.push('--sahkan');
+      if (opsyen.paksa) args.push('--paksa');
+      const anak = execFile(process.execPath, args, { timeout: 15 * 60 * 1000, maxBuffer: 16 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          const teks = String(stdout || '');
+          const barisHasilTeks = teks.trim().split('\n').filter((l) => l.startsWith('HASIL:')).pop();
+          let hasil = null;
+          try { hasil = barisHasilTeks ? JSON.parse(barisHasilTeks.slice('HASIL:'.length)) : null; } catch { hasil = null; }
+          if (!hasil) hasil = { status: 'gagal', sebab: 'Tiada penanda HASIL daripada proses anak.', kod: 2 };
+          bebaskan();
+          selesai({ kod: err && typeof err.code === 'number' ? err.code : (err ? 1 : 0), stdout: teks, stderr: String(stderr || ''), hasil });
+        });
+      // Tulis payload ke STDIN, tetapi jangan sekali-kali membiarkan EPIPE
+      // (proses anak keluar lebih awal) menjatuhkan pelayan companion.
+      anak.stdin.on('error', () => {});
+      try {
+        anak.stdin.end(JSON.stringify(buangIc(job)));
+      } catch {
+        // Penyirian payload gagal SELEPAS anak sudah dilancarkan — anak sudah
+        // wujud dan panggil balik execFile di atas akan membebaskan kunci,
+        // tetapi anak akan menunggu STDIN yang tidak pernah tiba. Bunuh anak
+        // SEGERA (mencetuskan panggil balik dengan ralat) supaya kunci tidak
+        // tersekat sehingga had masa 15 minit.
+        try { anak.kill(); } catch { /* anak mungkin sudah keluar */ }
+      }
+    } catch (ralatSync) {
+      // execFile()/penyediaan args melontar sebelum sempat mendaftar
+      // panggil balik — TIADA proses anak dilancarkan. Bebaskan kunci di sini
+      // (satu-satunya laluan) dan laporkan 'gagal' teknikal biasa (BUKAN
+      // 'langkau'/pastiTiadaSpawn) supaya tugasan ini tidak diam-diam
+      // dianggap layak cuba semula automatik tanpa pemeriksaan kelayakan biasa.
+      bebaskan();
+      selesai({
+        kod: 1, stdout: '', stderr: String((ralatSync && ralatSync.stack) || ralatSync),
+        hasil: { status: 'gagal', sebab: 'Ralat runner (pelancaran proses anak gagal): ' + ((ralatSync && ralatSync.message) || String(ralatSync)), kod: 1 }
       });
-    // Tulis payload ke STDIN, tetapi jangan sekali-kali membiarkan EPIPE
-    // (proses anak keluar lebih awal) menjatuhkan pelayan companion.
-    anak.stdin.on('error', () => {});
-    try { anak.stdin.end(JSON.stringify(buangIc(job))); } catch { /* anak sudah tiada; keputusan datang daripada callback */ }
+    }
   });
 }
 
@@ -133,20 +194,41 @@ function jalankanTugasanAnak(job, opsyen) {
 // keluar bukan 0 TANPA baris HASIL) dilontar sebagai Error supaya pemanggil
 // (endpoint HTTP) memulangkan ralat yang jelas, bukan diam-diam gagal.
 function jalankanAnakSkrip(skripRelatif, args, timeoutMs) {
+  // Kunci eksklusif pelayar: jika tugasan (push.mjs) sedang memegang profil
+  // Edge, siasatan/login mesti dilangkau, bukan melancarkan pelayar kedua.
+  // Ralat ditanda `langkau` supaya penjaga sesi dapat membezakan "dilangkau
+  // kerana sibuk" daripada kegagalan sebenar.
+  const kunci = kunciPelayar.cubaKunci('siasatan:' + skripRelatif);
+  if (!kunci.boleh) {
+    const ralat = new Error('Profil Edge sedang digunakan oleh ' + kunci.pemegang + '; cuba sebentar lagi.');
+    ralat.langkau = true;
+    return Promise.reject(ralat);
+  }
   return new Promise((selesai, tolak) => {
-    const semuaArgs = [path.join(HERE, skripRelatif), ...args];
-    execFile(process.execPath, semuaArgs, { timeout: timeoutMs || 60000, maxBuffer: 8 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        const teks = String(stdout || '');
-        const barisHasilTeks = teks.trim().split('\n').filter((l) => l.startsWith('HASIL:')).pop();
-        let hasil = null;
-        try { hasil = barisHasilTeks ? JSON.parse(barisHasilTeks.slice('HASIL:'.length)) : null; } catch { hasil = null; }
-        if (!hasil) {
-          tolak(new Error('Tiada penanda HASIL daripada ' + skripRelatif + (stderr ? ': ' + String(stderr).slice(0, 300) : '')));
-          return;
-        }
-        selesai(hasil);
-      });
+    const bebaskan = () => kunciPelayar.lepaskan(kunci.pemegang);
+    // Sama seperti jalankanTugasanAnak: bungkus pelancaran supaya lontaran
+    // SEGERA daripada execFile() (tiada proses anak dilancarkan) tidak
+    // meninggalkan kunci pelayar tersekat selama-lamanya.
+    try {
+      const semuaArgs = [path.join(HERE, skripRelatif), ...args];
+      execFile(process.execPath, semuaArgs, { timeout: timeoutMs || 60000, maxBuffer: 8 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          const teks = String(stdout || '');
+          const barisHasilTeks = teks.trim().split('\n').filter((l) => l.startsWith('HASIL:')).pop();
+          let hasil = null;
+          try { hasil = barisHasilTeks ? JSON.parse(barisHasilTeks.slice('HASIL:'.length)) : null; } catch { hasil = null; }
+          if (!hasil) {
+            bebaskan();
+            tolak(new Error('Tiada penanda HASIL daripada ' + skripRelatif + (stderr ? ': ' + String(stderr).slice(0, 300) : '')));
+            return;
+          }
+          bebaskan();
+          selesai(hasil);
+        });
+    } catch (ralatSync) {
+      bebaskan();
+      tolak(new Error('Ralat pelancaran ' + skripRelatif + ': ' + ((ralatSync && ralatSync.message) || String(ralatSync))));
+    }
   });
 }
 
@@ -340,7 +422,12 @@ async function main() {
     return hasil;
   }
 
-  // Penguatkuasa had 2 cubaan automatik per proses + backoff (perlindungan kunci akaun).
+  // Had kadar log masuk automatik: 2 cubaan per PROSES (perlindungan kunci
+  // akaun idMe). Ini ialah had asal yang diluluskan — kaunter dalam ingatan,
+  // ditetapkan semula pada setiap restart proses. (Modul `had-login.mjs` yang
+  // menawarkan siling PERSISTEN merentas restart kekal TERSEDIA tetapi TIDAK
+  // disambungkan dalam pengeluaran: ia mengubah rejim kadar yang pemilik belum
+  // luluskan. Ia hanya diuji sebagai modul bebas.)
   const pengurusLoginAuto = buatPengurusLoginAuto({
     adaKredensial: () => storeKredensial.ada(),
     jalankan: jalankanLoginAutoSebenar,
@@ -383,6 +470,39 @@ async function main() {
     try { return await jalankanUjiLoginSebenar(); } catch { return null; }
   }
 
+  // Penjaga sesi idMe/MOEIS (keep-alive bersempadan). Semasa giliran aktif, sesi
+  // SSO diperhatikan luput selepas ~15-20 minit tidak aktif; penjaga menyentuh
+  // sesi MOEIS secara berkala (siasatan baca-sahaja, TIADA kredensial) pada
+  // selang JEDA_JAGA_SESI_MS (5 minit) supaya sesi tidak mati di tengah giliran.
+  // Poke penjaga sesi: sama seperti uji-login sebenar, tetapi memetakan ralat
+  // "langkau" (profil Edge sedang digunakan oleh tugasan) kepada status
+  // `langkau` dan bukannya melontar — supaya penjaga merekod "dilangkau" dan
+  // bukannya "gagal". Kunci pelayar di dalam jalankanAnakSkrip kekal sebagai
+  // pengawal sebenar (atomik); peta di sini hanyalah untuk pelaporan jujur.
+  async function pokePenjagaSesi() {
+    try {
+      return await jalankanUjiLoginSebenar();
+    } catch (ralat) {
+      if (ralat && ralat.langkau) return { status: 'langkau', sebab: ralat.message };
+      throw ralat;
+    }
+  }
+
+  // BERSEMPADAN: hanya poke semasa giliran aktif DAN suis jagaSesi HIDUP,
+  // dilangkau semasa tugasan diproses (profil Edge digunakan), tiada
+  // pertindihan, lantai selang keras.
+  const penjagaSesi = buatPenjagaSesi({
+    aktif: () => tetapanApi.baca().jagaSesi === true && giliran.status().aktif,
+    sedangProses: () => giliran.status().sedangProses,
+    // Siasatan sebenar (baca-sahaja) — juga menyegar cache sesi. Melontar pada
+    // kegagalan sebenar supaya penjaga boleh merekod poke-ok vs poke-gagal
+    // dengan jujur; ralat `langkau` dipetakan kepada status `langkau`.
+    poke: pokePenjagaSesi,
+    sekarangMs: () => Date.now(),
+    jedaMs: JEDA_JAGA_SESI_MS,
+    tulisLog: (jenis, mesej) => log.tulis(`${jenis}: ${mesej}`)
+  });
+
   cubaLoginAutoKerja = (opsyen) => cubaLoginAutoKerjaTerpandu({
     paksa: !!(opsyen && opsyen.paksa),
     bacaTetapan: tetapanApi.baca,
@@ -408,6 +528,7 @@ async function main() {
       adaKredensial: () => storeKredensial.ada(),
       bilCubaan: () => pengurusLoginAuto.bilCubaan()
     }),
+    jagaSesi: () => ({ ...penjagaSesi.status(), didayakan: tetapanApi.baca().jagaSesi === true }),
     // `segarkan: true` hanya daripada tindakan eksplisit manusia; status
     // rutin menggunakan cache (tiada panggilan keluar, tiada pelayar).
     klaimDisokong: async (opsyen) => {
@@ -470,6 +591,10 @@ async function main() {
       log.tulis('Companion dimulakan; bind loopback berjaya.');
     },
     selepasBind: async () => {
+      // 0) Penjaga sesi idMe/MOEIS (keep-alive bersempadan). Dimulakan selepas
+      //    bind; ia hanya menyentuh sesi apabila giliran AKTIF (tinjau sendiri
+      //    `giliran.status().aktif`), jadi ia no-op sehingga giliran dimulakan.
+      penjagaSesi.mula();
       // 1) Log masuk idMe automatik opt-in (maks 1 cubaan startup), SEBELUM
       //    auto-mula giliran dinilai — supaya giliran auto melihat sesi baharu
       //    jika log masuk automatik berjaya. loginAuto lalai MATI = tiada kesan.

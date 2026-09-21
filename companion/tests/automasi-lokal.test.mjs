@@ -45,6 +45,26 @@ test('UI nonce tempatan menetapkan opt-in + allowlist dan merekod sempadan aktiv
   } finally { pelayan.close(); }
 });
 
+test('UI tempatan menetapkan jagaSesi (keep-alive) dan status membacanya semula', async () => {
+  const { pelayan, konteks, port } = await mulakanPelayanUjian();
+  try {
+    const r = await mintaMentah(port, {
+      method: 'POST', laluan: '/api/lokal/tetapan',
+      headers: { Origin: `http://127.0.0.1:${port}`, 'X-HADIR-Lokal': NONCE_UJIAN, 'Content-Type': 'application/json' },
+      badan: JSON.stringify({ jagaSesi: true })
+    });
+    assert.equal(r.status, 200);
+    assert.equal(konteks.tetapan.baca().jagaSesi, true, 'tetapan jagaSesi mesti disimpan');
+
+    const status = await mintaMentah(port, {
+      laluan: '/api/lokal/status',
+      headers: { Origin: `http://127.0.0.1:${port}`, 'X-HADIR-Lokal': NONCE_UJIAN }
+    });
+    assert.equal(status.status, 200);
+    assert.equal(status.json.tetapan.jagaSesi, true, 'status mesti membacanya semula (readback)');
+  } finally { pelayan.close(); }
+});
+
 test('status tempatan jujur: registry sebenar, sebab auto dan keupayaan log masuk opt-in', async () => {
   const autostart = {
     disokong: true, berdaftar: true, sepadan: false,
@@ -66,6 +86,8 @@ test('status tempatan jujur: registry sebenar, sebab auto dan keupayaan log masu
     assert.equal(r.json.keupayaanLogMasuk.mod, 'automatik-optin');
     assert.match(r.json.keupayaanLogMasuk.sebab, /opt-in/);
     assert.equal(r.json.tetapan.loginAuto, false, 'loginAuto lalai MATI dalam status');
+    assert.equal(r.json.tetapan.jagaSesi, false, 'jagaSesi (keep-alive) lalai MATI dalam status');
+    assert.equal(r.json.jagaSesi.didayakan, false, 'status keep-alive mesti mendedahkan didayakan=false');
     assert.equal(r.json.kredensial.ada, false);
     assert.deepEqual(Object.keys(r.json.loginAutoStatus).sort(),
       ['adaKredensial', 'benarkanTerusTanpaFrasa', 'diminta', 'had', 'hasilTerakhir', 'percubaan', 'sebab', 'sesiSah'].sort(),
@@ -141,6 +163,8 @@ test('UI memisahkan suis opt-in, kalendar tepat, medan kata laluan idMe wujud TA
   assert.match(html, /id="kalendarSekolah"/);
   assert.match(html, /id="loginAuto"/, 'suis loginAuto mesti wujud');
   assert.match(html, /loginAuto/, 'label loginAuto mesti wujud');
+  assert.match(html, /id="jagaSesi"/, 'suis jagaSesi (keep-alive) mesti wujud');
+  assert.match(html, /id="jagaSesiStatus"/, 'status penjaga sesi mesti dipaparkan');
   // Medan kata laluan idMe (type=password) kini wujud untuk simpanan tempatan.
   assert.match(html, /id="idMeKataLaluan"[^>]*type=["']password/);
   // Nilai TIDAK PERNAH digemakan: JS tidak membaca .value kata laluan kembali
@@ -150,6 +174,8 @@ test('UI memisahkan suis opt-in, kalendar tepat, medan kata laluan idMe wujud TA
   assert.match(js, /autoMulaGiliran/);
   assert.match(js, /loginAuto/);
   assert.match(js, /loginAutoStatus/, 'status log masuk automatik job-time mesti dipaparkan dalam UI');
+  assert.match(js, /jagaSesi/, 'suis + status jagaSesi mesti ada dalam JS UI');
+  assert.match(js, /hasilPokeTerakhir|sihatTerakhir/, 'klasifikasi kesihatan keep-alive mesti dipaparkan');
   assert.match(js, /addEventListener\('change'/, 'suis opt-in mesti simpan sendiri melalui pendengar change');
   assert.doesNotThrow(() => new Function(js), 'JavaScript UI yang dijana mesti sah');
 });

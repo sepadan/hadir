@@ -110,6 +110,8 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 <label><input id="benarkanTerusTanpaFrasa" type="checkbox" style="width:auto;display:inline" /> Teruskan log masuk idMe automatik walaupun frasa "Kata Kunci Keselamatan" tidak dapat dibaca (imej) (opt-in, lalai MATI)</label>
 <div class="amaran">AMARAN: Jika dihidupkan, semakan frasa keselamatan DILANGKAU apabila frasa dipaparkan sebagai imej. Perlindungan kemudian bergantung pada semakan HTTPS + hos idMe yang ketat dan kotak semak pengesahan sahaja. Frasa imej TIDAK PERNAH di-OCR atau diteka. Anda boleh mematikannya semula bila-bila masa.</div>
 <div id="loginAutoStatus" class="status" style="margin-top:2px"></div>
+<label><input id="jagaSesi" type="checkbox" style="width:auto;display:inline" /> Penjaga sesi (keep-alive) idMe/MOEIS — sentuh sesi secara berkala semasa giliran aktif supaya tidak luput di tengah tugasan (opt-in, lalai MATI; BELUM terbukti menghalang luput terhadap idMe hidup)</label>
+<div id="jagaSesiStatus" class="status" style="margin-top:2px"></div>
 <label for="tarikhBaru">Tambah tarikh sekolah (YYYY-MM-DD) — allowlist auto-mula giliran</label>
 <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
   <input id="tarikhBaru" type="text" autocomplete="off" placeholder="2026-12-05" style="flex:1" />
@@ -155,6 +157,26 @@ export function halamanLokalJs() {
 
   function papar(id, teks) { document.getElementById(id).textContent = teks; }
 
+  // Status penjaga sesi (keep-alive) — paparkan cubaan TERAKHIR + hasil dan
+  // klasifikasi sihat/tidak sihat secara jujur. 'sesi-sah' = sihat; apa-apa
+  // yang lain ('sesi-tamat', 'perlu-manusia', 'ralat', 'langkau', ...) = TIDAK
+  // sihat — penjaga tidak mengaku berjaya hanya kerana siasatan selesai.
+  function jagaTeksStatus(jaga) {
+    if (!jaga) return 'Belum ada cubaan.';
+    var bahagian = [];
+    bahagian.push('cubaan ' + (jaga.bilPoke || 0) + ', langkau ' + (jaga.bilLangkau || 0));
+    var hasil = jaga.hasilPokeTerakhir;
+    if (hasil && hasil !== 'belum') {
+      bahagian.push('hasil terakhir: ' + hasil + (jaga.sihatTerakhir === true ? ' (sihat)' : ' (TIDAK sihat)'));
+      if (jaga.masaPokeTerakhir) {
+        bahagian.push(new Date(jaga.masaPokeTerakhir).toLocaleTimeString());
+      }
+    } else {
+      bahagian.push('belum ada poke berjaya');
+    }
+    return bahagian.join(' — ');
+  }
+
   var kalendarSemasa = [];
   function renderKalendar() {
     var ul = document.getElementById('kalendarSekolah');
@@ -184,8 +206,14 @@ export function halamanLokalJs() {
       document.getElementById('autoMulaGiliran').checked = tetapan.autoMulaGiliran === true;
       document.getElementById('loginAuto').checked = tetapan.loginAuto === true;
       document.getElementById('benarkanTerusTanpaFrasa').checked = tetapan.benarkanTerusTanpaFrasa === true;
+      document.getElementById('jagaSesi').checked = tetapan.jagaSesi === true;
       var la = r.loginAutoStatus || {};
       papar('loginAutoStatus', (la.sebab || 'Belum dinilai.') + (la.percubaan > 0 ? ' (cubaan ' + la.percubaan + '/' + la.had + ')' : ''));
+      var jaga = r.jagaSesi || {};
+      var jagaTeks = tetapan.jagaSesi === true
+        ? ('HIDUP — ' + jagaTeksStatus(jaga))
+        : 'MATI (lalai)';
+      papar('jagaSesiStatus', jagaTeks);
       kalendarSemasa = (tetapan.kalendarSekolah || []).slice();
       renderKalendar();
       var kal = r.kalendar || {};
@@ -263,7 +291,8 @@ export function halamanLokalJs() {
       kunciKeselamatanDijangka: document.getElementById('kunciKeselamatan').value,
       autoMulaGiliran: document.getElementById('autoMulaGiliran').checked,
       loginAuto: document.getElementById('loginAuto').checked,
-      benarkanTerusTanpaFrasa: document.getElementById('benarkanTerusTanpaFrasa').checked
+      benarkanTerusTanpaFrasa: document.getElementById('benarkanTerusTanpaFrasa').checked,
+      jagaSesi: document.getElementById('jagaSesi').checked
     }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Tetapan disimpan.' : (r.ralat || 'Ralat.'));
       muatStatus();
@@ -279,6 +308,12 @@ export function halamanLokalJs() {
   document.getElementById('benarkanTerusTanpaFrasa').addEventListener('change', function () {
     panggil('/api/lokal/tetapan', 'POST', { benarkanTerusTanpaFrasa: document.getElementById('benarkanTerusTanpaFrasa').checked }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Suis benarkanTerusTanpaFrasa disimpan.' : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
+  });
+  document.getElementById('jagaSesi').addEventListener('change', function () {
+    panggil('/api/lokal/tetapan', 'POST', { jagaSesi: document.getElementById('jagaSesi').checked }).then(function (r) {
+      papar('statusTetapan', r.ok ? 'Suis jagaSesi (keep-alive) disimpan.' : (r.ralat || 'Ralat.'));
       muatStatus();
     });
   });

@@ -54,6 +54,19 @@ test('auto-mula dan kalendar kekal local-only; kalendar mesti tarikh tepat sah',
   assert.deepEqual(sahkanKalendarSekolah(['2026-09-21', '21/09/2026']), []);
 });
 
+test('jagaSesi (keep-alive) ialah local-only, lalai MATI; klien jauh tidak boleh hidupkannya', () => {
+  // Lalai mesti MATI (gagal tertutup) sehingga ujian hidup membuktikan manfaatnya.
+  assert.equal(TETAPAN_LALAI.jagaSesi, false);
+  // Boleh ditetapkan dari UI TEMPATAN sahaja.
+  assert.ok(MEDAN_TETAPAN_LOKAL_DIBENARKAN.includes('jagaSesi'));
+  // JANGAN pernah dibenarkan daripada klien JAUH.
+  assert.ok(!MEDAN_TETAPAN_DIBENARKAN.includes('jagaSesi'));
+  const patchJauh = tapisTetapanDibenarkan({ label: 'x', intervalSaat: 30, jagaSesi: true });
+  assert.equal(patchJauh.jagaSesi, undefined, 'klien jauh tidak boleh menetapkan jagaSesi');
+  const patchLokal = tapisTetapanLokalDibenarkan({ jagaSesi: true, autoMulaGiliran: true });
+  assert.equal(patchLokal.jagaSesi, true, 'UI tempatan mesti boleh menghidupkan jagaSesi');
+});
+
 test('sahkanApiUrl: menolak http, hos asing, userinfo; menerima URL Apps Script', () => {
   assert.equal(sahkanApiUrl('http://script.google.com/macros/s/x/exec').ok, false);
   assert.equal(sahkanApiUrl('https://jahat.example/exec').ok, false);

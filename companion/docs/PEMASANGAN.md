@@ -244,7 +244,7 @@ situ** → jika padan, tandakan kotak semak → isi kata laluan → hantar.
   frasa — ini bukan pelemahan anti-pancing (frasa tetap satu-satunya pengawal
   yang membenarkan kata laluan ditaip). CAPTCHA/OTP/2FA **tidak pernah
   dipintas** (berhenti `perluManusia:true`); maks **2 cubaan automatik per
-  proses** dengan backoff (perlindungan kunci akaun), selepas itu manusia.
+  proses** dengan backoff (perlindungan kunci akaun) — selepas itu manusia.
 - Aliran automatik **belum disahkan terhadap idMe hidup**; selektor DOM
   peringkat pengesahan (butang lanjut/seterusnya, label kotak semak, dan sama
   ada frasa sebenarnya dipaparkan sebagai imej) kekal **andaian belum
@@ -377,7 +377,8 @@ Enjin **TIDAK** log masuk automatik apabila:
 - Sesi idMe **sudah sah** (tiada keperluan).
 - CAPTCHA/OTP/2FA dikesan (sentiasa `perlu manusia`, tiada cubaan semula).
 - Frasa "Kata Kunci Keselamatan" pada halaman idMe **tidak padan** (anti-pancing).
-- **Had 2 cubaan** automatik sepanjang hayat proses **sudah dicapai**.
+- **Had 2 cubaan** automatik per proses **sudah dicapai**
+  (lihat bahagian *Had 2 cubaan (per proses)* di bawah).
 
 ### Isyarat "sesi tamat" dan segaran cache sesi
 
@@ -396,32 +397,70 @@ ditaip) paling banyak **sekali setiap 10 minit** dan hanya semasa giliran
 aktif. Selang 10 minit dipilih kerana ia padan dengan kadar luput sesi idMe
 yang diperhatikan (~10 minit).
 
+**Penjaga sesi (keep-alive bersempadan) — OPT-IN, lalai MATI.** Sesi
+idMe/MOEIS diperhatikan luput selepas kira-kira **15-20 minit** tidak aktif.
+**Penting — kepastian jujur:** "15-20 minit" ialah **pemerhatian pemilik,
+BUKAN masa tamat tetap yang diukur**; idMe/MOEIS tidak mendokumenkan had itu
+secara rasmi, dan ia mungkin berbeza mengikut sesi. Penjaga ini MENYENTUH sesi
+MOEIS secara berkala melalui siasatan baca-sahaja yang sama setiap **5 minit**
+(`JEDA_JAGA_SESI_MS`) supaya sesi tidak mati di tengah baris tugasan yang
+panjang — tetapi **keberkesanannya BELUM disahkan terhadap idMe hidup**: sama
+ada poke baca-sahaja benar-benar menghalang luput belum dibuktikan sehingga
+ujian hidup dilakukan dengan kehadiran pemilik.
+
+Penjaga ini **DIKUNCI di sebalik suis `jagaSesi`** (lalai MATI, local-only,
+berasingan daripada `loginAuto`): ia tidak menyentuh apa-apa sehingga pemilik
+menghidupkannya dalam tetapan tempatan. Apabila ON, ia hanya bertindak semasa
+giliran aktif, dilangkau semasa satu tugasan sedang diproses (profil Edge
+digunakan), tidak bertindih dengan kitaran lain, dan selangnya mempunyai lantai
+keras 1 minit. Ia dimulakan selepas companion mendengar pada loopback; suis
+`jagaSesi` MATI bermakna tiada poke langsung. Kegagalan siasatan tidak
+menghalang kitaran seterusnya. Klasifikasi kesihatan **jujur**: poke hanya
+dilaporkan sihat apabila hasil ialah `sesi-sah`; `sesi-tamat`/`perlu-manusia`/
+`langkau`/`ralat` semuanya TIDAK sihat — penjaga tidak mengaku berjaya hanya
+kerana siasatan selesai. Keadaan penjaga (cubaan, langkau, hasil terakhir,
+sihat/tidak sihat, `didayakan`) boleh dilihat dalam `/api/status` dan
+`/api/lokal/status` (medan `jagaSesi`), serta dipaparkan di bawah suis dalam UI
+tetapan tempatan.
+
+**Kunci eksklusif pelayar.** Satu profil Edge dikongsi oleh SEMUA operasi
+pelayar companion (uji-login, log-masuk-manual, login-auto, dan tugasan
+push.mjs). Kunci proses-tunggal (`src/kunci-pelayar.mjs`) diperoleh secara
+atomik sebelum mana-mana pelancaran anak, supaya dua operasi tidak pernah
+bertembung pada kunci profil Playwright. Siasatan/log masuk yang mendapati
+profil digunakan dilangkau dengan mesej jelas; tugasan yang berlanggar
+dilangkau (`langkau`) dan cuba semula pada kitaran seterusnya — **tiada
+paksa-bunuh pelayar aktif**.
+
 **Apa yang pemilik lihat apabila ini berlaku:** baris
 `LOGIN_AUTO: dipaksa: Isyarat sesi-tamat hidup...` dalam `companion.log`;
 tugasan berakhir `gagal` dengan mesej seperti "Sesi idMe tamat dan log masuk
 automatik memerlukan manusia: CAPTCHA dikesan. Tiada cubaan semula
 automatik." Tiada data ditulis ke MOEIS dalam keadaan itu.
 
-### Had 2 cubaan dan apa perlu buat apabila enjin berhenti untuk manusia
+### Had 2 cubaan (per proses) dan apa perlu buat apabila enjin berhenti untuk manusia
 
-Had ialah **2 cubaan automatik setiap kali enjin dihidupkan** (setiap proses),
-**dikongsi** antara cubaan startup dan semua cubaan semasa tugasan — bukan 2
-setiap tugasan. Selepas 2 cubaan gagal (cth OTP diperlukan, frasa tidak padan,
-atau sesi masih tidak sah), enjin **berhenti mencuba** sehingga ada tindakan
-jelas oleh pemilik: log masuk manual sekali, atau mulakan semula companion. Ini
-menghalang kunci akaun idMe.
+Had ialah **2 cubaan automatik per proses**, **dikongsi** antara cubaan startup
+dan semua cubaan semasa tugasan — bukan 2 setiap tugasan. Ini ialah had ASAL
+yang diluluskan pemilik; kaunter berada dalam ingatan proses dan ditetapkan
+semula pada setiap restart. (Modul bebas `src/moeis/had-login.mjs` menawarkan
+siling KADAR persisten merentas restart, tetapi ia TIDAK disambungkan dalam
+pengeluaran kerana ia mengubah rejim kadar yang pemilik belum luluskan.)
+Selepas 2 cubaan gagal (cth OTP diperlukan, frasa tidak padan, atau sesi masih
+tidak sah), enjin **berhenti mencuba** sehingga salah satu daripada ini
+berlaku: log masuk manual sekali, atau proses companion dimulakan semula.
 
 Baris status di bawah suis `loginAuto` dalam tetapan tempatan memaparkan keadaan
 semasa (cth "Diminta tetapi sesi idMe sudah sah", "Kredensial idMe tiada",
-"Berjaya", "Had cubaan dicapai", "Perlu manusia: OTP"). Setiap keputusan
-(dilangkau atau dicuba) juga ditulis ke `companion.log` (tag `LOGIN_AUTO`),
-tanpa sebarang nilai kredensial.
+"Berjaya", "Had 2 cubaan log masuk automatik per proses dicapai", "Perlu
+manusia: OTP"). Setiap keputusan (dilangkau atau dicuba) juga ditulis ke
+`companion.log` (tag `LOGIN_AUTO`), tanpa sebarang nilai kredensial.
 
 **Apabila enjin berhenti untuk manusia:** pada PC itu, tekan **Buka Edge untuk
 log masuk**, log masuk idMe sendiri, kemudian tekan **Uji log masuk** sehingga
 status menunjukkan sesi sah. Selepas itu giliran boleh disambung semula seperti
-biasa. Untuk membenarkan cubaan automatik semula dalam proses yang sama,
-mulakan semula companion (`node bin/hadir-companion.mjs serve`).
+biasa. Untuk membenarkan cubaan automatik semula, sama ada mulakan semula
+companion, atau log masuk manual berjaya.
 
 ### Aliran pengguna (autostart + auto-mula)
 
@@ -600,19 +639,53 @@ dump, log, UI/XSS, nonce dan risiko kunci akaun. Keputusan:
 **LULUS BERSYARAT** (tiada penemuan TINGGI; tiada laluan yang log/gema/simpan
 nilai kredensial dalam teks biasa). Dua nota:
 
-1. **Sederhana (had diakui):** pembilang 2 cubaan automatik adalah *per proses*
-   dan ditetapkan semula pada setiap mula semula proses — memenuhi huruf peraturan
-   ("maks 2 cubaan per proses"), tetapi siling sebenar terhadap idMe ialah
-   2-per-restart (gelung crash/restart boleh menghasilkan lebih). Cadangan
-   penyemak: kekalkan pembilang + cap masa dalam fail kecil untuk merentas
-   restart dalam tetingkap sejuk. **Keputusan pelaksana:** diterima sebagai had
-   yang didokumenkan (spesifikasi menyatakan "per proses"); pembilang kekal
-   dalam ingatan. Boleh dinaik taraf kemudian jika pemilik mahu.
+1. **Sederhana (had diakui — kekal terbuka, TIDAK dilaksanakan):** pembilang
+   2 cubaan automatik adalah *per proses* dan ditetapkan semula pada setiap
+   mula semula proses. Satu siling KADAR persisten merentas restart telah
+   dibangunkan (`buatHadKadarLogin`, `src/moeis/had-login.mjs`) dan diuji, tetapi
+   **TIDAK disambungkan dalam pengeluaran**: ia mengubah rejim kadar (2 cubaan
+   per tetingkap 15 minit, dikosongkan pada kejayaan) yang pemilik belum
+   luluskan. Had ASAL 2 cubaan per proses dikekalkan. Lihat bahagian *Had 2
+   cubaan (per proses)* di atas.
 2. **Rendah (had diakui, corak sedia ada):** kegagalan `icacls` (ACL folder)
    ditelan senyap secara sengaja supaya tiada maklumat bocor ke log; kini
    melindungi direktori yang turut memuatkan `kredensial.dat`, jadi lapisan
    kedua (selain DPAPI CurrentUser) boleh terdegradasi tanpa isyarat. Corak
    sedia ada daripada `simpanan.mjs`, bukan regresi baharu.
+
+### Semakan bebas had kadar + penjaga sesi (Codex, keluarga model berbeza)
+
+Perubahan **had kadar log masuk** (`had-login.mjs`) dan **penjaga sesi
+keep-alive** (`jaga-sesi.mjs`) asalnya disemak secara bebas oleh **Codex
+(OpenAI, keluarga model berbeza)** — read-only, menilai `git diff` dan modul
+baharu. Semakan itu menilai empat penemuan (gulung-balik jam, fail korup,
+akses profil Edge tidak saling eksklusif, rantaian timer) yang semuanya
+dibetulkan dalam kod modul.
+
+**Namun semakan induk berikutnya MENYEKAT pelepasan** dan membetulkan perkara
+yang semakan Codex terlepas; kerja dikerjakan semula di sini:
+
+1. **Had kadar persisten dibuang daripada pengeluaran.** Penyambungan `hadKadar`
+   yang tanpa syarat menggantikan had asal "2 cubaan per proses" dengan siling
+   kadar yang lebih longgar secara agregat (2 cubaan per tetingkap 15 minit,
+   dikosongkan pada kejayaan) — peningkatan kadar senyap yang pemilik tidak
+   luluskan. Modul `had-login.mjs` kekal sebagai modul bebas beruji, tetapi
+   **TIDAK disambungkan**; had asal 2 cubaan per proses dikekalkan.
+2. **Penjaga sesi dijadikan opt-in eksplisit `jagaSesi` (lalai MATI).** Sebelum
+   ini penjaga dimulakan tanpa syarat selepas bind. Kini ia hanya poke apabila
+   suis `jagaSesi` HIDUP (local-only), dan klasifikasi kesihatannya jujur
+   (`sesi-sah` sahaja = sihat; `sesi-tamat`/`perlu-manusia`/`langkau`/`ralat` =
+   tidak sihat — promise selesai bukan kejayaan).
+3. **Kunci eksklusif pelayar baharu** (`src/kunci-pelayar.mjs`) menutup
+   tetingkap TOCTOU yang Codex tandakan: semakan `sedangProses` sahaja tidak
+   menghalang tugasan bermula di tengah siasatan. Kunci diperoleh atomik dalam
+   kedua-dua pelancar anak; perlanggaran dilangkau (`langkau`), bukan
+   paksa-bunuh pelayar aktif.
+
+**Kepastian jujur tentang keep-alive:** "luput ~15-20 minit" ialah pemerhatian
+pemilik, BUKAN masa tamat tetap yang diukur; sama ada poke baca-sahaja
+benar-benar menghalang luput **belum disahkan terhadap idMe hidup** sehingga
+ujian hidup dilakukan dengan kehadiran pemilik.
 
 ### Nota pengesanan kejayaan selepas hantar (post-submit)
 
