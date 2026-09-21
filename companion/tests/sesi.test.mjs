@@ -5,7 +5,7 @@
 // kaedah "klik"/"isi").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sahkanHos, jalankanUjiLogin, adaSesiMoeis } from '../src/moeis/sesi.mjs';
+import { sahkanHos, jalankanUjiLogin, adaSesiMoeis, tentukanStatusSelepasHantar } from '../src/moeis/sesi.mjs';
 import { buatHalamanPalsu, MURID_MOEIS_CONTOH } from './fixtures/halamanPalsu.mjs';
 
 // ---------------- sahkanHos ----------------
@@ -164,4 +164,45 @@ test('sesi.mjs tidak mengandungi sebarang panggilan klik/isi kata laluan dalam k
   // corak URL pancingan) — bukan medan borang; dikecualikan daripada semakan.
   assert.ok(!/\.fill\(|\.type\(|\.click\(/.test(src),
     'sesi.mjs tidak boleh mengandungi sebarang isyarat menaip/klik borang log masuk');
+});
+
+// ---------------- tentukanStatusSelepasHantar (klasifikasi selepas hantar) ----------------
+
+test('tentukanStatusSelepasHantar: hos MOEIS + #kehadiran -> sesi-sah', () => {
+  const r = tentukanStatusSelepasHantar({ hos: 'moeispel.moe.gov.my', adaKehadiran: true });
+  assert.equal(r.status, 'sesi-sah');
+});
+
+test('tentukanStatusSelepasHantar: hos MOEIS tanpa #kehadiran -> sesi-tamat (laluan sedia ada kekal)', () => {
+  const r = tentukanStatusSelepasHantar({ hos: 'moeispel.moe.gov.my', adaKehadiran: false, borangLogin: false, dashboardIdMe: true });
+  // Walaupun penanda dashboard ada, hos MOEIS dikendalikan EKSKLUSIF oleh
+  // #kehadiran — elak padanan teks longgar pada halaman MOEIS sendiri.
+  assert.equal(r.status, 'sesi-tamat');
+  assert.match(r.sebab, /#kehadiran/);
+});
+
+test('tentukanStatusSelepasHantar: papan pemuka idMe (hos idme, borang hilang) -> sesi-sah WALAUPUN hos belum MOEIS', () => {
+  const r = tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: false, dashboardIdMe: true });
+  assert.equal(r.status, 'sesi-sah');
+});
+
+test('tentukanStatusSelepasHantar: borang log masuk masih ada -> sesi-tamat, sebab menamakan borang', () => {
+  const r = tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: true, dashboardIdMe: true });
+  assert.equal(r.status, 'sesi-tamat');
+  assert.match(r.sebab, /borang log masuk idMe/);
+});
+
+test('tentukanStatusSelepasHantar: hos idme tanpa borang mahupun papan pemuka -> sesi-tamat, sebab menamakan hos', () => {
+  const r = tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: false, dashboardIdMe: false });
+  assert.equal(r.status, 'sesi-tamat');
+  assert.match(r.sebab, /hos ialah idme\.moe\.gov\.my/);
+});
+
+test('tentukanStatusSelepasHantar: hos bukan idMe/moeispel (cth portal captive) TIDAK diakui kejayaan walaupun teks longgar ada', () => {
+  // Penemuan semakan bebas: hos sewenang bukan idMe/moeispel (cth portal
+  // captive, laman ralat, redirect luar) mesti fail-tertutup — bukan dilayan
+  // sebagai sesi-sah hanya kerana teks longgar seperti "Pengurusan" padan.
+  const r = tentukanStatusSelepasHantar({ hos: 'captive.evil.example', borangLogin: false, dashboardIdMe: true });
+  assert.equal(r.status, 'sesi-tamat');
+  assert.match(r.sebab, /hos ialah captive\.evil\.example/);
 });

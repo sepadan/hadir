@@ -58,6 +58,36 @@ test('frasa padan + tiada CAPTCHA/OTP -> isi, hantar, sesi-sah', async () => {
   assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), true);
 });
 
+test('dashboard idMe selepas hantar (hos idme, borang hilang) -> sesi-sah, BUKAN perlu-manusia', async () => {
+  // Senario LIVE sebenar (bundle diagnostik pemilik): selepas "Daftar Masuk",
+  // halaman mendarat pada papan pemuka idMe (idme.moe.gov.my) dengan navigasi
+  // Aplikasi/Laporan + breadcrumb "Laman Utama / Dashboard", manakala borang
+  // log masuk (#check_log/#password) SUDAH hilang. Ini log masuk BERJAYA —
+  // bukan perlu-manusia — walaupun hos belum moeispel.moe.gov.my (MOEIS
+  // dicapai kemudian melalui pautan Aplikasi/SSO).
+  const adapter = buatHalamanLoginPalsu({ sesiSah: false, dashboardIdMe: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'sesi-sah');
+  assert.equal(hasil.perluManusia, false);
+  assert.equal(adapter._panggilan.includes('sahkanSesiSelepasLogin'), true);
+});
+
+test('borang log masuk idMe masih dipaparkan selepas hantar -> perlu-manusia dengan sebab menamakan penemuan', async () => {
+  const adapter = buatHalamanLoginPalsu({ sesiSah: false, borangKekal: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'perlu-manusia');
+  assert.equal(hasil.perluManusia, true);
+  assert.match(hasil.sebab, /borang log masuk idMe \(#check_log\/#password\) masih dipaparkan/);
+});
+
+test('hos idme selepas hantar tanpa borang mahupun papan pemuka -> perlu-manusia, sebab menamakan hos', async () => {
+  const adapter = buatHalamanLoginPalsu({ sesiSah: false, dashboardIdMe: false, borangKekal: false });
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'perlu-manusia');
+  assert.equal(hasil.perluManusia, true);
+  assert.match(hasil.sebab, /hos ialah idme\.moe\.gov\.my/);
+});
+
 test('kunci kosong: frasa disimpan kosong -> tiada-kredensial; frasa halaman tidak dapat dibaca -> kunci-tiada (BUKAN kunci-tidak-padan)', async () => {
   // Frasa disimpan kosong: fail-closed di lapisan pengawal kredensial.
   let adapter = buatHalamanLoginPalsu();

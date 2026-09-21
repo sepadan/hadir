@@ -163,6 +163,31 @@ test('pemulihan: BERHENTI-UNTUK-MANUSIA — log masuk perluManusia:true menghent
   assert.equal(p.berjalan(), false, 'gelung berhenti serta-merta apabila log masuk memerlukan manusia');
 });
 
+test('pemulihan: log masuk BERJAYA (sesi-sah, perluManusia:false) TIDAK menghentikan gelung — cubaAutoMula diteruskan', async () => {
+  // Regresi pepijat post-submit: dahulu log masuk idMe yang BERJAYA (mendarat
+  // pada papan pemuka idMe, hos belum MOEIS) disalah laporkan sebagai
+  // `perlu-manusia`, jadi PEMULIHAN_AUTO_MULA berhenti pada kejayaan itu.
+  // Kini `hasil.perluManusia` mesti false untuk kejayaan, supaya gelung terus
+  // ke cubaAutoMula dan akhirnya mulakan giliran.
+  let bilLogin = 0;
+  let bilAutoMula = 0;
+  const p = pasangPemulihanAutoMula({
+    bacaTetapan: () => ({ autoMulaGiliran: true }),
+    giliranAktif: () => false,
+    cubaLoginAutoKerja: async () => {
+      bilLogin++;
+      return { diminta: true, cuba: true, hasil: { status: 'sesi-sah', perluManusia: false, sebab: 'Log masuk idMe automatik berjaya.' } };
+    },
+    cubaAutoMula: async () => { bilAutoMula++; return { bermula: false, sebab: 'Sesi belum disahkan (ujian).' }; },
+    tulisLog: () => {}
+  });
+  p.mula();
+  await p._kitar();
+  assert.equal(bilLogin, 1);
+  assert.equal(bilAutoMula, 1, 'cubaAutoMula mesti dipanggil selepas log masuk berjaya (tiada perluManusia)');
+  assert.equal(p.berjalan(), true, 'gelung kekal berjalan — log masuk berjaya bukan sebab berhenti');
+});
+
 test('pemulihan: HARI DAHULU — bolehHariIni:false menghentikan gelung TANPA menyentuh log masuk automatik langsung', async () => {
   let bilHari = 0;
   let bilLogin = 0;

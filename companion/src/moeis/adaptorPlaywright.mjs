@@ -7,7 +7,7 @@
 // (rujukan baca sahaja, projek itu tidak disentuh).
 import fs from 'node:fs';
 import path from 'node:path';
-import { adalahHosIdMe } from './sesi.mjs';
+import { adalahHosIdMe, tentukanStatusSelepasHantar } from './sesi.mjs';
 import { URL_APLIKASI_IDME, pilihPautanAplikasiMoeis, HOS_MOEIS } from './aplikasi.mjs';
 import { sensor } from '../log.mjs';
 
@@ -425,12 +425,38 @@ export function buatAdaptorPlaywright(page, opsyen = {}) {
       const url = page.url();
       let hos = '';
       try { hos = new URL(url).hostname.toLowerCase(); } catch { hos = ''; }
-      if (hos === HOS_MOEIS) {
-        const adaKehadiran = await page.evaluate(() => !!document.querySelector('#kehadiran')).catch(() => false);
-        if (adaKehadiran) return { status: 'sesi-sah', hos };
-        return { status: 'sesi-tamat', hos, sebab: 'Hos MOEIS dicapai tetapi elemen #kehadiran tiada.' };
-      }
-      return { status: 'sesi-tamat', hos, sebab: 'Selepas hantar, hos ialah ' + (hos || '(tiada)') + ' (bukan MOEIS).' };
+
+      // Selepas klik "Daftar Masuk", log masuk idMe yang BERJAYA selalunya
+      // mendarat pada papan pemuka idMe (idme.moe.gov.my) — bukannya terus
+      // ke MOEIS — kerana sesi MOEIS hanya terbentuk kemudian melalui pautan
+      // Aplikasi/SSO (lihat aplikasi.mjs). Jadi hos==MOEIS BUKAN lagi satu-
+      // satunya isyarat kejayaan: borang log masuk yang hilang (#check_log/
+      // #password tiada) + penanda papan pemuka idMe (navigasi/Aplikasi/
+      // Laporan/breadcrumb) juga bermaksud log masuk sudah selesai. Klasifikasi
+      // dipusatkan dalam fungsi tulen `tentukanStatusSelepasHantar` (sesi.mjs)
+      // supaya boleh diuji tanpa pelayar.
+      const amatan = await page.evaluate(() => {
+        const borangLogin = !!(
+          document.querySelector('#check_log') ||
+          document.querySelector('#password') ||
+          document.querySelector('input[type=password], input[name*="kata" i], input[name*=pass i], input[placeholder*="KAD PENGENALAN" i], input[name*="pengenalan" i]')
+        );
+        const teksBadan = (document.body && document.body.innerText) || '';
+        const dashboardIdMe = !!(
+          document.querySelector('a[href*="list_aplikasi"]') ||
+          document.querySelector('.breadcrumb, [class*="breadcrumb"]') ||
+          /\b(Aplikasi|Laporan|Dashboard|Pengurusan)\b/i.test(teksBadan)
+        );
+        return { borangLogin, dashboardIdMe };
+      }).catch(() => ({ borangLogin: false, dashboardIdMe: false }));
+      const adaKehadiran = await page.evaluate(() => !!document.querySelector('#kehadiran')).catch(() => false);
+
+      return tentukanStatusSelepasHantar({
+        hos,
+        borangLogin: amatan.borangLogin,
+        dashboardIdMe: amatan.dashboardIdMe,
+        adaKehadiran
+      });
     },
     async bacaBilanganMurid() {
       return page.evaluate(() => document.querySelectorAll('#kehadiran input.case-hadir').length).catch(() => 0);

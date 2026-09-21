@@ -114,3 +114,47 @@ export async function adaSesiMoeis(adapter, opsyen) {
 export function adalahHosIdMe(url) {
   return sahkanHos(url).ok;
 }
+
+// Klasifikasi TULEN sesi selepas borang log masuk dihantar (auto-login).
+// `amatan` = { hos, borangLogin, dashboardIdMe, adaKehadiran } dibaca oleh
+// adapter daripada DOM sebenar SELEPAS klik "Daftar Masuk". Pulangkan
+// { status, hos, sebab? }:
+//   - 'sesi-sah'   : log masuk berjaya, sama ada (a) MOEIS dicapai terus
+//                    (hos MOEIS + #kehadiran) ATAU (b) papan pemuka idMe
+//                    dikesan (borang log masuk hilang + penanda navigasi/
+//                    Aplikasi/Laporan/breadcrumb) — WALAUPUN hos masih
+//                    idme.moe.gov.my (MOEIS dicapai kemudian melalui pautan
+//                    Aplikasi/SSO, disahkan oleh semakan sesi berasingan).
+//   - 'sesi-tamat' : tiada dashboard mahupun MOEIS dikesan; `sebab` menamakan
+//                    apa yang SEBENARNYA ditemui.
+export function tentukanStatusSelepasHantar({
+  hos = '', borangLogin = false, dashboardIdMe = false, adaKehadiran = false
+} = {}) {
+  // 1) Hos MOEIS dikendalikan secara EKSKLUSIF: #kehadiran ialah satu-satunya
+  //    isyarat di sini (elak padanan teks longgar seperti "Laporan" pada
+  //    halaman MOEIS sendiri disalah erti sebagai papan pemuka idMe).
+  if (hos === HOS_MOEIS_SAH) {
+    if (adaKehadiran) return { status: 'sesi-sah', hos };
+    return { status: 'sesi-tamat', hos, sebab: 'Hos MOEIS dicapai tetapi elemen #kehadiran tiada.' };
+  }
+
+  // 2) Papan pemuka idMe: hos MESTI idme.moe.gov.my, borang log masuk hilang
+  //    (#check_log/#password/IC tiada) + penanda dashboard wujud -> log masuk
+  //    selesai. JANGAN akui mana-mana hos bukan-MOEIS sewenang (cth portal
+  //    captive/laman ralat) sebagai kejayaan — hos idMe tepat ialah syarat
+  //    wajib di sini.
+  if (hos === HOS_IDME_SAH && !borangLogin && dashboardIdMe) return { status: 'sesi-sah', hos };
+
+  // 3) Perlu-manusia: sebab menamakan penemuan sebenar.
+  if (borangLogin) {
+    return {
+      status: 'sesi-tamat', hos,
+      sebab: 'Selepas hantar, borang log masuk idMe (#check_log/#password) masih dipaparkan — log masuk belum berjaya.'
+    };
+  }
+  return {
+    status: 'sesi-tamat', hos,
+    sebab: 'Selepas hantar, hos ialah ' + (hos || '(tiada)') +
+      ' tanpa borang log masuk mahupun papan pemuka idMe/MOEIS dikesan — log masuk tidak dapat disahkan.'
+  };
+}

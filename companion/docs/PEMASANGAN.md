@@ -538,3 +538,17 @@ nilai kredensial dalam teks biasa). Dua nota:
    melindungi direktori yang turut memuatkan `kredensial.dat`, jadi lapisan
    kedua (selain DPAPI CurrentUser) boleh terdegradasi tanpa isyarat. Corak
    sedia ada daripada `simpanan.mjs`, bukan regresi baharu.
+
+### Nota pengesanan kejayaan selepas hantar (post-submit)
+
+Selepas klik "Daftar Masuk", log masuk idMe yang **berjaya** biasanya mendarat
+pada papan pemuka idMe (`idme.moe.gov.my`) — borang log masuk (#check_log/
+#password) hilang dan navigasi Aplikasi/Laporan/breadcrumb muncul — dan MOEIS
+(`moeispel.moe.gov.my`) dicapai kemudian melalui pautan Aplikasi/SSO. Jadi
+`hos == moeispel` **bukan** satu-satunya isyarat kejayaan. Klasifikasi
+dipusatkan dalam fungsi tulen `tentukanStatusSelepasHantar()` (`src/moeis/sesi.mjs`):
+borang hilang + papan pemuka idMe wujud → `sesi-sah` (walaupun hos masih idMe);
+sebaliknya `sesi-tamat` dengan sebab yang menamakan apa yang sebenarnya ditemui.
+Ini masih **belum disahkan terhadap idMe hidup** (larangan keras brief) — tanda
+papan pemuka disemak secara longgar (pautan `list_aplikasi`, kelas breadcrumb,
+teks Aplikasi/Laporan/Dashboard/Pengurusan).

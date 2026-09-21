@@ -1,4 +1,5 @@
 // HalamanPalsuLogin — adapter log masuk idMe palsu untuk ujian login-auto.mjs.
+import { tentukanStatusSelepasHantar } from '../../src/moeis/sesi.mjs';
 // Tiada rangkaian, tiada pelayar. Nilai kredensial dalam ujian sentiasa PALSU
 // (cth 'PENGGUNA-UJIAN', 'KATA-LALUAN-PALSU-TAK-SAH'). Adapter merekod setiap
 // panggilan supaya ujian boleh menegaskan urutan ("belum menaip kata laluan",
@@ -16,6 +17,16 @@ export function buatHalamanLoginPalsu({
   otpSelepasHantar = false,
   urlAwal = 'https://idme.moe.gov.my/',
   sesiSah = true,
+  // Senario SELEPAS hantar "Daftar Masuk" (memodel klasifikasi sebenar dalam
+  // `tentukanStatusSelepasHantar`):
+  //   sesiSah=true (lalai) -> MOEIS dicapai terus (#kehadiran ada) -> sesi-sah.
+  //   dashboardIdMe=true   -> papan pemuka idMe (hos idme, borang log masuk
+  //                           hilang) -> sesi-sah WALAUPUN hos masih idMe.
+  //   borangKekal=true     -> borang log masuk masih dipaparkan -> sesi-tamat.
+  //   (kedua-dua dashboardIdMe=false & borangKekal=false, hos idme) ->
+  //     sesi-tamat (hos idme tanpa borang mahupun papan pemuka).
+  dashboardIdMe = false,
+  borangKekal = false,
   lanjutGagal = false,
   kotakGagal = false,
   hantarGagal = false,
@@ -67,7 +78,13 @@ export function buatHalamanLoginPalsu({
     async sahkanSesiSelepasLogin() {
       panggilan.push('sahkanSesiSelepasLogin');
       if (sesiSah) return { status: 'sesi-sah', hos: 'moeispel.moe.gov.my' };
-      return { status: 'sesi-tamat', hos: 'idme.moe.gov.my', sebab: 'Masih pada idMe (ujian).' };
+      if (dashboardIdMe) {
+        return tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: false, dashboardIdMe: true });
+      }
+      if (borangKekal) {
+        return tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: true, dashboardIdMe: false });
+      }
+      return tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: false, dashboardIdMe: false });
     },
     _panggilan: panggilan,
     get _kotakSemak() { return kotakSemak; },
