@@ -104,6 +104,30 @@ test('kata laluan digerbang oleh kotak semak: urutan tepat lanjutkanPengesahan -
   assert.equal(adapter._kotakSemak, true);
 });
 
+test('kotak semak GAGAL ditanda -> kotak-pengesahan-gagal, TIADA kata laluan ditaip, TIADA hantar', async () => {
+  // Adapter PRODUKSI memulangkan false apabila kotak semak tidak dijumpai
+  // atau kata laluan tidak didedahkan. Sebelum pembetulan, nilai ini diabaikan
+  // dan aliran terus ke isiKataLaluanIdMe — yang timeout pada medan tersembunyi
+  // (bocor "ralat teknikal"). Kini aliran mesti ABORT dengan jelas.
+  const adapter = buatHalamanLoginPalsu({ kotakGagal: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'kotak-pengesahan-gagal');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), true, 'kotak semak mesti dicuba');
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false, 'tidak boleh menaip kata laluan jika kotak semak gagal');
+  assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false, 'tidak boleh hantar jika kotak semak gagal');
+  assert.equal(adapter._kotakSemak, false);
+});
+
+test('benarkanTerusTanpaFrasa HIDUP + kotak semak GAGAL -> masih kotak-pengesahan-gagal (perlindungan kotak semak tidak dilonggarkan)', async () => {
+  const adapter = buatHalamanLoginPalsu({ kunciAdaImej: true, kotakGagal: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED, { benarkanTerusTanpaFrasa: true });
+  assert.equal(hasil.status, 'kotak-pengesahan-gagal');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false);
+  assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false);
+});
+
 test('kunci-tiada: frasa null (mungkin imej kunciAdaImej:true) -> perlu-manusia, tiada kotak semak, tiada kata laluan', async () => {
   const adapter = buatHalamanLoginPalsu({ kunciAdaImej: true });
   const hasil = await jalankanLoginAuto(adapter, KRED);
@@ -362,6 +386,7 @@ test('ayatLoginAuto: ayat mengikut keutamaan yang didokumenkan', () => {
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kunci-tidak-padan' }), /frasa keselamatan tidak padan/);
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kunci-tiada' }), /tidak dapat dibaca/);
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kunci-tiada-dibenarkan' }), /benarkanTerusTanpaFrasa HIDUP/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kotak-pengesahan-gagal' }), /kotak semak pengesahan tidak dapat ditanda/);
 });
 
 test('snapshotLoginAutoStatus: menggabungkan tetapan + status semasa + ayat', () => {

@@ -148,6 +148,85 @@ test('adapter sebenar: tandakanKunciKeselamatan TANPA kotak semak pengesahan -> 
   assert.equal(hasil, false);
 });
 
+// ---------- tandakanKunciKeselamatan: DOM idMe SEBENAR (#check_log / #submit_form) ----------
+//
+// Fixture ini meniru STRUKTUR SEBENAR halaman pengesahan idMe (bundle
+// diagnostik LIVE 2026-09-21): kotak semak <input id="check_log"
+// name="check" type="checkbox"> di dalam <label> "Ya, ini adalah Kata Kunci
+// Keselamatan saya.", medan kata laluan <input id="password"> di dalam kontena
+// <div id="submit_form" style="display:none">, dan DUA butang "Daftar Masuk"
+// (placeholder disabled `#log_disbale_form` + butang aktif `#log_open_form`
+// yang didedahkan). Pengendali klik meniru tingkah laku jQuery idMe sebenar:
+// menanda kotak mendedahkan #submit_form, menyahtanda menyembunyikannya.
+
+function htmlIdMeSebenar({ adaPengendali = true } = {}) {
+  const pengendali = adaPengendali
+    ? '<script>' +
+      'var kotak = document.getElementById("check_log");' +
+      'function kemasKini() {' +
+      '  var nampak = kotak.checked;' +
+      '  document.getElementById("submit_form").style.display = nampak ? "block" : "none";' +
+      '  document.getElementById("log_open_form").style.display = nampak ? "block" : "none";' +
+      '  document.getElementById("log_disbale_form").style.display = nampak ? "none" : "block";' +
+      '}' +
+      'kotak.addEventListener("click", kemasKini);' +
+      '</script>'
+    : '';
+  return (
+    '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>' +
+    '<form id="myFormlog" method="POST">' +
+    '<div class="form-group text-center">' +
+    '<div class="form-check mb-0">' +
+    '<label class="form-check-label tx-13 tx-white">' +
+    '<input id="check_log" class="form-check-input" name="check" type="checkbox" value=""> ' +
+    '<b>Ya, ini adalah Kata Kunci Keselamatan saya.</b>' +
+    '</label>' +
+    '</div></div>' +
+    '<input id="ic" hidden type="text" name="ic" placeholder="ID Pengguna">' +
+    '<div class="input-group" id="submit_form" style="display:none;">' +
+    '<input id="password" type="password" class="form-control" name="password" placeholder="Kata Laluan">' +
+    '</div>' +
+    '<button id="log_disbale_form" type="submit" class="btn btn-info btn-block" disabled>Daftar Masuk</button>' +
+    '<button id="log_open_form" type="submit" class="btn btn-info btn-block" style="display:none;">Daftar Masuk</button>' +
+    '</form>' +
+    pengendali +
+    '</body></html>'
+  );
+}
+
+test('adapter sebenar: tandakanKunciKeselamatan kenal pasti #check_log (DOM idMe sebenar) dan mendedahkan #password', async () => {
+  await muat(htmlIdMeSebenar());
+  const hasil = await adapter.tandakanKunciKeselamatan();
+  assert.equal(hasil, true);
+  const keadaan = await page.evaluate(() => ({
+    ditanda: document.getElementById('check_log').checked,
+    pwdNampak: (() => { const p = document.getElementById('password'); return !!p && !p.disabled && p.offsetParent !== null; })()
+  }));
+  assert.equal(keadaan.ditanda, true, 'kotak #check_log mesti ditanda');
+  assert.equal(keadaan.pwdNampak, true, 'kata laluan mesti kelihatan selepas kotak #check_log ditanda');
+});
+
+test('adapter sebenar: tandakanKunciKeselamatan idempotent pada DOM idMe sebenar — panggilan kedua tidak menanggalkan tanda', async () => {
+  await muat(htmlIdMeSebenar());
+  assert.equal(await adapter.tandakanKunciKeselamatan(), true);
+  assert.equal(await adapter.tandakanKunciKeselamatan(), true);
+  const keadaan = await page.evaluate(() => ({
+    ditanda: document.getElementById('check_log').checked,
+    pwdNampak: (() => { const p = document.getElementById('password'); return !!p && !p.disabled && p.offsetParent !== null; })()
+  }));
+  assert.equal(keadaan.ditanda, true, 'kotak mesti kekal ditanda (tidak ditogol mati)');
+  assert.equal(keadaan.pwdNampak, true, 'kata laluan mesti kekal kelihatan');
+});
+
+test('adapter sebenar: #check_log wujud tetapi tiada pengendali mendedahkan kata laluan -> false (fail tertutup, tidak isi medan tersembunyi)', async () => {
+  // Meniru senario bundle diagnostik sebenar: kotak semak wujud, tetapi
+  // pengendali yang sepatutnya mendedahkan #submit_form TIDAK berjalan —
+  // adapter mesti pulangkan false supaya pemanggil ABORT, bukannya timeout.
+  await muat(htmlIdMeSebenar({ adaPengendali: false }));
+  const hasil = await adapter.tandakanKunciKeselamatan();
+  assert.equal(hasil, false);
+});
+
 // ---------- lanjutkanPengesahan: waitForFunction(fn, arg, options) terhadap DOM sebenar ----------
 
 test('adapter sebenar: lanjutkanPengesahan pulangkan {ok:true} apabila kotak semak kunci muncul (laluan adaFrasaAtauKotak)', async () => {

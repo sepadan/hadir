@@ -167,9 +167,24 @@ async function jalankanLoginAutoTeras(adapter, kredensial, opsyen) {
     };
   }
 
-  // 8. Frasa padan: tandakan kotak semak "Kata Kunci Keselamatan" — ini
-  //    mendedahkan medan kata laluan yang sebelum ini tersembunyi.
-  await adapter.tandakanKunciKeselamatan();
+  // 8. Frasa padan (atau modTanpaFrasa): tandakan kotak semak "Ya, ini adalah
+  //    Kata Kunci Keselamatan saya." — ini mendedahkan medan kata laluan yang
+  //    sebelum ini tersembunyi. Adapter PRODUKSI memulangkan boolean
+  //    (true = kotak ditanda DAN kata laluan disahkan kelihatan). Jika false,
+  //    ABORT — jangan teruskan ke isiKataLaluan, kerana mengisi medan yang
+  //    masih tersembunyi akan melontar Timeout Playwright mentah (30s) yang
+  //    bocor ke log sebagai "ralat teknikal" yang tidak membantu (dikesan
+  //    melalui bundle diagnostik LIVE: medan kata laluan idMe #password berada
+  //    dalam kontena #submit_form yang kekal `display:none` apabila kotak
+  //    semak #check_log gagal didedahkan).
+  const kotakDitanda = await adapter.tandakanKunciKeselamatan();
+  if (kotakDitanda !== true) {
+    return {
+      status: 'kotak-pengesahan-gagal', perluManusia: true,
+      sebab: 'Kotak semak "Ya, ini adalah Kata Kunci Keselamatan saya." tidak dapat ditanda atau medan kata laluan tidak didedahkan; log masuk manual diperlukan.',
+      bukti: ['kotak-pengesahan-gagal']
+    };
+  }
 
   // 9. Isi kata laluan — HANYA SEKARANG, selepas frasa padan DAN kotak semak
   //    ditanda (invarian keselamatan, lihat komen fail di atas).
@@ -342,6 +357,7 @@ export function ayatLoginAuto(st) {
   if (st.hasilTerakhir === 'kunci-tidak-padan') return 'Perlu manusia: frasa keselamatan tidak padan — tiada kredensial ditaip.';
   if (st.hasilTerakhir === 'kunci-tiada') return 'Perlu manusia: frasa keselamatan tidak dapat dibaca (mungkin imej) — log masuk manual diperlukan.';
   if (st.hasilTerakhir === 'kunci-tiada-dibenarkan') return 'Berjaya — frasa tidak dapat dibaca (imej) tetapi suis benarkanTerusTanpaFrasa HIDUP; log masuk diteruskan selepas semakan HTTPS+hos dan kotak semak pengesahan.';
+  if (st.hasilTerakhir === 'kotak-pengesahan-gagal') return 'Perlu manusia: kotak semak pengesahan tidak dapat ditanda atau medan kata laluan tidak didedahkan — log masuk manual diperlukan.';
   if (st.hasilTerakhir === 'hos-tidak-sah') return 'Perlu manusia: hos idMe tidak sah — tiada kredensial ditaip.';
   return st.sebab || 'Belum dinilai.';
 }

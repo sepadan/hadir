@@ -17,6 +17,7 @@ export function buatHalamanLoginPalsu({
   urlAwal = 'https://idme.moe.gov.my/',
   sesiSah = true,
   lanjutGagal = false,
+  kotakGagal = false,
   hantarGagal = false,
   hantarSebab = 'Tiada butang "Daftar Masuk" yang aktif dan kelihatan (ujian).'
 } = {}) {
@@ -47,7 +48,16 @@ export function buatHalamanLoginPalsu({
       if (kunciAdaImej) return null; // frasa dipaparkan sebagai imej, bukan teks
       return kunciHalaman;
     },
-    async tandakanKunciKeselamatan() { panggilan.push('tandakanKunciKeselamatan'); kotakSemak = true; },
+    // Adapter PRODUKSI memulangkan boolean (true = kotak ditanda DAN kata
+    // laluan disahkan kelihatan). Adapter palsu meniru kontrak ini: true pada
+    // laluan gembira, false apabila `kotakGagal` (meniru kotak tidak dijumpai
+    // atau kata laluan tidak didedahkan).
+    async tandakanKunciKeselamatan() {
+      panggilan.push('tandakanKunciKeselamatan');
+      if (kotakGagal) return false;
+      kotakSemak = true;
+      return true;
+    },
     async isiKataLaluanIdMe() { panggilan.push('isiKataLaluanIdMe'); },
     async hantarBorangLogMasuk() {
       panggilan.push('hantarBorangLogMasuk');

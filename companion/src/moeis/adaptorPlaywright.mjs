@@ -258,31 +258,47 @@ export function buatAdaptorPlaywright(page, opsyen = {}) {
     // mendedahkan medan kata laluan yang sebelum ini tersembunyi. Hanya
     // dipanggil SELEPAS frasa disahkan padan (lihat login-auto.mjs).
     //
+    // LIVE DOM idMe (bundle diagnostik sebenar 2026-09-21): kotak semak ialah
+    // <input id="check_log" class="form-check-input" name="check"
+    // type="checkbox"> di dalam <label> "Ya, ini adalah Kata Kunci
+    // Keselamatan saya."; jQuery halaman mendedahkan kontena #submit_form
+    // (yang memuat #password) apabila kotak ini ditanda. Sasarkan id yang
+    // DIKENALI dahulu, dengan fallback kepada name dan heuristik label.
+    //
     // Fail tertutup dengan sengaja (TIADA fallback kepada kotak semak
-    // sewenang-wenangnya): jika label pengesahan khusus ini tidak ditemui,
-    // pulangkan `false` tanpa mengklik apa-apa — mengklik kotak salah pada
-    // halaman tidak dikenali lebih berbahaya daripada tidak mengklik langsung.
-    // Idempotent: hanya `.click()` jika belum ditanda (mengklik kotak yang
-    // sudah ditanda akan MENYAHTANDA dan menyembunyikan semula kata laluan).
+    // sewenang-wenangnya): jika tiada satu pun selektor sah dijumpai,
+    // pulangkan `false` tanpa mengklik apa-apa. Guna aksi Playwright `.check()`
+    // (idempotent — TIDAK menanggalkan tanda yang sudah ada — dan memancarkan
+    // acara click/change sebenar supaya pengendali jQuery halaman tercetus),
+    // bukannya element.click() mentah dalam evaluate yang tidak
+    // berinteraksi dengan pengendali jQuery dengan boleh dipercayai.
     // Selepas ditanda, SAHKAN medan kata laluan benar-benar kelihatan/aktif
     // sebelum memulangkan `true` — pendedahan mungkin async (animasi/render).
     // BELUM disahkan hidup — larangan keras brief; hanya dijalankan di sini,
     // tidak pernah dilog nilai.
     async tandakanKunciKeselamatan() {
-      const kotakSedia = await page.evaluate(() => {
-        var petunjuk = /kata kunci keselamatan/i;
-        var label = Array.from(document.querySelectorAll('label')).find(function (l) {
-          return petunjuk.test(l.textContent || '');
-        });
-        if (!label) return false;
-        var kotak = label.querySelector('input[type=checkbox]') ||
-          (label.htmlFor && document.getElementById(label.htmlFor)) ||
-          (label.closest('div') && label.closest('div').querySelector('input[type=checkbox]'));
-        if (!kotak) return false;
-        if (!kotak.checked) kotak.click();
-        return true;
-      }).catch(() => false);
-      if (!kotakSedia) return false;
+      const pilihanKotak = [
+        'input#check_log[type="checkbox"]',
+        'input[name="check"][type="checkbox"]',
+        'label:has-text("Kata Kunci Keselamatan") input[type="checkbox"]'
+      ];
+      let kotak = null;
+      for (const sel of pilihanKotak) {
+        const loc = page.locator(sel);
+        const bilangan = await loc.count().catch(() => 0);
+        if (bilangan > 0) { kotak = loc.first(); break; }
+      }
+      if (!kotak) return false;
+
+      const sudahDitanda = await kotak.isChecked().catch(() => null);
+      if (sudahDitanda !== true) {
+        // Idempotent: .check() hanya menanda jika belum ditanda (TIDAK
+        // menanggalkan tanda). Cuba juga apabila isChecked() gagal memulangkan
+        // null (contoh perlumbaan sejurus selepas navigasi) — fail-tertutup
+        // keseluruhan kekal dijaga oleh waitForFunction di bawah.
+        await kotak.check({ timeout: 5000 }).catch(() => {});
+      }
+
       // waitForFunction(pageFunction, arg, options) — `undefined` di kedudukan
       // `arg` supaya { timeout } jatuh pada `options`.
       return page.waitForFunction(() => {
