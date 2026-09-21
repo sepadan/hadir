@@ -24,8 +24,8 @@ import { buatPengurusPasangan } from '../src/pasangan.mjs';
 import { buatLog } from '../src/log.mjs';
 import { buatKlienHadir } from '../src/klien-hadir.mjs';
 import { buatGiliran } from '../src/giliran.mjs';
-import { nilaiKelayakanTugasan } from '../src/auto-mula.mjs';
-import { cubaAutoMula } from '../src/orchestrasi-auto.mjs';
+import { nilaiKelayakanTugasan, bolehHariSekolah } from '../src/auto-mula.mjs';
+import { cubaAutoMula, pasangPemulihanAutoMula } from '../src/orchestrasi-auto.mjs';
 import { dengarSelepasBind } from '../src/permulaan.mjs';
 import { buatPengurusAutostartWindows } from '../src/autostart-windows.mjs';
 import { buangIc } from '../src/moeis/payload.mjs';
@@ -470,7 +470,42 @@ async function main() {
         tulisLog: (jenis, mesej) => log.tulis(`${jenis}: ${mesej}`)
       });
       Object.assign(autoMulaStatus, hasil);
-      if (!hasil.bermula) console.error('Auto-mula giliran tidak bermula:', hasil.sebab);
+      if (!hasil.bermula) {
+        console.error('Auto-mula giliran tidak bermula:', hasil.sebab);
+        // 3) Pemulihan bounded: jika suis auto-mula masih ON tetapi startup
+        //    gagal (cth sesi idMe tidak sah semasa bind), pasang gelung
+        //    pemulihan supaya giliran boleh bermula kemudian TANPA melonggarkan
+        //    sebarang pengawal — setiap kitaran menilai semula SEMUA pengawal
+        //    (kalendar/hujung minggu/umur tugasan/sempadan aktivasi) daripada
+        //    awal melalui cubaAutoMula yang sama. Guna sesiKerjaDisahkan
+        //    (cache-sahaja) supaya gelung ini sendiri tidak melancarkan Edge —
+        //    satu-satunya tindakan pelayar di sini ialah cubaLoginAutoKerja
+        //    job-time (terikat had 2 cubaan sedia ada).
+        if (tetapanApi.baca().autoMulaGiliran === true) {
+          const pemulihan = pasangPemulihanAutoMula({
+            bacaTetapan: tetapanApi.baca,
+            giliranAktif: () => giliran.status().aktif,
+            bolehHariIni: () => bolehHariSekolah({ tetapan: tetapanApi.baca(), sekarangMs: Date.now() }),
+            cubaLoginAutoKerja: () => cubaLoginAutoKerja(),
+            cubaAutoMula: async () => {
+              const hasilPemulihan = await cubaAutoMula({
+                bacaTetapan: tetapanApi.baca,
+                sekarangMs: () => Date.now(),
+                sempadanProsesMs,
+                adaRahsiaEnjin: simpananApi.adaRahsiaEnjin,
+                klaimDisokong: () => konteks.klaimDisokong({ segarkan: true }),
+                sesiDisahkan: sesiKerjaDisahkan,
+                mulakanGiliran: giliran.mulakan,
+                tulisLog: (jenis, mesej) => log.tulis(`${jenis}: ${mesej}`)
+              });
+              Object.assign(autoMulaStatus, hasilPemulihan);
+              return hasilPemulihan;
+            },
+            tulisLog: (jenis, mesej) => log.tulis(`${jenis}: ${mesej}`)
+          });
+          pemulihan.mula();
+        }
+      }
     },
     apabilaRalat: (ralat, fasa) => {
       const mesej = `PERMULAAN_${fasa.toUpperCase()}: ${ralat.message}`;

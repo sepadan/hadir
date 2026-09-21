@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.11 · 18 September 2026**
+**Versi 2.12 · 21 September 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -270,12 +270,53 @@ alih dan had keupayaan yang diuji: [`companion/docs/PEMASANGAN.md`](companion/do
   merentas restart dalam tetingkap sejuk; diterima sebagai had terdokumen.
 - **Log masuk idMe automatik (`src/moeis/login-auto.mjs`) ialah OPT-IN**
   (suis `loginAuto`, lalai MATI, berasingan daripada `autoMulaGiliran`).
-  Ia menaip kredensial **hanya** selepas: frasa "Kata Kunci Keselamatan" pada
-  halaman idMe **padan** dengan yang disimpan (anti-pancing; tidak padan =
-  abort, tiada menaip), CAPTCHA/OTP tidak dikesan, dan had 2 cubaan belum
-  tercapai. OTP/CAPTCHA/2FA **tidak pernah** dipintas — berhenti dengan
-  `perluManusia:true`. Aliran ini **belum disahkan terhadap idMe hidup**;
-  pengesahan hidup berlaku kemudian dengan kehadiran pemilik.
+  **Aliran DUA PERINGKAT (diperbetulkan 21 Sept 2026 — lihat pepijat di
+  bawah):** idMe memaparkan medan IC pada halaman log masuk; frasa "Kata
+  Kunci Keselamatan" hanya wujud SELEPAS IC dihantar, pada halaman
+  `/loginverification`, bersama kotak semak "Ya, ini adalah Kata Kunci
+  Keselamatan saya." yang tidak ditanda — medan kata laluan tersembunyi
+  sehingga kotak itu ditanda. Companion mengikut urutan: navigasi → semak
+  CAPTCHA/OTP awal → semak hos ketat → **isi IC** → **lanjut ke
+  /loginverification** → **baca frasa** → keputusan frasa → **tanda kotak
+  semak** → **isi kata laluan** → hantar → semak OTP/CAPTCHA selepas hantar →
+  sahkan sesi. Keputusan frasa membezakan TIGA status jujur: `sesi-sah`
+  (frasa padan, teruskan), `kunci-tidak-padan` (frasa dibaca tetapi berbeza —
+  kemungkinan pancingan sebenar), dan `kunci-tiada` (frasa tidak dapat dibaca
+  sebagai teks sama sekali, kemungkinan dipaparkan sebagai imej) — status
+  kedua dan ketiga kedua-duanya ABORT dengan `perluManusia:true`, TIADA kotak
+  semak ditanda, TIADA kata laluan ditaip, tetapi mesejnya tidak boleh
+  disamakan (satu ialah "tidak padan", satu lagi ialah "tidak dapat dibaca").
+  **INVARIAN KESELAMATAN (kekal, dinyatakan lebih tepat):** KATA LALUAN hanya
+  ditaip SELEPAS frasa dibaca dan padan DAN kotak semak ditanda; IC ditaip
+  lebih awal kerana idMe memerlukannya untuk memaparkan frasa itu — ini bukan
+  pelemahan anti-pancing (frasa kekal satu-satunya pengawal yang membenarkan
+  kata laluan ditaip). CAPTCHA/OTP tidak dikesan dan had 2 cubaan belum
+  tercapai kekal syarat wajib. OTP/CAPTCHA/2FA **tidak pernah** dipintas —
+  berhenti dengan `perluManusia:true`. **Pepijat asal yang dibetulkan:** versi
+  sebelum ini membaca frasa SEBELUM menghantar IC (pada halaman yang tidak
+  pernah memaparkannya) dan mengisi satu borang tunggal `isiBorangLogMasuk`
+  — frasa sentiasa `null` dan runtuh menjadi `kunci-tidak-padan` yang
+  mengelirukan, dan medan kata laluan (checkbox-gated) tidak wujud lagi untuk
+  diisi. Diganti dengan kaedah adapter berperingkat
+  (`isiPenggunaIdMe`/`lanjutkanPengesahan`/`bacaKunciKeselamatan`/
+  `tandakanKunciKeselamatan`/`isiKataLaluanIdMe`/`hantarBorangLogMasuk`).
+  Aliran ini **belum disahkan terhadap idMe hidup** — selektor DOM sebenar
+  (kedudukan medan IC, butang lanjut/seterusnya, label kotak semak, sama ada
+  frasa dipaparkan sebagai imej) semuanya andaian belum terbukti; pengesahan
+  hidup berlaku kemudian dengan kehadiran pemilik.
+- **Pemulihan giliran auto (bounded, `pasangPemulihanAutoMula` dalam
+  `src/orchestrasi-auto.mjs`).** Jika auto-mula startup gagal (cth sesi idMe
+  tidak sah semasa bind) tetapi suis `autoMulaGiliran` masih ON, companion
+  memasang gelung pemulihan (lalai setiap 5 minit, unref) yang setiap kitaran:
+  berhenti serta-merta jika suis dimatikan ATAU giliran sudah aktif; jika
+  tidak, cuba `cubaLoginAutoKerja` (job-time, cache-sahaja, terikat had 2
+  cubaan sedia ada) kemudian panggil semula `cubaAutoMula` PENUH (menilai
+  semula SEMUA pengawal — kalendar/hujung minggu/kesegaran/sempadan aktivasi
+  dari awal, TIDAK dilonggarkan langsung); berhenti sebaik giliran bermula.
+  `sesiDisahkan` yang disuntik ke `cubaAutoMula` dalam gelung ini MESTI
+  `sesiKerjaDisahkan` (cache-sahaja) — BUKAN semakan startup yang boleh
+  melancarkan pelayar sendiri — supaya gelung pemulihan tidak menjadi laluan
+  kedua yang membuka Edge tanpa sebab.
 
 **Dua suis opt-in (autostart + auto-mula), kedua-duanya lalai MATI:**
 - **Autostart Windows** — satu entri Run key HKCU `HADIRMoeisCompanion`
@@ -610,6 +651,11 @@ isu — perkara yang masih tertunggak dicatat dalam bahagian 8 hab.
   lalai MATI) tetapi **belum disahkan terhadap idMe hidup**. Backend
   memulangkan `diciptaEpochMs` dalam `moeisJobSenarai` untuk pengawal kesegaran
   (perlu deploy semula).
+- [x] **Pepijat aliran log masuk automatik dibetulkan: dua peringkat idMe
+  (IC → /loginverification → frasa), status `kunci-tiada` baharu berasingan
+  daripada `kunci-tidak-padan`, dan pemulihan giliran auto bounded**
+  (`pasangPemulihanAutoMula`) apabila startup gagal tetapi suis masih ON.
+  Butiran penuh dalam rekod perubahan 21 September 2026 (1.11.6) di bawah.
 
 **Baki pengesahan:** satu simpanan kehadiran sebenar dan satu sync AKSI/SEMAK
 masih perlu dijalankan oleh pengguna. Dicatat sebagai **isu #20 dalam hab** —
@@ -628,6 +674,8 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 21 September 2026 | 1.11.7 | **Baiki empat kecacatan log masuk automatik yang ditemui dalam semakan kod.** (1) `waitForFunction(fn, {timeout})` dalam adapter kini bentuk 3-arg `waitForFunction(fn, undefined, {timeout})` — sebelum ini `{timeout}` terlepas ke `arg` dan dilupus senyap (`lanjutkanPengesahan`, `tandakanKunciKeselamatan`, `dialogBerjayaKelihatan`). (2) `tandakanKunciKeselamatan` idempotent (klik hanya jika belum ditanda — tidak lagi menanggalkan tanda), kenal pasti kotak semak pengesahan secara khusus (tiada fallback ke kotak semak pertama sewenang), dan sahkan kata laluan benar-benar kelihatan sebelum pulangkan `true`. (3) `pasangPemulihanAutoMula` kini benar-benar bersempadan (`hadKitaran` lalai 12), tanpa pertindihan (rantai `setTimeout` + pengawal `sedangBerjalan`, bukan `setInterval`), berhenti-untuk-manusia (log masuk `perluManusia:true` berhenti serta-merta tanpa cubaan semula senyap), dan menilai pengawal hari (`bolehHariIni`/`bolehHariSekolah`) SEBELUM mencuba log masuk (tiada log masuk pada hari tidak dibenarkan). (4) `bacaKunciKeselamatan` baca frasa daripada kotak putih, bukan label "Kata Kunci Keselamatan" (elak label/nextElementSibling), dan jujur pulangkan `null` untuk frasa imej (tiada OCR/fabrikasi). Tambah **ujian adapter pelayar SEBENAR** (`tests/adaptor-playwright.test.mjs`) yang melancarkan Chrome/Edge headless + fixture HTML sanitized (frasa dalam kotak putih, amaran italic, kotak semak, kata laluan tersembunyi) — membuktikan adapter PRODUKSI mengekstrak frasa/tanda kotak/lanjutkan pengesahan terhadap DOM sebenar, bukan adapter palsu | Ujian: `node --test companion/tests/*.test.mjs` 231 ujian — 229 lulus, 2 dilangkau, 0 gagal. Tiada log masuk hidup/kredensial sebenar/rangkaian/registry disentuh; selektor DOM pengesahan kekal belum disahkan terhadap idMe hidup |
+| 21 September 2026 | 1.11.6 | **Baiki pepijat aliran log masuk idMe automatik: dua peringkat (IC → /loginverification → frasa), bukan satu.** Versi lama membaca frasa "Kata Kunci Keselamatan" SEBELUM menghantar IC — halaman itu tidak pernah memaparkan frasa, jadi bacaan sentiasa `null` dan runtuh menjadi status `kunci-tidak-padan` yang mengelirukan (dilaporkan sebagai "pancingan" walaupun sebenarnya "belum sampai ke halaman yang betul"); ia juga mengisi satu borang tunggal (`isiBorangLogMasuk`) walaupun kata laluan sebenar tersembunyi di sebalik kotak semak yang belum ditanda. `jalankanLoginAuto` (`src/moeis/login-auto.mjs`) kini mengikut urutan: isi IC → `lanjutkanPengesahan()` (tunggu `/loginverification`) → baca frasa → keputusan TIGA status (`sesi-sah`/`kunci-tidak-padan`/**`kunci-tiada`** baharu, untuk frasa yang tidak dapat dibaca sebagai teks — kemungkinan imej) → tandakan kotak semak → isi kata laluan → hantar. Invarian keselamatan dikekalkan dan dinyatakan lebih tepat: kata laluan hanya ditaip selepas frasa PADAN dan kotak DITANDA. Adapter (`src/moeis/adaptorPlaywright.mjs`) `isiBorangLogMasuk` digantikan kaedah berperingkat `isiPenggunaIdMe`/`lanjutkanPengesahan`/`tandakanKunciKeselamatan`/`isiKataLaluanIdMe`; `hantarBorangLogMasuk` kini menyasarkan "Daftar Masuk" secara khusus (selektor berlainan daripada butang lanjut). Fixture ujian (`tests/fixtures/halamanPalsuLogin.mjs`) kini stateful (`peringkat`) untuk memodel dua peringkat sebenar. Tambah **pemulihan giliran auto bounded** (`pasangPemulihanAutoMula`, `src/orchestrasi-auto.mjs`) — jika startup auto-mula gagal (cth sesi tidak sah semasa bind) tetapi suis masih ON, gelung 5 minit (unref) menilai semula SEMUA pengawal setiap kitaran melalui `cubaAutoMula` yang sama (guna `sesiKerjaDisahkan` cache-sahaja, bukan startup) sehingga giliran bermula atau suis dimatikan | Ujian: `node --test companion/tests/*.test.mjs` 219 ujian — 217 lulus, 2 dilangkau, 0 gagal (naik daripada 211/209/2/0 — 8 ujian baharu: regresi urutan frasa-selepas-lanjut, kata laluan digerbang kotak semak, status `kunci-tiada` berasingan daripada `kunci-tidak-padan`, laluan penuh berjaya, 4 ujian `pasangPemulihanAutoMula`); `node tests/hadir.test.cjs` exit 0. Tiada log masuk hidup/kredensial sebenar/rangkaian/registry disentuh — selektor DOM peringkat pengesahan (butang lanjut, label kotak semak, kemungkinan imej frasa) kekal **belum disahkan terhadap idMe hidup** |
 | 20 September 2026 | 1.11.5 | Tambah **log masuk idMe automatik JOB-TIME** (`cubaLoginAutoKerja`, kongsi had 2 cubaan/proses yang SAMA dengan `cubaLoginAutoStartup`) — sebelum ini log masuk automatik hanya dicuba SEKALI semasa startup; jika sesi tamat semasa giliran berjalan, tugasan gagal terus dengan "sesi tamat" walaupun `loginAuto` ON. Dipicu pada DUA titik yang profil Edge dijamin bebas: (a) permulaan setiap `jalankanSatuKitaran` (sebelum klaim), (b) selepas `push.mjs` anak keluar dengan `punca:'sesi-tamat'` semasa verifikasi ATAU hantar — **satu** percubaan log masuk + **satu** cubaan semula tugasan sahaja per tugasan (`sudahCubaLoginSemula`), tiada gelung. `punca` (`src/moeis/push.mjs`, dikira daripada hos URL sebenar `berkaitanIdMe`) ialah satu-satunya isyarat yang membezakan sesi tamat (boleh cuba semula) daripada CAPTCHA (`punca:'captcha'`, TIDAK PERNAH dicuba semula automatik). **`giliran.sahkanTugasan` (F3, laluan pemulihan baca-sahaja bagi tugasan 'tersimpan') SENGAJA tidak disentuh** — ia tidak pernah menekan hantar walau apa pun, jadi tiada sesi untuk dipulihkan sebelum mutasi; menambah log masuk automatik di situ akan melanggar invarian baca-sahaja F3 tanpa faedah. Visibiliti: `buatStatusLoginAuto`/`snapshotLoginAutoStatus`/`ayatLoginAuto` (`src/moeis/login-auto.mjs`) mendedahkan `loginAutoStatus` (`diminta, adaKredensial, sesiSah, percubaan, had, hasilTerakhir, sebab`) dalam `/api/status` DAN `/api/lokal/status`; UI tempatan memaparkan ayat status di bawah suis `loginAuto` dan kedua-dua suis opt-in (`loginAuto`, `autoMulaGiliran`) kini simpan-sendiri melalui pendengar `change` (pepijat pemilik: dahulu hanya tersimpan melalui butang "Simpan tetapan") | Ujian: `node --test companion/tests/*.test.mjs` 211 ujian — 209 lulus, 2 dilangkau, 0 gagal; `node companion/tests/asap-e2e.mjs` 52/52; `node tests/hadir.test.cjs` exit 0. Tiada suis/tetapan diubah nilainya, tiada log masuk hidup/kredensial sebenar/rangkaian disentuh |
 | 20 September 2026 | 1.11.4 | Tambah **amaran awal tamat kalendar sekolah + editor allowlist dalam UI tempatan** (diluluskan pemilik). `ringkasanKalendar()` tulen dalam `src/auto-mula.mjs` (eksport `AMARAN_HARI_KALENDAR = 7`) memulangkan `{ bilangan, pertama, terakhir, hariTinggal, amaran, sebab }` — `hariTinggal` dikira dalam **hari penuh** (Asia/Kuala_Lumpur) ke tarikh sah **terakhir**; `amaran` benar apabila allowlist kosong, sudah tamat, tarikh terakhir dalam 7 hari, atau entri tidak sah; `sebab` ayat Melayu menyatakan kes tepat. Amaran **baca sahaja** (tidak mengubah keputusan pengawal auto-mula) dan dipaparkan sebagai object `kalendar` dalam `/api/lokal/status` + `/api/status` serta banner jelas (merah apabila amaran, hijau apabila selamat) dalam UI tempatan. Editor allowlist dalam UI tempatan (tambah satu tarikh + `Buang` setiap tarikh + `Simpan kalendar`) menghantar senarai penuh ke `POST /api/lokal/tetapan` (header nonce sahaja, medan local-only); pengesahan kekal `sahkanKalendarSekolah` (entri bukan tarikh tepat menolak seluruh senarai; mesej server dipaparkan verbatim; suntingan setempat dikekalkan pada kegagalan simpan — tiada tarikh hilang senyap) | Ujian: `node --test companion/tests/*.test.mjs` 196 ujian — 194 lulus, 2 dilangkau, 0 gagal; `node companion/tests/asap-e2e.mjs` 52/52; `node tests/hadir.test.cjs` exit 0. Semakan bebas keluarga berbeza (Claude) **LULUS** — 4 semakan keselamatan (editor tidak lemahkan pengesahan, tidak boleh dipandu asal jauh, tidak hilang tarikh senyap, amaran tidak boleh "selamat" palsu) semua PASS; 1 pembetulan UX (suntingan dikekalkan pada simpan gagal) digunakan. Tiada suis/tetapan diubah, tiada kehadiran/login/registry disentuh |
 | 20 September 2026 | 1.11.3 | Tambah **vault kredensial idMe tempatan + log masuk idMe automatik opt-in** (`loginAuto`, lalai MATI, berasingan daripada `autoMulaGiliran`). `src/kredensial.mjs` menyimpan (pengguna + kata laluan + frasa "Kata Kunci Keselamatan") dalam `kredensial.dat` disulit DPAPI CurrentUser (corak sama `simpanan.mjs`: tulis atomik + ACL icacls, gagal tertutup tanpa fallback teks biasa); `status()` hanya boolean + pengguna tersamar `X***`; tiada nilai dalam env/CLI/log/respons. `src/moeis/login-auto.mjs` menaip kredensial **hanya** selepas frasa anti-pancing padan + tiada CAPTCHA/OTP + had 2 cubaan/proses (backoff); OTP/CAPTCHA/2FA berhenti `perluManusia:true` tanpa pintas. Endpoint `/api/lokal/kredensial*` (nonce+loopback sahaja), UI tempatan dengan medan `type=password` tanpa gema nilai, orkestrasi startup (selepas bind: loginAuto ON + kredensial + sesi tidak sah → SATU cubaan, kemudian auto-mula giliran dinilai). `keupayaan.mjs` kini JUJUR `automatik:true, mod:'automatik-optin'` (belum disahkan hidup). Dakwaan lama "companion tidak pernah menyimpan kata laluan" DIBUANG daripada BLUEPRINT. Artifak bina tidak menyertakan `kredensial.dat` | Ujian: `node --test companion/tests/*.test.mjs` 177 ujian — 175 lulus, 2 dilangkau, 0 gagal; `node tests/hadir.test.cjs` 23/23; `node companion/tests/asap-e2e.mjs` 51/52 (1 gagal lingkungan sedia ada: entri HKCU autostart memang sudah didaftar pada mesin ini). Semakan bebas keluarga berbeza (Claude) atas pengendalian kredensial — lihat lampiran. Tiada log masuk hidup, tiada kredensial sebenar, tiada registry/kehadiran disentuh |

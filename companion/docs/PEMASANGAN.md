@@ -145,6 +145,27 @@ tertutup** (tidak memproses apa-apa) pada hari yang tidak lagi dilindungi
 allowlist. Tambah tarikh baharu dan tekan **Simpan kalendar** sebelum hari itu
 untuk mengekalkan auto-mula berjalan.
 
+### Pemulihan giliran auto (bounded, tidak melonggarkan pengawal)
+
+Jika auto-mula startup gagal (cth sesi idMe tidak sah semasa bind loopback)
+tetapi suis `autoMulaGiliran` masih ON, companion memasang gelung pemulihan
+(`pasangPemulihanAutoMula`, `src/orchestrasi-auto.mjs`) — lalai setiap 5
+minit, unref (tidak menahan proses daripada keluar). Setiap kitaran:
+
+- Berhenti serta-merta jika suis `autoMulaGiliran` dimatikan, ATAU jika
+  giliran sudah aktif (cth admin menekan **Mula** secara manual).
+- Jika tidak, cuba log masuk automatik job-time (`cubaLoginAutoKerja` —
+  cache-sahaja, terikat had 2 cubaan sedia ada; no-op jika sesi cache sudah
+  sah), kemudian panggil semula `cubaAutoMula` PENUH — menilai semula SEMUA
+  pengawal (kalendar, hujung minggu, kesegaran tugasan, sempadan aktivasi)
+  daripada awal. Tiada pengawal dilonggarkan untuk laluan pemulihan ini.
+- Berhenti sebaik giliran bermula.
+
+`sesiDisahkan` yang disuntik ke `cubaAutoMula` dalam gelung ini ialah
+`sesiKerjaDisahkan` (cache-sahaja) — BUKAN semakan startup yang boleh
+melancarkan pelayar sendiri — supaya gelung pemulihan tidak menjadi laluan
+kedua yang membuka Edge tanpa sebab.
+
 ### Tiada cubaan semula automatik
 
 - Tiada cubaan semula automatik untuk `gagal`, `tersimpan`, `sedang_dihantar`,
@@ -179,15 +200,34 @@ atau padam fail `kredensial.dat` dalam folder data (`node bin/hadir-companion.mj
 memaparkan laluan folder data). Tiada salinan di mana-mana: tiada dalam Git,
 artifak bina, log, env var atau baris arahan.
 
+**Aliran DUA PERINGKAT idMe (diperbetulkan 21 Sept 2026):** idMe memaparkan
+medan IC pada halaman log masuk; frasa "Kata Kunci Keselamatan" hanya muncul
+**selepas** IC dihantar, pada halaman pengesahan (`/loginverification`),
+bersama kotak semak "Ya, ini adalah Kata Kunci Keselamatan saya." yang tidak
+ditanda — medan kata laluan tersembunyi sehingga kotak itu ditanda. Companion
+mengikut urutan: isi IC → lanjut ke halaman pengesahan → **baca frasa di
+situ** → jika padan, tandakan kotak semak → isi kata laluan → hantar.
+
 **Had & pengawal (gagal tertutup):**
 
-- Log masuk automatik menaip kredensial **hanya** selepas frasa "Kata Kunci
-  Keselamatan" pada halaman idMe **padan** dengan yang disimpan (tidak padan =
-  abort, tiada menaip, `perluManusia:true`); CAPTCHA/OTP/2FA **tidak pernah
+- Log masuk automatik menaip **kata laluan** hanya selepas frasa "Kata Kunci
+  Keselamatan" (dibaca pada halaman pengesahan, BUKAN halaman IC) **padan**
+  dengan yang disimpan DAN kotak semak ditanda. Keputusan frasa membezakan
+  DUA kegagalan jujur, bukan satu: **tidak padan** (dibaca tetapi berbeza —
+  kemungkinan pancingan sebenar, status `kunci-tidak-padan`) berbeza daripada
+  **tidak dapat dibaca** (frasa kosong/tiada sebagai teks, kemungkinan
+  dipaparkan sebagai imej, status `kunci-tiada`) — kedua-duanya ABORT dengan
+  `perluManusia:true`, TIADA kotak semak ditanda, TIADA kata laluan ditaip,
+  tetapi mesejnya tidak disamakan supaya pemilik tahu punca sebenar. IC ditaip
+  lebih awal (sebelum frasa dibaca) kerana idMe memerlukannya untuk memaparkan
+  frasa — ini bukan pelemahan anti-pancing (frasa tetap satu-satunya pengawal
+  yang membenarkan kata laluan ditaip). CAPTCHA/OTP/2FA **tidak pernah
   dipintas** (berhenti `perluManusia:true`); maks **2 cubaan automatik per
   proses** dengan backoff (perlindungan kunci akaun), selepas itu manusia.
-- Aliran automatik **belum disahkan terhadap idMe hidup**; pengesahan hidup
-  dilakukan kemudian dengan kehadiran pemilik.
+- Aliran automatik **belum disahkan terhadap idMe hidup**; selektor DOM
+  peringkat pengesahan (butang lanjut/seterusnya, label kotak semak, dan sama
+  ada frasa sebenarnya dipaparkan sebagai imej) kekal **andaian belum
+  terbukti**. Pengesahan hidup dilakukan kemudian dengan kehadiran pemilik.
 - DPAPI `CurrentUser` bermakna hanya akaun Windows yang sama boleh nyahsulit;
   DPAPI tidak melindungi daripada proses lain yang berjalan sebagai pengguna
   yang sama (lihat model ancaman dalam `BLUEPRINT.md`).

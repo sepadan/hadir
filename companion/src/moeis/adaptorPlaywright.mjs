@@ -79,17 +79,51 @@ export function buatAdaptorPlaywright(page) {
     },
     // Kunci keselamatan anti-pancing idMe: cuba beberapa selektor teks yang
     // munasabah; jika tiada satu pun ditemui, pulangkan null (JANGAN gagal
-    // keras — sesi.mjs melaporkan status kunci:'tiada' dalam kes ini).
+    // keras — login-auto.mjs/sesi.mjs melaporkan status kunci:'tiada'/
+    // 'kunci-tiada' dalam kes ini, BUKAN 'kunci-tidak-padan').
+    // Kes IMEJ: jika label "Kata Kunci Keselamatan" wujud tetapi kontena tidak
+    // membawa nilai teks (frasa dipaparkan sebagai <img> sahaja — kemungkinan
+    // sebenar pada idMe yang belum disahkan hidup), `teks` akan kosong dan
+    // fungsi ini turut memulangkan null dengan sengaja — pemanggil tidak
+    // boleh mengagak nilai imej, jadi ia melaporkan 'kunci-tiada' dengan jujur
+    // dan bukan mereka-reka padanan.
+    // BELUM disahkan hidup — larangan keras brief; hanya dijalankan di sini,
+    // tidak pernah dilog nilai.
     async bacaKunciKeselamatan() {
       return page.evaluate(() => {
         var petunjuk = /kunci keselamatan|security phrase|security key|frasa keselamatan/i;
-        var kontena = Array.from(document.querySelectorAll('body *')).find(function (el) {
-          return el.children.length <= 2 && petunjuk.test(el.textContent || '');
+
+        // 1) Selektor kelas khusus (jika idMe menggunakan salah satu nama
+        //    biasa ini) — diterima HANYA jika teksnya sendiri BUKAN label
+        //    (elak memadankan tajuk "Kata Kunci Keselamatan" sebagai frasa).
+        var kotakKhusus = document.querySelector('.security-phrase, .kunci-keselamatan, .kata-kunci-box');
+        if (kotakKhusus) {
+          var teksKhusus = (kotakKhusus.textContent || '').trim();
+          if (teksKhusus && !petunjuk.test(teksKhusus)) return teksKhusus;
+        }
+
+        // 2) Heuristik am: cari label/tajuk PENDEK (tiada anak elemen) yang
+        //    memadankan petunjuk, kemudian ambil ELEMEN SELEPAS TERUS
+        //    (nextElementSibling) sebagai kotak frasa — corak paparan biasa
+        //    "tajuk" diikuti "nilai" dalam blok berasingan. PENTING: jangan
+        //    sekali-kali kembalikan teks label itu sendiri (pepijat lama:
+        //    kontena <=2 anak sering ialah label, bukan kotak frasa, dan
+        //    replace() separa pada label menghasilkan serpihan palsu cth
+        //    "Kata"). Jika elemen selepas terus ialah <img> (tiada teks) atau
+        //    tiada langsung, JANGAN mengagak/OCR — pulangkan null dengan
+        //    jujur supaya pemanggil melaporkan 'kunci-tiada', bukan fabrikasi.
+        var calon = Array.from(document.querySelectorAll('body *')).filter(function (el) {
+          var teks = (el.textContent || '').trim();
+          return el.children.length === 0 && teks.length > 0 && teks.length <= 80 && petunjuk.test(teks);
         });
-        if (!kontena) return null;
-        var teksNode = kontena.querySelector('b, strong, span, .security-phrase, .kunci-keselamatan') || kontena;
-        var teks = (teksNode.textContent || '').replace(petunjuk, '').trim();
-        return teks || null;
+        for (var i = 0; i < calon.length; i++) {
+          var label = calon[i];
+          var kotakFrasa = label.nextElementSibling;
+          if (!kotakFrasa || kotakFrasa.tagName === 'INPUT' || kotakFrasa.tagName === 'LABEL') continue;
+          var teksFrasa = (kotakFrasa.textContent || '').trim();
+          if (teksFrasa && !petunjuk.test(teksFrasa)) return teksFrasa;
+        }
+        return null;
       }).catch(() => null);
     },
     async semakCaptchaOtp() {
@@ -107,17 +141,98 @@ export function buatAdaptorPlaywright(page) {
       await page.goto(URL_LOGIN_IDME, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await jeda(4000);
     },
-    async isiBorangLogMasuk(pengguna, kataLaluan) {
+    // Isi medan IC (pengguna) SAHAJA pada halaman log masuk idMe. idMe
+    // memerlukan IC dahulu untuk memaparkan frasa "Kata Kunci Keselamatan" —
+    // medan kata laluan belum wujud pada peringkat ini.
+    // BELUM disahkan hidup — larangan keras brief; hanya dijalankan di sini,
+    // tidak pernah dilog nilai.
+    async isiPenggunaIdMe(pengguna) {
       const pilihanPengguna = [
-        'input[name="username"]', 'input[name="id"]', 'input[type="text"]',
-        'input[placeholder*="pengenalan" i]', 'input[placeholder*="IC" i]'
+        'input[placeholder*="KAD PENGENALAN" i]', 'input[placeholder*="pengenalan" i]',
+        'input[name*="pengenalan" i]', 'input[name*="ic" i]',
+        'input[name="username"]', 'input[type="text"]'
       ];
-      const pilihanKataLaluan = ['input[type="password"]', 'input[name="password"]', 'input[name="kata" i]'];
       await page.locator(pilihanPengguna.join(', ')).first().fill(pengguna);
+    },
+    // Tekan butang lanjut/seterusnya pada halaman IC, kemudian tunggu halaman
+    // pengesahan (/loginverification) — dikesan melalui laluan URL ATAU
+    // kehadiran frasa/kotak semak kunci keselamatan. TIDAK sama dengan
+    // hantarBorangLogMasuk() (butang "Daftar Masuk" berlainan, pada halaman
+    // berlainan).
+    // BELUM disahkan hidup — larangan keras brief; hanya dijalankan di sini,
+    // tidak pernah dilog nilai.
+    async lanjutkanPengesahan() {
+      const pilihanButang = [
+        'button:has-text("Seterusnya")', 'button:has-text("Teruskan")',
+        'button:has-text("Continue")', 'button:has-text("Next")',
+        'button[type="submit"]', 'input[type="submit"]'
+      ];
+      try {
+        await page.locator(pilihanButang.join(', ')).first().click();
+      } catch (ralat) {
+        return { ok: false, sebab: 'Tidak dapat menekan butang lanjut/seterusnya pada halaman IC idMe: ' + ralat.message };
+      }
+      // Playwright: waitForFunction(pageFunction, arg, options) — `arg` (kedua)
+      // MESTI undefined di sini supaya { timeout } jatuh pada `options` (ketiga),
+      // bukan senyap diabaikan sebagai `arg`.
+      const jumpaVerifikasi = await page.waitForFunction(() => {
+        const laluanSepadan = /\/loginverification/i.test(location.pathname);
+        const adaFrasaAtauKotak = !!document.querySelector('input[type=checkbox]') ||
+          /kata kunci keselamatan/i.test(document.body ? document.body.textContent || '' : '');
+        return laluanSepadan || adaFrasaAtauKotak;
+      }, undefined, { timeout: 15000 }).then(() => true).catch(() => false);
+      if (!jumpaVerifikasi) {
+        return { ok: false, sebab: 'Halaman pengesahan (/loginverification) tidak muncul selepas mengisi IC dalam masa dijangka.' };
+      }
+      return { ok: true };
+    },
+    // Tandakan kotak semak "Ya, ini adalah Kata Kunci Keselamatan saya." —
+    // mendedahkan medan kata laluan yang sebelum ini tersembunyi. Hanya
+    // dipanggil SELEPAS frasa disahkan padan (lihat login-auto.mjs).
+    //
+    // Fail tertutup dengan sengaja (TIADA fallback kepada kotak semak
+    // sewenang-wenangnya): jika label pengesahan khusus ini tidak ditemui,
+    // pulangkan `false` tanpa mengklik apa-apa — mengklik kotak salah pada
+    // halaman tidak dikenali lebih berbahaya daripada tidak mengklik langsung.
+    // Idempotent: hanya `.click()` jika belum ditanda (mengklik kotak yang
+    // sudah ditanda akan MENYAHTANDA dan menyembunyikan semula kata laluan).
+    // Selepas ditanda, SAHKAN medan kata laluan benar-benar kelihatan/aktif
+    // sebelum memulangkan `true` — pendedahan mungkin async (animasi/render).
+    // BELUM disahkan hidup — larangan keras brief; hanya dijalankan di sini,
+    // tidak pernah dilog nilai.
+    async tandakanKunciKeselamatan() {
+      const kotakSedia = await page.evaluate(() => {
+        var petunjuk = /kata kunci keselamatan/i;
+        var label = Array.from(document.querySelectorAll('label')).find(function (l) {
+          return petunjuk.test(l.textContent || '');
+        });
+        if (!label) return false;
+        var kotak = label.querySelector('input[type=checkbox]') ||
+          (label.htmlFor && document.getElementById(label.htmlFor)) ||
+          (label.closest('div') && label.closest('div').querySelector('input[type=checkbox]'));
+        if (!kotak) return false;
+        if (!kotak.checked) kotak.click();
+        return true;
+      }).catch(() => false);
+      if (!kotakSedia) return false;
+      // waitForFunction(pageFunction, arg, options) — `undefined` di kedudukan
+      // `arg` supaya { timeout } jatuh pada `options`.
+      return page.waitForFunction(() => {
+        var pwd = document.querySelector('input[type=password]');
+        return !!pwd && !pwd.disabled && pwd.offsetParent !== null;
+      }, undefined, { timeout: 5000 }).then(() => true).catch(() => false);
+    },
+    // Isi kata laluan — hanya wujud SELEPAS tandakanKunciKeselamatan().
+    // BELUM disahkan hidup — larangan keras brief; hanya dijalankan di sini,
+    // tidak pernah dilog nilai.
+    async isiKataLaluanIdMe(kataLaluan) {
+      const pilihanKataLaluan = ['input[type="password"]', 'input[name*="kata" i]', 'input[name="password"]'];
       await page.locator(pilihanKataLaluan.join(', ')).first().fill(kataLaluan);
     },
+    // Hantar borang log masuk ("Daftar Masuk") pada halaman pengesahan —
+    // selektor berlainan daripada lanjutkanPengesahan() dengan sengaja.
     async hantarBorangLogMasuk() {
-      const pilihan = ['button[type="submit"]', 'input[type="submit"]', 'button.btn-login'];
+      const pilihan = ['button:has-text("Daftar Masuk")', 'button[type="submit"]', 'input[type="submit"]', 'button.btn-login'];
       await page.locator(pilihan.join(', ')).first().click();
       await jeda(5000);
     },
@@ -264,10 +379,12 @@ export function buatAdaptorPlaywright(page) {
       await page.locator('.sweet-alert:visible button.simpansah').click();
     },
     async dialogBerjayaKelihatan() {
+      // waitForFunction(pageFunction, arg, options) — `undefined` mesti hadir
+      // sebagai `arg` supaya { timeout } tidak silap dianggap sebagai `arg`.
       return page.waitForFunction(() => {
         const e = document.querySelector('.sweet-alert h2');
         return e && e.textContent.trim() === 'Berjaya.';
-      }, { timeout: 30000 }).then(() => true).catch(() => false);
+      }, undefined, { timeout: 30000 }).then(() => true).catch(() => false);
     },
     async muatSemula() {
       await page.reload({ waitUntil: 'domcontentloaded' });

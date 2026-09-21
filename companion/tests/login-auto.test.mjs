@@ -8,12 +8,15 @@ import { buatHalamanLoginPalsu, KREDENSIAL_PALSU } from './fixtures/halamanPalsu
 
 const KRED = { ...KREDENSIAL_PALSU };
 
-test('frasa kunci keselamatan TIDAK padan -> abort SEBELUM menaip apa-apa', async () => {
+test('frasa kunci keselamatan TIDAK padan -> abort SEBELUM menaip kata laluan', async () => {
   const adapter = buatHalamanLoginPalsu({ kunciHalaman: 'FRASA-LAIN-BERBEZA' });
   const hasil = await jalankanLoginAuto(adapter, { ...KRED, kunciKeselamatan: 'FRASA-CONTOH-SELAMAT' });
   assert.equal(hasil.status, 'kunci-tidak-padan');
   assert.equal(hasil.perluManusia, true);
-  assert.equal(adapter._panggilan.includes('isiBorangLogMasuk'), false, 'tidak boleh menaip jika frasa tidak padan');
+  // IC boleh ditaip (perkara biasa — idMe memerlukannya untuk memaparkan
+  // frasa), tetapi kotak semak dan kata laluan TIDAK PERNAH disentuh.
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), false, 'kotak semak tidak boleh ditanda jika frasa tidak padan');
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false, 'tidak boleh menaip kata laluan jika frasa tidak padan');
   assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false);
 });
 
@@ -22,7 +25,8 @@ test('CAPTCHA/OTP dikesan SEBELUM menaip -> perlu-manusia, tiada cubaan', async 
   const hasil = await jalankanLoginAuto(adapter, KRED);
   assert.equal(hasil.status, 'perlu-manusia');
   assert.equal(hasil.perluManusia, true);
-  assert.equal(adapter._panggilan.includes('isiBorangLogMasuk'), false);
+  assert.equal(adapter._panggilan.includes('isiPenggunaIdMe'), false);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false);
   assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false);
 });
 
@@ -31,7 +35,7 @@ test('OTP/2FA selepas hantar -> berhenti perlu-manusia (tidak pernah memintas)',
   const hasil = await jalankanLoginAuto(adapter, KRED);
   assert.equal(hasil.status, 'perlu-manusia');
   assert.equal(hasil.perluManusia, true);
-  assert.equal(adapter._panggilan.includes('isiBorangLogMasuk'), true, 'sempat menaip sebelum OTP dikesan');
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), true, 'sempat menaip kata laluan sebelum OTP dikesan');
   assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), true);
   assert.equal(adapter._panggilan.includes('sahkanSesiSelepasLogin'), false, 'tidak boleh meneruskan selepas OTP');
 });
@@ -40,7 +44,7 @@ test('hos bukan idMe -> hos-tidak-sah, tiada menaip', async () => {
   const adapter = buatHalamanLoginPalsu({ urlAwal: 'https://jahat.invalid/' });
   const hasil = await jalankanLoginAuto(adapter, KRED);
   assert.equal(hasil.status, 'hos-tidak-sah');
-  assert.equal(adapter._panggilan.includes('isiBorangLogMasuk'), false);
+  assert.equal(adapter._panggilan.includes('isiPenggunaIdMe'), false);
 });
 
 test('frasa padan + tiada CAPTCHA/OTP -> isi, hantar, sesi-sah', async () => {
@@ -48,21 +52,85 @@ test('frasa padan + tiada CAPTCHA/OTP -> isi, hantar, sesi-sah', async () => {
   const hasil = await jalankanLoginAuto(adapter, KRED);
   assert.equal(hasil.status, 'sesi-sah');
   assert.equal(hasil.perluManusia, false);
-  assert.equal(adapter._panggilan.includes('isiBorangLogMasuk'), true);
+  assert.equal(adapter._panggilan.includes('isiPenggunaIdMe'), true);
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), true);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), true);
   assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), true);
 });
 
-test('kunci kosong: frasa disimpan kosong -> tiada-kredensial; frasa halaman kosong -> kunci-tidak-padan', async () => {
+test('kunci kosong: frasa disimpan kosong -> tiada-kredensial; frasa halaman tidak dapat dibaca -> kunci-tiada (BUKAN kunci-tidak-padan)', async () => {
   // Frasa disimpan kosong: fail-closed di lapisan pengawal kredensial.
   let adapter = buatHalamanLoginPalsu();
   let hasil = await jalankanLoginAuto(adapter, { ...KRED, kunciKeselamatan: '' });
   assert.equal(hasil.status, 'tiada-kredensial');
-  assert.equal(adapter._panggilan.includes('isiBorangLogMasuk'), false);
-  // Frasa halaman kosong (disimpan tidak kosong): tidak padan -> abort.
+  assert.equal(adapter._panggilan.includes('isiPenggunaIdMe'), false);
+  // Frasa halaman tidak dapat dibaca sebagai teks (disimpan tidak kosong):
+  // ini ialah 'kunci-tiada' (kejujuran: "tidak dapat dibaca", bukan "tidak
+  // padan") — status berasingan daripada 'kunci-tidak-padan'.
   adapter = buatHalamanLoginPalsu({ kunciHalaman: '' });
   hasil = await jalankanLoginAuto(adapter, KRED);
-  assert.equal(hasil.status, 'kunci-tidak-padan');
-  assert.equal(adapter._panggilan.includes('isiBorangLogMasuk'), false);
+  assert.equal(hasil.status, 'kunci-tiada');
+  assert.notEqual(hasil.status, 'kunci-tidak-padan');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), false);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false);
+});
+
+test('REGRESI: bacaKunciKeselamatan dipanggil HANYA SELEPAS lanjutkanPengesahan (frasa tiada pada halaman IC)', async () => {
+  // Pepijat asal: kod lama membaca frasa SEBELUM menghantar IC, pada halaman
+  // yang tidak pernah memaparkan frasa itu — sentiasa null, runtuh menjadi
+  // 'kunci-tidak-padan' yang mengelirukan. Aliran betul mesti menghantar IC
+  // dan sampai ke /loginverification dahulu.
+  const adapter = buatHalamanLoginPalsu();
+  await jalankanLoginAuto(adapter, KRED);
+  const iLanjut = adapter._panggilan.indexOf('lanjutkanPengesahan');
+  const iBaca = adapter._panggilan.indexOf('bacaKunciKeselamatan');
+  assert.notEqual(iLanjut, -1, 'lanjutkanPengesahan mesti dipanggil');
+  assert.notEqual(iBaca, -1, 'bacaKunciKeselamatan mesti dipanggil');
+  assert.ok(iBaca > iLanjut, 'bacaKunciKeselamatan mesti selepas lanjutkanPengesahan (bukan sebelum)');
+});
+
+test('kata laluan digerbang oleh kotak semak: urutan tepat lanjutkanPengesahan -> tandakanKunciKeselamatan -> isiKataLaluanIdMe -> hantarBorangLogMasuk', async () => {
+  const adapter = buatHalamanLoginPalsu();
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'sesi-sah');
+  const iLanjut = adapter._panggilan.indexOf('lanjutkanPengesahan');
+  const iKotak = adapter._panggilan.indexOf('tandakanKunciKeselamatan');
+  const iKataLaluan = adapter._panggilan.indexOf('isiKataLaluanIdMe');
+  const iHantar = adapter._panggilan.indexOf('hantarBorangLogMasuk');
+  assert.ok(iLanjut < iKotak, 'lanjutkanPengesahan sebelum tandakanKunciKeselamatan');
+  assert.ok(iKotak < iKataLaluan, 'kotak semak ditanda SEBELUM kata laluan ditaip');
+  assert.ok(iKataLaluan < iHantar, 'kata laluan ditaip sebelum hantar');
+  assert.equal(adapter._kotakSemak, true);
+});
+
+test('kunci-tiada: frasa null (mungkin imej kunciAdaImej:true) -> perlu-manusia, tiada kotak semak, tiada kata laluan', async () => {
+  const adapter = buatHalamanLoginPalsu({ kunciAdaImej: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'kunci-tiada');
+  assert.equal(hasil.perluManusia, true);
+  assert.notEqual(hasil.status, 'kunci-tidak-padan');
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), false);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false);
+  assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false);
+});
+
+test('laluan penuh berjaya: urutan lengkap navigasi -> IC -> lanjut -> baca kunci -> kotak semak -> kata laluan -> hantar -> sesi-sah', async () => {
+  const adapter = buatHalamanLoginPalsu();
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'sesi-sah');
+  assert.equal(hasil.perluManusia, false);
+  const bukanCaptcha = adapter._panggilan.filter((p) => p !== 'semakCaptchaOtp' && p !== 'urlHalaman');
+  assert.deepEqual(bukanCaptcha, [
+    'navigasiLoginIdMe',
+    'isiPenggunaIdMe',
+    'lanjutkanPengesahan',
+    'bacaKunciKeselamatan',
+    'tandakanKunciKeselamatan',
+    'isiKataLaluanIdMe',
+    'hantarBorangLogMasuk',
+    'sahkanSesiSelepasLogin'
+  ]);
 });
 
 test('hasil login-auto TIDAK PERNAH mengandungi nilai kredensial (tiada rahsia dalam respons/log)', async () => {
@@ -216,6 +284,8 @@ test('ayatLoginAuto: ayat mengikut keutamaan yang didokumenkan', () => {
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'sesi-sah' }), /Berjaya/);
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'had-cubaan' }), /Had cubaan dicapai/);
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'perlu-manusia', sebab: 'OTP dikesan' }), /Perlu manusia/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kunci-tidak-padan' }), /frasa keselamatan tidak padan/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kunci-tiada' }), /tidak dapat dibaca/);
 });
 
 test('snapshotLoginAutoStatus: menggabungkan tetapan + status semasa + ayat', () => {

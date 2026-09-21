@@ -7,10 +7,26 @@
 //   2. Kredensial idMe wujud dalam vault DPAPI tempatan.
 //   3. Sesi belum sah (kalau sudah sah, tiada log masuk diperlukan).
 //   4. Frasa "Kata Kunci Keselamatan" pada halaman idMe SEBENAR PADAN dengan
-//      frasa yang disimpan — anti-pancing. Tidak padan = ABORT, TIADA menaip.
+//      frasa yang disimpan — anti-pancing. Tidak padan/tidak dapat dibaca =
+//      ABORT, TIADA kotak semak ditekan, TIADA kata laluan ditaip.
 //   5. CAPTCHA/OTP/2FA TIDAK dikesan sebelum menaip ATAU selepas hantar —
 //      jika dikesan, berhenti dengan perluManusia:true, TIADA cubaan semula.
 //   6. Had 2 cubaan automatik sepanjang hayat proses (perlindungan kunci akaun).
+//
+// ALIRAN DUA PERINGKAT idMe SEBENAR (diperbetulkan — lihat BLUEPRINT.md):
+//   1. Halaman log masuk: hanya medan IC (pengguna) wujud. Frasa "Kata Kunci
+//      Keselamatan" TIDAK dipaparkan di sini.
+//   2. Selepas IC dihantar, idMe membawa ke /loginverification: frasa
+//      dipaparkan bersama kotak semak "Ya, ini adalah Kata Kunci Keselamatan
+//      saya." yang TIDAK ditanda; medan kata laluan tersembunyi sehingga
+//      kotak itu ditanda.
+// INVARIAN KESELAMATAN (dikemas kini, dinyatakan jujur): KATA LALUAN hanya
+// pernah ditaip SELEPAS (a) frasa dibaca pada /loginverification dan PADAN
+// dengan yang disimpan, DAN (b) kotak semak ditanda. IC ditaip LEBIH AWAL
+// (sebelum frasa dibaca) kerana idMe memerlukannya untuk memaparkan frasa itu
+// — ini bukan pelemahan anti-pancing: frasa masih satu-satunya pengawal yang
+// membenarkan kata laluan ditaip, dan IC sahaja (tanpa kata laluan) tidak
+// memberi penyerang apa-apa yang berguna pada halaman pancingan.
 //
 // INVARIAN: tiada nilai kredensial (pengguna/kata laluan/frasa) pernah muncul
 // dalam keputusan pulangan, log, atau mesej ralat. Keputusan hanya membawa
@@ -63,23 +79,61 @@ export async function jalankanLoginAuto(adapter, kredensial) {
     };
   }
 
-  // 4. Frasa kunci keselamatan anti-pancing. Tidak padan (atau kosong) = ABORT
-  //    SEBELUM menaip kata laluan.
+  // 4. Isi IC (pengguna) SAHAJA — idMe memerlukan IC dahulu untuk memaparkan
+  //    frasa "Kata Kunci Keselamatan" pada /loginverification. Kata laluan
+  //    TIDAK ditaip di sini; medan itu belum wujud pada peringkat ini.
+  await adapter.isiPenggunaIdMe(pengguna);
+
+  // 5. Lanjutkan ke halaman pengesahan (/loginverification). Jika halaman itu
+  //    tidak muncul, berhenti — jangan cuba baca frasa pada halaman yang salah.
+  const lanjut = await adapter.lanjutkanPengesahan();
+  if (!lanjut || lanjut.ok !== true) {
+    return {
+      status: 'perlu-manusia', perluManusia: true,
+      sebab: (lanjut && lanjut.sebab) ||
+        'Tidak dapat meneruskan ke halaman pengesahan idMe selepas mengisi IC; log masuk manual diperlukan.',
+      bukti: ['lanjut-pengesahan-gagal']
+    };
+  }
+
+  // 6. Baca frasa kunci keselamatan SEKARANG (hanya wujud pada halaman
+  //    pengesahan, bukan pada halaman IC).
   const kunciSebenar = await adapter.bacaKunciKeselamatan();
-  const padan = kunciSebenar != null && String(kunciSebenar) !== '' && String(kunciSebenar) === kunciDijangka;
-  if (!padan) {
+
+  // 7. Keputusan frasa — TIGA status jujur berasingan (jangan sekali-kali
+  //    kelirukan "tidak dapat dibaca" dengan "tidak padan"):
+  //      - kosong/null (tidak dapat dibaca sebagai teks, mungkin imej) ->
+  //        'kunci-tiada', ABORT, tiada kotak semak, tiada kata laluan.
+  //      - dibaca tetapi berbeza -> 'kunci-tidak-padan' (pancingan sebenar),
+  //        ABORT, tiada kotak semak, tiada kata laluan.
+  //      - dibaca dan padan -> teruskan.
+  if (kunciSebenar == null || String(kunciSebenar) === '') {
+    return {
+      status: 'kunci-tiada', perluManusia: true,
+      sebab: 'Frasa "Kata Kunci Keselamatan" tidak dapat dibaca sebagai teks (mungkin imej); log masuk manual diperlukan.',
+      bukti: ['kunci-tiada']
+    };
+  }
+  if (String(kunciSebenar) !== kunciDijangka) {
     return {
       status: 'kunci-tidak-padan', perluManusia: true,
-      sebab: 'Frasa "Kata Kunci Keselamatan" idMe pada halaman tidak padan dengan yang disimpan. Kemungkinan halaman pancingan; tiada kredensial ditaip.',
+      sebab: 'Frasa "Kata Kunci Keselamatan" idMe pada halaman tidak padan dengan yang disimpan. Kemungkinan halaman pancingan; tiada kotak semak ditekan, tiada kata laluan ditaip.',
       bukti: ['kunci-tidak-padan']
     };
   }
 
-  // 5. Isi pengguna + kata laluan melalui enjin pelayar, kemudian hantar.
-  await adapter.isiBorangLogMasuk(pengguna, kataLaluan);
+  // 8. Frasa padan: tandakan kotak semak "Kata Kunci Keselamatan" — ini
+  //    mendedahkan medan kata laluan yang sebelum ini tersembunyi.
+  await adapter.tandakanKunciKeselamatan();
+
+  // 9. Isi kata laluan — HANYA SEKARANG, selepas frasa padan DAN kotak semak
+  //    ditanda (invarian keselamatan, lihat komen fail di atas).
+  await adapter.isiKataLaluanIdMe(kataLaluan);
+
+  // 10. Hantar borang ("Daftar Masuk").
   await adapter.hantarBorangLogMasuk();
 
-  // 6. Langkah kedua (OTP/CAPTCHA/2FA) selepas hantar: JANGAN pintas.
+  // 11. Langkah kedua (OTP/CAPTCHA/2FA) selepas hantar: JANGAN pintas.
   const langkah2 = await adapter.semakCaptchaOtp();
   if (langkah2) {
     return {
@@ -89,7 +143,7 @@ export async function jalankanLoginAuto(adapter, kredensial) {
     };
   }
 
-  // 7. Sahkan sesi terhasil.
+  // 12. Sahkan sesi terhasil.
   const sesi = await adapter.sahkanSesiSelepasLogin();
   if (sesi && sesi.status === 'sesi-sah') {
     return { status: 'sesi-sah', perluManusia: false, sebab: 'Log masuk idMe automatik berjaya.', bukti: ['sesi-sah'] };
@@ -223,6 +277,7 @@ export function ayatLoginAuto(st) {
   if (st.hasilTerakhir === 'had-cubaan') return 'Had cubaan dicapai — log masuk manusia diperlukan.';
   if (st.hasilTerakhir === 'perlu-manusia') return 'Perlu manusia: ' + (st.sebab || 'langkah kedua (OTP/CAPTCHA/2FA) atau semakan manual.');
   if (st.hasilTerakhir === 'kunci-tidak-padan') return 'Perlu manusia: frasa keselamatan tidak padan — tiada kredensial ditaip.';
+  if (st.hasilTerakhir === 'kunci-tiada') return 'Perlu manusia: frasa keselamatan tidak dapat dibaca (mungkin imej) — log masuk manual diperlukan.';
   if (st.hasilTerakhir === 'hos-tidak-sah') return 'Perlu manusia: hos idMe tidak sah — tiada kredensial ditaip.';
   return st.sebab || 'Belum dinilai.';
 }

@@ -38,6 +38,16 @@ function asasHariSekolah(tetapan, sekarangMs) {
   return { boleh: true, sebab: 'Hari sekolah dibenarkan.', ...waktu };
 }
 
+// Pengawal hari sekolah SAHAJA (kalendar allowlist + hujung minggu), tanpa
+// pengawal sesi/klaim/rahsia — untuk pemanggil yang perlu menyemak "bolehkah
+// hari ini" secara berasingan SEBELUM mencuba log masuk automatik (cth
+// pasangPemulihanAutoMula dalam orchestrasi-auto.mjs, supaya log masuk
+// automatik tidak dicuba pada hari yang tidak dibenarkan sama sekali).
+// Fungsi TULEN — bungkusan nipis atas asasHariSekolah sedia ada.
+export function bolehHariSekolah({ tetapan, sekarangMs }) {
+  return asasHariSekolah(tetapan, sekarangMs);
+}
+
 export function bolehAutoMula({ tetapan, sekarangMs, sempadanProsesMs, sesiAda, klaimDisokong, rahsiaEnjinAda }) {
   if (!tetapan || tetapan.autoMulaGiliran !== true) {
     return { boleh: false, sebab: 'Auto-mula giliran dimatikan (lalai).' };
