@@ -336,7 +336,7 @@ function storanKadarPalsu() {
   };
 }
 
-test('pengurus + hadKadar: cubaan ke-3 disekat sebagai had-kadar (bukan had-cubaan)', async () => {
+test('pengurus + hadKadar: 3 kegagalan berturut-turut disekat sebagai had-kegagalan-berturut', async () => {
   const storan = storanKadarPalsu();
   const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
   let panggil = 0;
@@ -348,11 +348,34 @@ test('pengurus + hadKadar: cubaan ke-3 disekat sebagai had-kadar (bukan had-cuba
   });
   await pengurus.cubaAuto();
   await pengurus.cubaAuto();
-  const ketiga = await pengurus.cubaAuto();
-  assert.equal(panggil, 2, 'jalankan mesti dipanggil tepat 2 kali');
-  assert.equal(ketiga.status, 'had-kadar');
-  assert.equal(ketiga.perluManusia, true);
-  assert.equal(pengurus.bilCubaan(), 2, 'bilCubaan mesti melaporkan bilangan dalam tetingkap kadar');
+  await pengurus.cubaAuto();
+  const keempat = await pengurus.cubaAuto();
+  assert.equal(panggil, 3, 'jalankan mesti dipanggil tepat 3 kali (3 kegagalan berturut-turut)');
+  assert.equal(keempat.status, 'had-kegagalan-berturut');
+  assert.equal(keempat.perluManusia, true);
+  assert.equal(pengurus.bilCubaan(), 3, 'bilCubaan mesti melaporkan bilangan dalam tetingkap sejam');
+});
+
+test('pengurus + hadKadar: had 6/jam disekat sebagai had-kadar apabila tiada kegagalan berturut-turut', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  // Pra-isi tetingkap sejam kepada had (6) secara terus tanpa mencetuskan
+  // kegagalan berturut-turut — mensimulasikan 6 percubaan lalu yang masing-
+  // masing berjaya (catatan mentah, bukan melalui pengurus).
+  for (let i = 0; i < 6; i++) hadKadar.catatPercubaan();
+  assert.equal(hadKadar.bolehCuba(), false, 'pra-syarat: tetingkap sejam mesti sudah penuh');
+
+  let panggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggil++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(panggil, 0, 'jalankan tidak boleh dipanggil apabila had jam sudah dicapai');
+  assert.equal(hasil.status, 'had-kadar');
+  assert.equal(hasil.perluManusia, true);
 });
 
 test('pengurus + hadKadar: siling kadar KEKAL merentas restart (dua pengurus kongsi storan)', async () => {
@@ -362,13 +385,14 @@ test('pengurus + hadKadar: siling kadar KEKAL merentas restart (dua pengurus kon
   const proses1 = buatPengurusLoginAuto({ adaKredensial: () => true, jalankan: async () => ({ status: 'perlu-manusia', perluManusia: true, sebab: 'gagal' }), jedaMs: 0, hadKadar: buat() });
   await proses1.cubaAuto();
   await proses1.cubaAuto();
+  await proses1.cubaAuto(); // 3 kegagalan berturut-turut -> disekat
 
   // "Restart" — pengurus baharu membaca storan kadar yang sama.
   let panggil2 = 0;
   const proses2 = buatPengurusLoginAuto({ adaKredensial: () => true, jalankan: async () => { panggil2++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'gagal' }; }, jedaMs: 0, hadKadar: buat() });
   const hasil = await proses2.cubaAuto();
   assert.equal(panggil2, 0, 'restart tidak boleh menetapkan semula siling kadar');
-  assert.equal(hasil.status, 'had-kadar');
+  assert.equal(hasil.status, 'had-kegagalan-berturut');
 });
 
 test('pengurus + hadKadar: kejayaan mengosongkan siling kadar (akaun tidak dikunci)', async () => {

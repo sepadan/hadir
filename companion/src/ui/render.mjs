@@ -112,6 +112,9 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 <div id="loginAutoStatus" class="status" style="margin-top:2px"></div>
 <label><input id="jagaSesi" type="checkbox" style="width:auto;display:inline" /> Penjaga sesi (keep-alive) idMe/MOEIS — sentuh sesi secara berkala semasa giliran aktif supaya tidak luput di tengah tugasan (opt-in, lalai MATI; BELUM terbukti menghalang luput terhadap idMe hidup)</label>
 <div id="jagaSesiStatus" class="status" style="margin-top:2px"></div>
+<label><input id="hadKadarLogin" type="checkbox" style="width:auto;display:inline" /> Had kadar login auto berterusan — pulihkan sesi idMe sepanjang hari tanpa restart (opt-in, lalai MATI)</label>
+<div class="amaran">AMARAN: Apabila dihidupkan, had 2 cubaan per proses DIGANTIKAN oleh siling kadar BERTERUSAN merentas restart dan merentas hari: 6 cubaan/jam gelongsor, siling harian 24 (TIDAK dikosongkan oleh kejayaan), berhenti serta-merta selepas 3 kegagalan berturut-turut. OTP/CAPTCHA/2FA kekal berhenti untuk manusia, tidak pernah dipintas. Anda boleh mematikannya semula bila-bila masa.</div>
+<div id="hadKadarLoginStatus" class="status" style="margin-top:2px"></div>
 <label for="tarikhBaru">Tambah tarikh sekolah (YYYY-MM-DD) — allowlist auto-mula giliran</label>
 <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
   <input id="tarikhBaru" type="text" autocomplete="off" placeholder="2026-12-05" style="flex:1" />
@@ -207,6 +210,7 @@ export function halamanLokalJs() {
       document.getElementById('loginAuto').checked = tetapan.loginAuto === true;
       document.getElementById('benarkanTerusTanpaFrasa').checked = tetapan.benarkanTerusTanpaFrasa === true;
       document.getElementById('jagaSesi').checked = tetapan.jagaSesi === true;
+      document.getElementById('hadKadarLogin').checked = tetapan.hadKadarLogin === true;
       var la = r.loginAutoStatus || {};
       papar('loginAutoStatus', (la.sebab || 'Belum dinilai.') + (la.percubaan > 0 ? ' (cubaan ' + la.percubaan + '/' + la.had + ')' : ''));
       var jaga = r.jagaSesi || {};
@@ -214,6 +218,15 @@ export function halamanLokalJs() {
         ? ('HIDUP — ' + jagaTeksStatus(jaga))
         : 'MATI (lalai)';
       papar('jagaSesiStatus', jagaTeks);
+      var had = r.hadKadarLoginStatus || {};
+      var ang = function (x) { return (x === null || x === undefined) ? '?' : x; };
+      var hadTeks = tetapan.hadKadarLogin === true
+        ? ('HIDUP — hari ini ' + ang(had.bilHariIni) + '/' + (had.silingHarian || 24) +
+           ', tetingkap sejam ' + ang(had.bilJam) + '/' + (had.hadJam || 6) +
+           ', kegagalan berturut ' + ang(had.kegagalanBerturut) + '/' + (had.hadKegagalanBerturut || 3) +
+           (had.diblok ? (' — DIBLOK: ' + (had.sebab || '')) : ''))
+        : 'MATI (lalai) — had 2 cubaan per proses digunakan';
+      papar('hadKadarLoginStatus', hadTeks);
       kalendarSemasa = (tetapan.kalendarSekolah || []).slice();
       renderKalendar();
       var kal = r.kalendar || {};
@@ -292,7 +305,8 @@ export function halamanLokalJs() {
       autoMulaGiliran: document.getElementById('autoMulaGiliran').checked,
       loginAuto: document.getElementById('loginAuto').checked,
       benarkanTerusTanpaFrasa: document.getElementById('benarkanTerusTanpaFrasa').checked,
-      jagaSesi: document.getElementById('jagaSesi').checked
+      jagaSesi: document.getElementById('jagaSesi').checked,
+      hadKadarLogin: document.getElementById('hadKadarLogin').checked
     }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Tetapan disimpan.' : (r.ralat || 'Ralat.'));
       muatStatus();
@@ -314,6 +328,12 @@ export function halamanLokalJs() {
   document.getElementById('jagaSesi').addEventListener('change', function () {
     panggil('/api/lokal/tetapan', 'POST', { jagaSesi: document.getElementById('jagaSesi').checked }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Suis jagaSesi (keep-alive) disimpan.' : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
+  });
+  document.getElementById('hadKadarLogin').addEventListener('change', function () {
+    panggil('/api/lokal/tetapan', 'POST', { hadKadarLogin: document.getElementById('hadKadarLogin').checked }).then(function (r) {
+      papar('statusTetapan', r.ok ? 'Suis had kadar login auto berterusan disimpan.' : (r.ralat || 'Ralat.'));
       muatStatus();
     });
   });

@@ -13,13 +13,14 @@ import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { dapatkanDirData, bacaTetapan, tulisTetapanAtomik, bacaJson, tulisJsonAtomik, bacaAtauCiptaIdEnjin } from '../src/tetapan.mjs';
+import { dapatkanDirData, bacaTetapan, tulisTetapanAtomik, bacaJson, bacaJsonKetat, tulisJsonAtomik, bacaAtauCiptaIdEnjin } from '../src/tetapan.mjs';
 import { buatSimpananRahsia, buatSimpananApi } from '../src/simpanan.mjs';
 import { buatStoranKredensial } from '../src/kredensial.mjs';
 import {
   buatPengurusLoginAuto, cubaLoginAutoStartup, buatStatusLoginAuto,
   cubaLoginAutoKerja as cubaLoginAutoKerjaTerpandu, snapshotLoginAutoStatus
 } from '../src/moeis/login-auto.mjs';
+import { buatHadKadarLogin } from '../src/moeis/had-login.mjs';
 import { buatPengurusPasangan } from '../src/pasangan.mjs';
 import { buatLog } from '../src/log.mjs';
 import { buatKlienHadir } from '../src/klien-hadir.mjs';
@@ -272,6 +273,21 @@ async function main() {
   if (perintah === 'log-masuk-manual') {
     console.log('Membuka Edge untuk log masuk manual idMe. Log masuk sendiri; tetingkap ditutup automatik selepas berjaya (had 20 minit).');
     const hasil = await jalankanAnakSkrip('log-masuk-manual.mjs', ['--data-dir', dirData], 21 * 60 * 1000);
+    // Laluan pemulihan CLI yang SAMA seperti laluan UI (jalankanLogMasukManualSebenar):
+    // log masuk manual yang berjaya membuktikan akaun tidak dikunci, jadi ia
+    // mengosongkan had kadar — tanpanya, pemulihan melalui CLI tidak berkesan
+    // dan limiter boleh kekal diblok selama-lamanya.
+    if (hasil && hasil.status === 'sesi-aktif-dalam-profil') {
+      try {
+        buatHadKadarLogin({
+          baca: () => bacaJsonKetat(dirData, 'had-login.json'),
+          tulis: (s) => tulisJsonAtomik(dirData, 'had-login.json', s)
+        }).catatKejayaan();
+        console.log('Had kadar log masuk auto dikosongkan (log masuk manual berjaya).');
+      } catch (ralat) {
+        console.error('Had kadar: catatKejayaan gagal:', (ralat && ralat.message) || ralat);
+      }
+    }
     console.log(JSON.stringify(hasil, null, 2));
     return;
   }
@@ -400,6 +416,19 @@ async function main() {
     // Log masuk manual yang berjaya bermakna sesi wujud dalam profil pelayar.
     if (hasil && hasil.status === 'sesi-aktif-dalam-profil') {
       tulisStatusSesi({ status: 'sesi-sah', hos: 'moeispel.moe.gov.my', bukti: ['log-masuk-manual'] });
+      // LALUAN PEMULIHAN had kadar (had-login.mjs): 3 kegagalan automatik
+      // berturut-turut ATAU fail keadaan yang rosak/gulung-balik jam
+      // menyebabkan bolehCuba() sentiasa false — jika tiada apa yang
+      // mengosongkannya, log masuk automatik tersekat SELAMANYA dan pesanan
+      // "log masuk manual akan memulihkannya" menjadi tidak benar. Log masuk
+      // MANUAL yang berjaya ialah bukti akaun tidak dikunci, jadi ia
+      // mengosongkan pembilang (tetingkap sejam + kegagalan berturut) dan
+      // menulis semula keadaan bersih.
+      try {
+        hadKadarLoginInstance.catatKejayaan();
+      } catch (ralat) {
+        tulisLog('HAD_KADAR', 'catatKejayaan-gagal', String((ralat && ralat.message) || ralat));
+      }
     }
     return hasil;
   }
@@ -422,18 +451,40 @@ async function main() {
     return hasil;
   }
 
-  // Had kadar log masuk automatik: 2 cubaan per PROSES (perlindungan kunci
-  // akaun idMe). Ini ialah had asal yang diluluskan — kaunter dalam ingatan,
-  // ditetapkan semula pada setiap restart proses. (Modul `had-login.mjs` yang
-  // menawarkan siling PERSISTEN merentas restart kekal TERSEDIA tetapi TIDAK
-  // disambungkan dalam pengeluaran: ia mengubah rejim kadar yang pemilik belum
-  // luluskan. Ia hanya diuji sebagai modul bebas.)
-  const pengurusLoginAuto = buatPengurusLoginAuto({
+  // Had kadar log masuk automatik: DUA rejim berasingan, dipilih oleh tetapan
+  // `hadKadarLogin` (lalai MATI) semasa setiap cubaan — bukan ditetapkan sekali
+  // pada startup — supaya suis boleh ditogol tanpa restart proses.
+  //   - MATI (lalai): had ASAL 2 cubaan PER PROSES, kaunter dalam ingatan,
+  //     ditetapkan semula pada setiap restart proses.
+  //   - HIDUP (opt-in pemilik, kelulusan 2026-09-21): siling KADAR PERSISTEN
+  //     BERTERUSAN (had-login.mjs) merentas restart DAN merentas hari,
+  //     disimpan dalam fail bukan rahsia `had-login.json` (cap masa +
+  //     pembilang sahaja, tiada kredensial).
+  const hadKadarLoginInstance = buatHadKadarLogin({
+    // bacaJsonKetat (BUKAN bacaJson): fail yang ROSAK mesti MELONTAR supaya
+    // kontrak "gagal tertutup" dalam had-login.mjs benar-benar berkuat kuasa.
+    // bacaJson biasa menelan ralat parse dan memulangkan null, iaitu fail
+    // rosak akan disalah anggap sebagai "larian pertama" dan siling kadar
+    // DISET SEMULA secara senyap — jaminan keselamatan yang palsu.
+    baca: () => bacaJsonKetat(dirData, 'had-login.json'),
+    tulis: (s) => tulisJsonAtomik(dirData, 'had-login.json', s)
+  });
+  const pengurusLoginAutoTanpaHad = buatPengurusLoginAuto({
     adaKredensial: () => storeKredensial.ada(),
     jalankan: jalankanLoginAutoSebenar,
     tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
     jedaMs: 5000
   });
+  const pengurusLoginAutoDenganHad = buatPengurusLoginAuto({
+    adaKredensial: () => storeKredensial.ada(),
+    jalankan: jalankanLoginAutoSebenar,
+    tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
+    jedaMs: 5000,
+    hadKadar: hadKadarLoginInstance
+  });
+  function pengurusLoginAutoAktif() {
+    return tetapanApi.baca().hadKadarLogin === true ? pengurusLoginAutoDenganHad : pengurusLoginAutoTanpaHad;
+  }
 
   async function sesiStartupDisahkan() {
     const c = bacaStatusSesi();
@@ -508,10 +559,10 @@ async function main() {
     bacaTetapan: tetapanApi.baca,
     adaKredensial: () => storeKredensial.ada(),
     sesiDisahkan: sesiKerjaDisahkan,
-    cubaSekaliLogin: () => pengurusLoginAuto.cubaAuto(),
+    cubaSekaliLogin: () => pengurusLoginAutoAktif().cubaAuto(),
     tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
     status: statusLoginAuto,
-    bilCubaan: () => pengurusLoginAuto.bilCubaan()
+    bilCubaan: () => pengurusLoginAutoAktif().bilCubaan()
   });
 
   const konteks = {
@@ -526,9 +577,10 @@ async function main() {
     loginAutoStatus: () => snapshotLoginAutoStatus(statusLoginAuto, {
       bacaTetapan: tetapanApi.baca,
       adaKredensial: () => storeKredensial.ada(),
-      bilCubaan: () => pengurusLoginAuto.bilCubaan()
+      bilCubaan: () => pengurusLoginAutoAktif().bilCubaan()
     }),
     jagaSesi: () => ({ ...penjagaSesi.status(), didayakan: tetapanApi.baca().jagaSesi === true }),
+    hadKadarLoginStatus: () => ({ ...hadKadarLoginInstance.statusRingkas(), didayakan: tetapanApi.baca().hadKadarLogin === true }),
     // `segarkan: true` hanya daripada tindakan eksplisit manusia; status
     // rutin menggunakan cache (tiada panggilan keluar, tiada pelayar).
     klaimDisokong: async (opsyen) => {
@@ -602,10 +654,10 @@ async function main() {
         bacaTetapan: tetapanApi.baca,
         adaKredensial: () => storeKredensial.ada(),
         sesiDisahkan: sesiStartupDisahkan,
-        cubaSekaliLogin: () => pengurusLoginAuto.cubaAuto(),
+        cubaSekaliLogin: () => pengurusLoginAutoAktif().cubaAuto(),
         tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
         status: statusLoginAuto,
-        bilCubaan: () => pengurusLoginAuto.bilCubaan()
+        bilCubaan: () => pengurusLoginAutoAktif().bilCubaan()
       });
       if (loginAuto.cuba) {
         log.tulis(`LOGIN_AUTO_STARTUP: ${loginAuto.hasil ? loginAuto.hasil.status : 'tidak-diketahui'}`);

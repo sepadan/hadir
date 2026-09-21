@@ -67,6 +67,33 @@ test('jagaSesi (keep-alive) ialah local-only, lalai MATI; klien jauh tidak boleh
   assert.equal(patchLokal.jagaSesi, true, 'UI tempatan mesti boleh menghidupkan jagaSesi');
 });
 
+test('hadKadarLogin (had kadar login auto berterusan) ialah local-only, lalai MATI; klien jauh tidak boleh hidupkannya', () => {
+  // Lalai mesti MATI (gagal tertutup) — had 2 cubaan per proses kekal sehingga opt-in.
+  assert.equal(TETAPAN_LALAI.hadKadarLogin, false);
+  // Boleh ditetapkan dari UI TEMPATAN sahaja.
+  assert.ok(MEDAN_TETAPAN_LOKAL_DIBENARKAN.includes('hadKadarLogin'));
+  // JANGAN pernah dibenarkan daripada klien JAUH.
+  assert.ok(!MEDAN_TETAPAN_DIBENARKAN.includes('hadKadarLogin'));
+  const patchJauh = tapisTetapanDibenarkan({ label: 'x', intervalSaat: 30, hadKadarLogin: true });
+  assert.equal(patchJauh.hadKadarLogin, undefined, 'klien jauh tidak boleh menetapkan hadKadarLogin');
+  const patchLokal = tapisTetapanLokalDibenarkan({ hadKadarLogin: true, autoMulaGiliran: true });
+  assert.equal(patchLokal.hadKadarLogin, true, 'UI tempatan mesti boleh menghidupkan hadKadarLogin');
+});
+
+test('bacaTetapan: hadKadarLogin dinormalisasi kepada boolean tegas', () => {
+  const dirData = fs.mkdtempSync(path.join(os.tmpdir(), 'hadir-tetapan-'));
+  try {
+    tulisTetapanAtomik(dirData, { ...TETAPAN_LALAI, hadKadarLogin: 'ya' });
+    const t = bacaTetapan(dirData);
+    assert.equal(t.hadKadarLogin, false, 'nilai bukan `true` ketat mesti dinormalisasi kepada false (gagal tertutup)');
+
+    tulisTetapanAtomik(dirData, { ...TETAPAN_LALAI, hadKadarLogin: true });
+    assert.equal(bacaTetapan(dirData).hadKadarLogin, true);
+  } finally {
+    fs.rmSync(dirData, { recursive: true, force: true });
+  }
+});
+
 test('sahkanApiUrl: menolak http, hos asing, userinfo; menerima URL Apps Script', () => {
   assert.equal(sahkanApiUrl('http://script.google.com/macros/s/x/exec').ok, false);
   assert.equal(sahkanApiUrl('https://jahat.example/exec').ok, false);

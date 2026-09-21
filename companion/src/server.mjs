@@ -26,7 +26,7 @@ import { ringkasanKalendar } from './auto-mula.mjs';
 const MEDAN_LOKAL_SAHAJA = [
   'originDibenarkan', 'apiUrl', 'kunciKeselamatanDijangka',
   'autoMulaGiliran', 'kalendarSekolah', 'autoMulaDiaktifkanPada', 'autostart', 'loginAuto',
-  'benarkanTerusTanpaFrasa', 'jagaSesi'
+  'benarkanTerusTanpaFrasa', 'jagaSesi', 'hadKadarLogin'
 ];
 
 const HAD_BADAN_BYTES = 32 * 1024;
@@ -358,12 +358,14 @@ async function pengendali(req, res) {
             loginAuto: t.loginAuto === true,
             benarkanTerusTanpaFrasa: t.benarkanTerusTanpaFrasa === true,
             jagaSesi: t.jagaSesi === true,
+            hadKadarLogin: t.hadKadarLogin === true,
             kalendarSekolah: t.kalendarSekolah || []
           },
           loginAutoStatus: (typeof konteks.loginAutoStatus === 'function'
             ? konteks.loginAutoStatus()
             : { diminta: t.loginAuto === true, adaKredensial: kredensial ? kredensial.ada() === true : false, sesiSah: null, percubaan: 0, had: 2, hasilTerakhir: '', sebab: 'Belum dinilai.' }),
-          jagaSesi: (typeof konteks.jagaSesi === 'function' ? konteks.jagaSesi() : null)
+          jagaSesi: (typeof konteks.jagaSesi === 'function' ? konteks.jagaSesi() : null),
+          hadKadarLoginStatus: (typeof konteks.hadKadarLoginStatus === 'function' ? konteks.hadKadarLoginStatus() : null)
         });
         return;
       }

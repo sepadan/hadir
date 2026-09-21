@@ -54,6 +54,14 @@ export const TETAPAN_LALAI = Object.freeze({
   // sebenarnya menghalang luput belum disahkan terhadap idMe hidup. Lalai
   // MATI (gagal tertutup) sehingga ujian hidup membuktikannya.
   jagaSesi: false,
+  // Had kadar log masuk automatik BERTERUSAN — opt-in BERASINGAN, lalai MATI.
+  // Apabila HIDUP, menggantikan had ASAL "2 cubaan per proses" dengan siling
+  // KADAR PERSISTEN merentas restart DAN merentas hari (had-login.mjs,
+  // buatHadKadarLogin): 6 cubaan/jam gelongsor, siling harian 24 (TIDAK
+  // dikosongkan oleh kejayaan), berhenti serta-merta selepas 3 kegagalan
+  // berturut-turut. Kelulusan pemilik 2026-09-21. Apabila MATI, had ASAL 2
+  // cubaan per proses (kaunter dalam ingatan) kekal digunakan.
+  hadKadarLogin: false,
   // Frasa "kunci keselamatan" anti-pancing idMe yang admin jangkakan dilihat
   // semasa log masuk (pilihan, bukan rahsia — nilai ini hanya untuk banding
   // paparan, bukan kelayakan). Kosong bermakna tiada jangkaan; uji-login
@@ -78,6 +86,7 @@ export function bacaTetapan(dirData) {
     gabungan.loginAuto = gabungan.loginAuto === true;
     gabungan.benarkanTerusTanpaFrasa = gabungan.benarkanTerusTanpaFrasa === true;
     gabungan.jagaSesi = gabungan.jagaSesi === true;
+    gabungan.hadKadarLogin = gabungan.hadKadarLogin === true;
     gabungan.kalendarSekolah = sahkanKalendarSekolah(gabungan.kalendarSekolah);
     if (!masaIsoSah(gabungan.autoMulaDiaktifkanPada)) gabungan.autoMulaDiaktifkanPada = '';
     return gabungan;
@@ -146,6 +155,27 @@ export function bacaJson(dirData, nama, lalai) {
   }
 }
 
+// Pembaca JSON KETAT untuk fail yang keselamatannya bergantung pada
+// "gagal tertutup". `bacaJson` biasa menelan SEMUA ralat (fail hilang DAN
+// JSON rosak) dan memulangkan `lalai` — untuk had kadar log masuk itu
+// bermakna fail yang rosak dianggap "larian pertama" dan siling kadar
+// DISET SEMULA secara senyap. Di sini:
+//   - fail TIADA (ENOENT) -> `null` (larian pertama, dibenarkan);
+//   - fail ADA tetapi tidak boleh dibaca/dihuraikan -> MELONTAR (isyarat
+//     BLOK kepada pemanggil, bukan sifar).
+export function bacaJsonKetat(dirData, nama) {
+  const laluan = path.join(dirData, nama);
+  let teks;
+  try {
+    teks = fs.readFileSync(laluan, 'utf8');
+  } catch (ralat) {
+    if (ralat && ralat.code === 'ENOENT') return null;
+    throw ralat;
+  }
+  const nilai = JSON.parse(teks); // JSON rosak -> MELONTAR (sengaja)
+  return nilai && typeof nilai === 'object' ? nilai : null;
+}
+
 export function tulisJsonAtomik(dirData, nama, objek) {
   fs.mkdirSync(dirData, { recursive: true });
   const laluan = path.join(dirData, nama);
@@ -209,7 +239,7 @@ export function tapisTetapanDibenarkan(payload) {
 export const MEDAN_TETAPAN_LOKAL_DIBENARKAN = [
   'apiUrl', 'label', 'intervalSaat', 'kunciKeselamatanDijangka',
   'autoMulaGiliran', 'kalendarSekolah', 'loginAuto', 'benarkanTerusTanpaFrasa',
-  'jagaSesi'
+  'jagaSesi', 'hadKadarLogin'
 ];
 
 // Hos Apps Script yang sah untuk apiUrl. Tanpa ini, apiUrl yang salah tulis

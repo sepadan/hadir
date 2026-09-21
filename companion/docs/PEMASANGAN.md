@@ -438,22 +438,62 @@ tugasan berakhir `gagal` dengan mesej seperti "Sesi idMe tamat dan log masuk
 automatik memerlukan manusia: CAPTCHA dikesan. Tiada cubaan semula
 automatik." Tiada data ditulis ke MOEIS dalam keadaan itu.
 
-### Had 2 cubaan (per proses) dan apa perlu buat apabila enjin berhenti untuk manusia
+### Had cubaan log masuk automatik dan apa perlu buat apabila enjin berhenti untuk manusia
 
-Had ialah **2 cubaan automatik per proses**, **dikongsi** antara cubaan startup
-dan semua cubaan semasa tugasan — bukan 2 setiap tugasan. Ini ialah had ASAL
-yang diluluskan pemilik; kaunter berada dalam ingatan proses dan ditetapkan
-semula pada setiap restart. (Modul bebas `src/moeis/had-login.mjs` menawarkan
-siling KADAR persisten merentas restart, tetapi ia TIDAK disambungkan dalam
-pengeluaran kerana ia mengubah rejim kadar yang pemilik belum luluskan.)
-Selepas 2 cubaan gagal (cth OTP diperlukan, frasa tidak padan, atau sesi masih
-tidak sah), enjin **berhenti mencuba** sehingga salah satu daripada ini
-berlaku: log masuk manual sekali, atau proses companion dimulakan semula.
+Ada **DUA rejim had**, dipilih oleh suis opt-in `hadKadarLogin` (lalai MATI)
+dalam tetapan tempatan:
+
+**MATI (lalai) — had ASAL 2 cubaan per proses.** Had ialah 2 cubaan automatik
+per proses, **dikongsi** antara cubaan startup dan semua cubaan semasa tugasan
+— bukan 2 setiap tugasan. Kaunter berada dalam ingatan proses dan ditetapkan
+semula pada setiap restart. Selepas 2 cubaan gagal (cth OTP diperlukan, frasa
+tidak padan, atau sesi masih tidak sah), enjin **berhenti mencuba** sehingga
+salah satu daripada ini berlaku: log masuk manual sekali, atau proses
+companion dimulakan semula.
+
+**HIDUP (opt-in, kelulusan pemilik eksplisit 2026-09-21) — had kadar
+BERTERUSAN.** Menggantikan had 2/proses dengan siling kadar PERSISTEN
+merentas restart DAN merentas hari (`src/moeis/had-login.mjs`,
+`buatHadKadarLogin`), disimpan dalam fail bukan rahsia `had-login.json` (cap
+masa + pembilang sahaja, tiada kredensial):
+
+- maksimum **6 cubaan** dalam tetingkap **sejam gelongsor**;
+- siling **HARIAN 24 cubaan**, **TIDAK dikosongkan oleh kejayaan** — hanya
+  **hari baharu kalendar MALAYSIA (UTC+8)** atau log masuk manual yang berjaya
+  mengosongkannya;
+- **berhenti serta-merta** (tiada cubaan semula) selepas **3 kegagalan
+  berturut-turut**; hanya log masuk manual yang berjaya memulihkannya;
+- gagal tertutup dikekalkan: fail keadaan rosak/tidak boleh dibaca ATAU jam
+  sistem digulung ke belakang merentas sempadan hari = **BLOK**, bukan reset.
+  Fail rosak **benar-benar** memblok: pembaca `bacaJsonKetat` memulangkan
+  `null` HANYA apabila fail tiada dan MELONTAR apabila fail rosak (pembaca
+  `bacaJson` yang menelan ralat tidak boleh digunakan di sini — ia menjadikan
+  jaminan ini palsu).
+
+**Cara memulihkan selepas enjin diblok (3 kegagalan berturut atau fail rosak):**
+log masuk idMe **secara manual** sekali — sama ada melalui butang
+**"Buka Edge untuk log masuk"** dalam tetapan tempatan, atau perintah
+`node bin/hadir-companion.mjs log-masuk-manual`. Log masuk manual yang berjaya
+**mengosongkan** pembilang (KEDUA-DUA laluan melakukan ini). Jika anda hanya
+memadam `had-login.json` secara manual, itu juga berkesan tetapi tidak
+diperlukan.
+
+Suis ini boleh dimatikan semula bila-bila masa tanpa kehilangan had ASAL
+2/proses (kedua-dua rejim sedia dalam kod; suis hanya menentukan mana yang
+aktif). OTP/CAPTCHA/2FA kekal berhenti untuk manusia dalam KEDUA-DUA rejim,
+tidak pernah dipintas; pengawal HTTPS + hos idMe kekal sebelum menaip apa-apa.
+**Nota kejujuran:** had kadar berterusan mengurangkan kekerapan companion
+berhenti untuk manusia semasa hari sekolah, tetapi ia **tidak menjamin** sesi
+idMe akan berjaya dipulihkan — OTP/CAPTCHA/frasa tidak padan masih memerlukan
+campur tangan manusia setiap kali, dan siling harian/kegagalan berturut-turut
+tetap boleh menghentikan pemulihan automatik pada hari yang teruk.
 
 Baris status di bawah suis `loginAuto` dalam tetapan tempatan memaparkan keadaan
 semasa (cth "Diminta tetapi sesi idMe sudah sah", "Kredensial idMe tiada",
 "Berjaya", "Had 2 cubaan log masuk automatik per proses dicapai", "Perlu
-manusia: OTP"). Setiap keputusan (dilangkau atau dicuba) juga ditulis ke
+manusia: OTP"); baris berasingan di bawah suis `hadKadarLogin` memaparkan
+"hari ini X/24, tetingkap sejam Y/6, kegagalan berturut Z/3" apabila rejim
+berterusan HIDUP. Setiap keputusan (dilangkau atau dicuba) juga ditulis ke
 `companion.log` (tag `LOGIN_AUTO`), tanpa sebarang nilai kredensial.
 
 **Apabila enjin berhenti untuk manusia:** pada PC itu, tekan **Buka Edge untuk
@@ -639,14 +679,15 @@ dump, log, UI/XSS, nonce dan risiko kunci akaun. Keputusan:
 **LULUS BERSYARAT** (tiada penemuan TINGGI; tiada laluan yang log/gema/simpan
 nilai kredensial dalam teks biasa). Dua nota:
 
-1. **Sederhana (had diakui — kekal terbuka, TIDAK dilaksanakan):** pembilang
-   2 cubaan automatik adalah *per proses* dan ditetapkan semula pada setiap
-   mula semula proses. Satu siling KADAR persisten merentas restart telah
-   dibangunkan (`buatHadKadarLogin`, `src/moeis/had-login.mjs`) dan diuji, tetapi
-   **TIDAK disambungkan dalam pengeluaran**: ia mengubah rejim kadar (2 cubaan
-   per tetingkap 15 minit, dikosongkan pada kejayaan) yang pemilik belum
-   luluskan. Had ASAL 2 cubaan per proses dikekalkan. Lihat bahagian *Had 2
-   cubaan (per proses)* di atas.
+1. **Sederhana (had diakui pada masa semakan ini — kini DISELESAIKAN, lihat
+   nota 2026-09-21 di bawah):** pembilang 2 cubaan automatik adalah *per
+   proses* dan ditetapkan semula pada setiap mula semula proses. Satu siling
+   KADAR persisten merentas restart telah dibangunkan (`buatHadKadarLogin`,
+   `src/moeis/had-login.mjs`) dan diuji, tetapi pada masa semakan ini **TIDAK
+   disambungkan dalam pengeluaran**: ia mengubah rejim kadar (2 cubaan per
+   tetingkap 15 minit, dikosongkan pada kejayaan) yang pemilik belum
+   luluskan. Had ASAL 2 cubaan per proses dikekalkan. Lihat bahagian *Had
+   cubaan log masuk automatik* di atas.
 2. **Rendah (had diakui, corak sedia ada):** kegagalan `icacls` (ACL folder)
    ditelan senyap secara sengaja supaya tiada maklumat bocor ke log; kini
    melindungi direktori yang turut memuatkan `kredensial.dat`, jadi lapisan
@@ -665,12 +706,25 @@ dibetulkan dalam kod modul.
 **Namun semakan induk berikutnya MENYEKAT pelepasan** dan membetulkan perkara
 yang semakan Codex terlepas; kerja dikerjakan semula di sini:
 
-1. **Had kadar persisten dibuang daripada pengeluaran.** Penyambungan `hadKadar`
-   yang tanpa syarat menggantikan had asal "2 cubaan per proses" dengan siling
-   kadar yang lebih longgar secara agregat (2 cubaan per tetingkap 15 minit,
-   dikosongkan pada kejayaan) — peningkatan kadar senyap yang pemilik tidak
-   luluskan. Modul `had-login.mjs` kekal sebagai modul bebas beruji, tetapi
-   **TIDAK disambungkan**; had asal 2 cubaan per proses dikekalkan.
+1. **Had kadar persisten dibuang daripada pengeluaran (pada masa semakan
+   ini).** Penyambungan `hadKadar` yang tanpa syarat menggantikan had asal "2
+   cubaan per proses" dengan siling kadar yang lebih longgar secara agregat
+   (2 cubaan per tetingkap 15 minit, dikosongkan pada kejayaan) — peningkatan
+   kadar senyap yang pemilik tidak luluskan pada masa itu. Modul
+   `had-login.mjs` kekal sebagai modul bebas beruji, tetapi **TIDAK
+   disambungkan**; had asal 2 cubaan per proses dikekalkan.
+   >
+   > **Nota 2026-09-21 — pemilik meluluskan had kadar BERTERUSAN secara
+   > eksplisit.** `had-login.mjs` dikembangkan kepada polisi baharu (6
+   > cubaan/jam gelongsor, siling harian 24 TIDAK dikosongkan oleh kejayaan,
+   > berhenti serta-merta selepas 3 kegagalan berturut-turut) dan disambungkan
+   > pada KEDUA-DUA laluan login melalui suis opt-in `hadKadarLogin` (lalai
+   > MATI). Ini BUKAN pengulangan kesilapan yang disekat di atas: rejim baharu
+   > lebih ketat pada dimensi kegagalan berturut-turut (3, bukan tiada had),
+   > kekal opt-in eksplisit (bukan tanpa syarat), dan diluluskan pemilik
+   > secara bertulis sebelum disambungkan — bukan keputusan pelaksana
+   > sendirian. Lihat bahagian *Had cubaan log masuk automatik* di atas dan
+   > baris changelog 1.11.16 dalam `BLUEPRINT.md`.
 2. **Penjaga sesi dijadikan opt-in eksplisit `jagaSesi` (lalai MATI).** Sebelum
    ini penjaga dimulakan tanpa syarat selepas bind. Kini ia hanya poke apabila
    suis `jagaSesi` HIDUP (local-only), dan klasifikasi kesihatannya jujur

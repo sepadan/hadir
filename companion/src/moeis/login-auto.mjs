@@ -11,11 +11,16 @@
 //      ABORT, TIADA kotak semak ditekan, TIADA kata laluan ditaip.
 //   5. CAPTCHA/OTP/2FA TIDAK dikesan sebelum menaip ATAU selepas hantar —
 //      jika dikesan, berhenti dengan perluManusia:true, TIADA cubaan semula.
-//   6. Had 2 cubaan automatik PER PROSES (perlindungan kunci akaun idMe) —
-//      kaunter dalam ingatan, ditetapkan semula pada setiap restart proses.
-//      (Modul bebas `had-login.mjs` menawarkan siling PERSISTEN merentas
-//      restart, tetapi ia TIDAK disambungkan dalam pengeluaran kerana ia
-//      mengubah rejim kadar yang pemilik belum luluskan.)
+//   6. Had cubaan automatik (perlindungan kunci akaun idMe) — DUA rejim
+//      berasingan, dipilih oleh tetapan `hadKadarLogin` (lalai MATI):
+//        - MATI (lalai): had 2 cubaan PER PROSES, kaunter dalam ingatan,
+//          ditetapkan semula pada setiap restart proses (had ASAL).
+//        - HIDUP (opt-in pemilik, kelulusan 2026-09-21): siling KADAR
+//          PERSISTEN BERTERUSAN (had-login.mjs, buatHadKadarLogin) — 6
+//          cubaan/jam gelongsor, siling harian 24 (TIDAK dikosongkan oleh
+//          kejayaan), berhenti serta-merta selepas 3 kegagalan berturut-turut.
+//          Merentas restart DAN merentas hari; hanya log masuk manual
+//          berjaya (catatKejayaan) memulihkan kegagalan berturut-turut.
 //
 // ALIRAN DUA PERINGKAT idMe SEBENAR (diperbetulkan — lihat BLUEPRINT.md):
 //   1. Halaman log masuk: hanya medan IC (pengguna) wujud. Frasa "Kata Kunci
@@ -260,12 +265,12 @@ async function jalankanLoginAutoTeras(adapter, kredensial, opsyen) {
 // Pengurus cubaan: menguatkuasakan had log masuk automatik. Lalai pengeluaran
 // ialah had 2 cubaan PER PROSES (kaunter dalam ingatan `cubaan`) — had asal
 // yang diluluskan pemilik. `hadKadar` (buatHadKadarLogin, src/moeis/had-login.mjs)
-// ialah siling KADAR PERSISTEN merentas restart yang TIDAK disambungkan dalam
-// pengeluaran (ia mengubah rejim kadar; disimpan sebagai modul bebas beruji
-// untuk semakan masa depan dengan kelulusan pemilik). `adaKredensial`
-// memulangkan boolean (tanpa menyahsulit nilai), `jalankan` ialah tindakan log
-// masuk sebenar (proses anak yang membaca vault sendiri dan menaip — nilai
-// tidak pernah melalui proses ini).
+// ialah siling KADAR PERSISTEN BERTERUSAN (merentas restart DAN merentas hari)
+// yang disambungkan HANYA apabila pemanggil membekalkan `hadKadar` (lihat
+// tetapan `hadKadarLogin`, bin/hadir-companion.mjs) — kelulusan pemilik
+// 2026-09-21. `adaKredensial` memulangkan boolean (tanpa menyahsulit nilai),
+// `jalankan` ialah tindakan log masuk sebenar (proses anak yang membaca vault
+// sendiri dan menaip — nilai tidak pernah melalui proses ini).
 export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaMs = 5000, hadKadar }) {
   let cubaan = 0;
 
@@ -276,9 +281,11 @@ export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaM
     // per proses melalui `cubaan`.
     if (hadKadar) {
       if (!hadKadar.bolehCuba()) {
+        const ringkas = typeof hadKadar.statusRingkas === 'function' ? hadKadar.statusRingkas() : null;
+        const kegagalanBerturut = ringkas && ringkas.kegagalanBerturut >= ringkas.hadKegagalanBerturut;
         return {
-          status: 'had-kadar', perluManusia: true,
-          sebab: 'Had kadar log masuk automatik dicapai dalam tetingkap sejuk; log masuk manusia diperlukan.',
+          status: kegagalanBerturut ? 'had-kegagalan-berturut' : 'had-kadar', perluManusia: true,
+          sebab: (ringkas && ringkas.sebab) || 'Had kadar log masuk automatik dicapai; log masuk manusia diperlukan.',
           bukti: ['had-kadar']
         };
       }
@@ -305,8 +312,13 @@ export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaM
     }
     const hasil = await jalankan();
     // Berjaya bermakna akaun TIDAK dikunci — kosongkan pembilang kadar.
+    // Kegagalan (apa-apa hasil lain) menambah kegagalanBerturut — 3
+    // berturut-turut berhenti serta-merta sehingga kejayaan memulihkannya.
     const berjaya = !!(hasil && (hasil.status === 'sesi-sah' || hasil.sesiSah === true || hasil.status === 'kunci-tiada-dibenarkan'));
-    if (hadKadar && berjaya) hadKadar.catatKejayaan();
+    if (hadKadar) {
+      if (berjaya) hadKadar.catatKejayaan();
+      else hadKadar.catatKegagalan();
+    }
     if (tulisLog) tulisLog('LOGIN_AUTO', String(hasil && hasil.status), String((hasil && hasil.sebab) || ''));
     return hasil;
   }
@@ -410,7 +422,8 @@ export function ayatLoginAuto(st) {
   if (st.sesiSah === true) return 'Diminta tetapi sesi idMe sudah sah — tiada log masuk automatik diperlukan.';
   if (st.hasilTerakhir === 'sesi-sah') return 'Berjaya — log masuk idMe automatik berjaya, sesi kini sah.';
   if (st.hasilTerakhir === 'had-cubaan') return 'Had cubaan dicapai — log masuk manusia diperlukan.';
-  if (st.hasilTerakhir === 'had-kadar') return 'Had kadar log masuk automatik dicapai (tetingkap sejuk) — tunggu seketika atau log masuk manusia.';
+  if (st.hasilTerakhir === 'had-kadar') return 'Had kadar log masuk automatik dicapai — tunggu tetingkap sejam/hari gelongsor atau log masuk manusia. ' + (st.sebab || '');
+  if (st.hasilTerakhir === 'had-kegagalan-berturut') return 'Berhenti serta-merta — kegagalan log masuk automatik berturut-turut dicapai; log masuk manusia diperlukan. ' + (st.sebab || '');
   if (st.hasilTerakhir === 'perlu-manusia') return 'Perlu manusia: ' + (st.sebab || 'langkah kedua (OTP/CAPTCHA/2FA) atau semakan manual.');
   if (st.hasilTerakhir === 'kunci-tidak-padan') return 'Perlu manusia: frasa keselamatan tidak padan — tiada kredensial ditaip.';
   if (st.hasilTerakhir === 'kunci-tiada') return 'Perlu manusia: frasa keselamatan tidak dapat dibaca (mungkin imej) — log masuk manual diperlukan.';
