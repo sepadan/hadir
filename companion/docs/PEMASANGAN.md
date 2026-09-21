@@ -315,8 +315,12 @@ ini:
 - **Pada permulaan setiap kitaran giliran** (sebelum mengambil/memproses
   tugasan) — jika sesi idMe tidak sah menurut cache tempatan.
 - **Apabila tugasan melaporkan "sesi tamat"** semasa verifikasi ATAU hantar —
-  enjin cuba log masuk automatik sekali, kemudian mencuba tugasan itu sekali
-  lagi.
+  enjin cuba log masuk automatik **secara PAKSA** (cache sesi yang lapuk tidak
+  boleh menyekatnya) sekali, kemudian mencuba tugasan itu sekali lagi. Jika
+  log masuk itu **berjaya**, tugasan disambung semula; jika log masuk itu
+  **memerlukan manusia atau gagal** (CAPTCHA/OTP/frasa tidak padan/had
+  cubaan), tugasan **TIDAK dicuba semula secara senyap** — ia gagal dengan
+  sebab jelas kepada guru.
 
 Enjin **TIDAK** log masuk automatik apabila:
 
@@ -326,6 +330,29 @@ Enjin **TIDAK** log masuk automatik apabila:
 - CAPTCHA/OTP/2FA dikesan (sentiasa `perlu manusia`, tiada cubaan semula).
 - Frasa "Kata Kunci Keselamatan" pada halaman idMe **tidak padan** (anti-pancing).
 - **Had 2 cubaan** automatik sepanjang hayat proses **sudah dicapai**.
+
+### Isyarat "sesi tamat" dan segaran cache sesi
+
+Apabila tugasan melaporkan "sesi tamat", enjin melakukan log masuk automatik
+**PAKSA** yang memintas cache sesi (cache lapuk tidak boleh menyekatnya),
+tetapi masih menghormati semua pengawal lain (suis `loginAuto`, kredensial,
+had 2 cubaan dikongsi, HTTPS+hos ketat, kotak semak, CAPTCHA/OTP, frasa).
+Jika log masuk paksa berjaya, cache sesi dikemas kini dan tugasan dicuba
+semula; jika ia memerlukan manusia/gagal, tugasan gagal dengan sebab jelas
+dan **TIDAK** dicuba semula secara senyap.
+
+Keputusan sesi masa-kitaran menggunakan cache tempatan supaya enjin tidak
+membuka Edge pada setiap poll. Supaya cache itu tidak kekal lapuk, enjin
+menyegarkannya melalui siasatan **uji-login baca-sahaja** (tiada kredensial
+ditaip) paling banyak **sekali setiap 10 minit** dan hanya semasa giliran
+aktif. Selang 10 minit dipilih kerana ia padan dengan kadar luput sesi idMe
+yang diperhatikan (~10 minit).
+
+**Apa yang pemilik lihat apabila ini berlaku:** baris
+`LOGIN_AUTO: dipaksa: Isyarat sesi-tamat hidup...` dalam `companion.log`;
+tugasan berakhir `gagal` dengan mesej seperti "Sesi idMe tamat dan log masuk
+automatik memerlukan manusia: CAPTCHA dikesan. Tiada cubaan semula
+automatik." Tiada data ditulis ke MOEIS dalam keadaan itu.
 
 ### Had 2 cubaan dan apa perlu buat apabila enjin berhenti untuk manusia
 

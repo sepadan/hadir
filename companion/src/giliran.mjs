@@ -13,17 +13,32 @@ const LEASE_HEARTBEAT_MS = 5 * 60 * 1000;
 
 function adalahSesiTamat(hasil) { return !!(hasil && hasil.punca === 'sesi-tamat'); }
 
-export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik, cubaLoginAutoKerja }) {
+export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik, cubaLoginAutoKerja, segarkanSesiCache, jedaSegarSesiMs = 10 * 60 * 1000, sekarangMs }) {
   const state = {
     aktif: false, sedangProses: false, kerjaSemasa: null, ralatTerakhir: '',
     keputusanTerakhir: null, sebabKelayakanTerakhir: '', bilLangkauTerakhir: 0,
-    modMula: 'mati', timer: null
+    modMula: 'mati', timer: null, masaSegarSesiTerakhir: 0
   };
   // Satu job hanya mendapat satu cubaan automatik sepanjang hayat proses.
   // Jika runner melepaskan lease selepas ralat, poll berikutnya tidak akan
   // mengambilnya lagi. Restart juga selamat kerana sempadan startup menolak
   // job yang dicipta sebelum proses baharu bermula.
   const pernahDiklaimAutomatik = new Set();
+
+  // Log masuk automatik PAKSA (bypass cache) apabila tugasan membawa isyarat
+  // sesi-tamat HIDUP. Pulangkan sama ada percubaan itu berhenti-untuk-manusia
+  // (perluManusia:true — CAPTCHA/OTP/2FA, had cubaan, atau kegagalan) supaya
+  // tugasan TIDAK dicuba semula secara senyap selepas berhenti sedemikian.
+  async function cubaLoginAutoPaksa() {
+    if (typeof cubaLoginAutoKerja !== 'function') return { perluManusia: false, sebab: '' };
+    try {
+      const r = await cubaLoginAutoKerja({ paksa: true });
+      return {
+        perluManusia: !!(r && r.hasil && r.hasil.perluManusia === true),
+        sebab: (r && r.hasil && r.hasil.sebab) || ''
+      };
+    } catch { return { perluManusia: false, sebab: '' }; }
+  }
 
   async function masihLayak(job, tahap) {
     if (typeof semakKelayakanAutomatik !== 'function') return true;
@@ -63,9 +78,21 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
 
       if (adalahSesiTamat(verifikasi.hasil) && !sudahCubaLoginSemula) {
         sudahCubaLoginSemula = true;
-        if (typeof cubaLoginAutoKerja === 'function') { try { await cubaLoginAutoKerja(); } catch { /* best-effort */ } }
-        verifikasi = await jalan('verifikasi', {});
-        log.tulisKerja(klaim.id + '-verifikasi-ulang', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
+        const login = await cubaLoginAutoPaksa();
+        if (login.perluManusia) {
+          // Berhenti-untuk-manusia (CAPTCHA/OTP/2FA, had cubaan atau kegagalan):
+          // JANGAN cuba semula tugasan secara senyap. Gantikan hasil dengan
+          // kegagalan yang membawa sebab jelas; laluan 'gagal' sedia ada di
+          // bawah melaporkannya.
+          verifikasi = {
+            stdout: verifikasi.stdout, stderr: verifikasi.stderr,
+            hasil: { ...verifikasi.hasil, status: 'gagal',
+              sebab: 'Sesi idMe tamat dan log masuk automatik memerlukan manusia: ' + (login.sebab || 'tiada butiran') + '. Tiada cubaan semula automatik.' }
+          };
+        } else {
+          verifikasi = await jalan('verifikasi', {});
+          log.tulisKerja(klaim.id + '-verifikasi-ulang', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
+        }
       }
 
       if (verifikasi.hasil.status === 'tidak-berubah') {
@@ -128,9 +155,17 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
 
       if (adalahSesiTamat(hantar.hasil) && !sudahCubaLoginSemula) {
         sudahCubaLoginSemula = true;
-        if (typeof cubaLoginAutoKerja === 'function') { try { await cubaLoginAutoKerja(); } catch { /* best-effort */ } }
-        hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: true });
-        log.tulisKerja(klaim.id + '-hantar-ulang', (hantar.stdout || '') + (hantar.stderr || ''));
+        const login = await cubaLoginAutoPaksa();
+        if (login.perluManusia) {
+          hantar = {
+            stdout: hantar.stdout, stderr: hantar.stderr,
+            hasil: { ...hantar.hasil, status: 'gagal',
+              sebab: 'Sesi idMe tamat dan log masuk automatik memerlukan manusia: ' + (login.sebab || 'tiada butiran') + '. Tiada cubaan semula automatik.' }
+          };
+        } else {
+          hantar = await jalankanTugasanAnak(klaim, { mod: 'hantar', sahkan: true });
+          log.tulisKerja(klaim.id + '-hantar-ulang', (hantar.stdout || '') + (hantar.stderr || ''));
+        }
       }
 
       const h = hantar.hasil;
@@ -178,6 +213,17 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
 
   async function jalankanSatuKitaran() {
     if (state.sedangProses) return { dilangkau: true };
+    // Segarkan cache sesi pada selang bersempadan (jedaSegarSesiMs) supaya
+    // keputusan masa-kitaran tidak kekal lapuk tanpa had. Siasatan baca-sahaja,
+    // dithrottle kepada paling banyak satu setiap selang dan hanya semasa
+    // giliran aktif — tiada churn setiap-poll dan tiada kredensial ditaip.
+    if (typeof segarkanSesiCache === 'function') {
+      const sekarang = (typeof sekarangMs === 'function' ? sekarangMs() : Date.now());
+      if (sekarang - state.masaSegarSesiTerakhir >= jedaSegarSesiMs) {
+        state.masaSegarSesiTerakhir = sekarang;
+        try { await segarkanSesiCache(); } catch { /* best-effort */ }
+      }
+    }
     if (typeof cubaLoginAutoKerja === 'function') {
       try { await cubaLoginAutoKerja(); } catch { /* best-effort; never block the cycle */ }
     }

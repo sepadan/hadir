@@ -471,3 +471,70 @@ test('had cubaan dikongsi: startup + job-time berkongsi SATU kaunter proses', as
   assert.equal(kedua.hasil.status, 'perlu-manusia');
   assert.equal(ketiga.hasil.status, 'had-cubaan');
 });
+
+// ---------------- cubaLoginAutoKerja PAKSA (isyarat sesi-tamat hidup memintas cache) ----------------
+
+test('cubaLoginAutoKerja paksa: cache SAH TIDAK menyekat cubaan sebenar (isyarat sesi-tamat hidup memintas cache)', async () => {
+  let sesiDipanggil = 0, cuba = 0;
+  const hasil = await cubaLoginAutoKerja({
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => true,
+    sesiDisahkan: async () => { sesiDipanggil++; return { ada: true }; },
+    cubaSekaliLogin: async () => { cuba++; return { status: 'sesi-sah' }; },
+    tulisLog: () => {}
+  }, { paksa: true });
+  assert.equal(hasil.cuba, true);
+  assert.equal(cuba, 1);
+  assert.equal(sesiDipanggil, 0, 'cache sesi TIDAK dirujuk dalam mod paksa');
+  assert.equal(hasil.hasil.status, 'sesi-sah');
+});
+
+test('cubaLoginAutoKerja paksa: loginAuto MATI tetap dihormati (paksa TIDAK memintas suis)', async () => {
+  const panggilan = [];
+  const hasil = await cubaLoginAutoKerja({
+    bacaTetapan: () => ({ loginAuto: false }),
+    adaKredensial: () => { panggilan.push('adaKredensial'); return true; },
+    sesiDisahkan: async () => { panggilan.push('sesi'); return { ada: true }; },
+    cubaSekaliLogin: async () => { panggilan.push('cuba'); return {}; },
+    tulisLog: () => {}
+  }, { paksa: true });
+  assert.equal(hasil.diminta, false);
+  assert.equal(hasil.cuba, false);
+  assert.deepEqual(panggilan, []);
+});
+
+test('cubaLoginAutoKerja paksa: tanpa kredensial -> langkau (paksa TIDAK memintas pengawal kredensial)', async () => {
+  let cuba = 0;
+  const hasil = await cubaLoginAutoKerja({
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => false,
+    sesiDisahkan: async () => { throw new Error('tidak boleh dirujuk tanpa kredensial'); },
+    cubaSekaliLogin: async () => { cuba++; return {}; },
+    tulisLog: () => {}
+  }, { paksa: true });
+  assert.equal(hasil.cuba, false);
+  assert.equal(cuba, 0);
+});
+
+test('cubaLoginAutoKerja paksa: had cubaan dikongsi dengan startup (satu kaunter proses)', async () => {
+  let jalanDipanggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { jalanDipanggil++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'gagal (ujian)' }; },
+    jedaMs: 0
+  });
+  const deps = {
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => true,
+    sesiDisahkan: async () => ({ ada: false }),
+    cubaSekaliLogin: () => pengurus.cubaAuto(),
+    tulisLog: () => {}
+  };
+  const pertama = await cubaLoginAutoStartup(deps);
+  const kedua = await cubaLoginAutoKerja(deps, { paksa: true });
+  const ketiga = await cubaLoginAutoKerja(deps, { paksa: true });
+  assert.equal(jalanDipanggil, 2, 'paksa berkongsi cap 2 cubaan dengan startup');
+  assert.equal(pertama.hasil.status, 'perlu-manusia');
+  assert.equal(kedua.hasil.status, 'perlu-manusia');
+  assert.equal(ketiga.hasil.status, 'had-cubaan');
+});

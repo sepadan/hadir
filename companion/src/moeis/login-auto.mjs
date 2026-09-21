@@ -289,7 +289,8 @@ export function buatStatusLoginAuto() {
 // — kedua-duanya berkongsi HAD_CUBAAN_MAKS yang sama melalui `cubaSekaliLogin`
 // (buatPengurusLoginAuto.cubaAuto, satu kaunter per proses).
 async function cubaLoginAutoTerpandu({
-  bacaTetapan, adaKredensial, sesiDisahkan, cubaSekaliLogin, tulisLog, status, bilCubaan
+  bacaTetapan, adaKredensial, sesiDisahkan, cubaSekaliLogin, tulisLog, status, bilCubaan,
+  paksa = false
 }) {
   const t = bacaTetapan();
   if (t.loginAuto !== true) {
@@ -308,18 +309,26 @@ async function cubaLoginAutoTerpandu({
     return { diminta: true, cuba: false, sebab };
   }
   let sesiAda = false;
-  try {
-    const s = await sesiDisahkan();
-    sesiAda = !!(s && s.ada === true);
-  } catch {
-    sesiAda = false;
-  }
-  if (status) status.sesiSah = sesiAda;
-  if (sesiAda) {
-    const sebab = 'Sesi idMe sudah sah; tiada log masuk automatik diperlukan.';
-    if (status) Object.assign(status, { hasilTerakhir: '', sebab });
-    if (tulisLog) tulisLog('LOGIN_AUTO', 'dilangkau', sebab);
-    return { diminta: true, cuba: false, sebab };
+  if (!paksa) {
+    try {
+      const s = await sesiDisahkan();
+      sesiAda = !!(s && s.ada === true);
+    } catch {
+      sesiAda = false;
+    }
+    if (status) status.sesiSah = sesiAda;
+    if (sesiAda) {
+      const sebab = 'Sesi idMe sudah sah; tiada log masuk automatik diperlukan.';
+      if (status) Object.assign(status, { hasilTerakhir: '', sebab });
+      if (tulisLog) tulisLog('LOGIN_AUTO', 'dilangkau', sebab);
+      return { diminta: true, cuba: false, sebab };
+    }
+  } else if (tulisLog) {
+    // Isyarat sesi-tamat HIDUP daripada tugasan: cache sesi TIDAK boleh menyekat
+    // cubaan sebenar. Suis loginAuto dan kredensial (di atas) kekal dihormati;
+    // hanya gerbang cache-sahaja yang dipintas. HAD_CUBAAN_MAKS dikongsi kekal
+    // melalui cubaSekaliLogin (buatPengurusLoginAuto.cubaAuto).
+    tulisLog('LOGIN_AUTO', 'dipaksa', 'Isyarat sesi-tamat hidup; cache sesi diabaikan, cubaan log masuk sebenar dipaksa (pengawal lain kekal).');
   }
   const hasil = await cubaSekaliLogin();
   if (status) {
@@ -342,8 +351,8 @@ export function cubaLoginAutoStartup(deps) {
 // Orkestrasi job-time: dipanggil SEBELUM klaim (kitaran) atau SELEPAS proses
 // anak keluar (percubaan semula satu tugasan) — profil Edge sentiasa bebas
 // pada dua titik ini. Kongsi HAD_CUBAAN_MAKS yang sama dengan startup.
-export function cubaLoginAutoKerja(deps) {
-  return cubaLoginAutoTerpandu(deps);
+export function cubaLoginAutoKerja(deps, opsyen = {}) {
+  return cubaLoginAutoTerpandu({ ...deps, paksa: !!(opsyen && opsyen.paksa) });
 }
 
 // Ayat status plain-Malay untuk UI tempatan / status endpoints.

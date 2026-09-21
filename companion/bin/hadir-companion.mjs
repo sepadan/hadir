@@ -214,12 +214,24 @@ async function main() {
 
   let cubaLoginAutoKerja = async () => ({ diminta: false, cuba: false, sebab: 'Belum tersedia (pelayan belum siap).' });
 
+  // Tetingkap 'segar' untuk keputusan sesi MASA-KERJA (kitaran giliran). Sesi
+  // idMe SSO diperhatikan luput dalam ~10 minit, jadi keputusan cache 'sesi
+  // sah' yang lebih tua daripada ini TIDAK lagi dipercayai untuk keputusan
+  // masa-kitaran, dan cache disegarkan melalui siasatan uji-login baca-sahaja
+  // (tiada kredensial ditaip) pada selang ini — paling banyak satu setiap
+  // selang dan hanya semasa giliran aktif. Pilihan 10 minit: padan dengan
+  // kadar luput yang diperhatikan, jadi keputusan kitaran tidak lapuk >~10
+  // minit tanpa churn pelayar setiap-poll.
+  const TTL_SEGAR_SESI_MS = 10 * 60 * 1000;
+
   const giliran = buatGiliran({
     klien: buatKlienDaripadaTetapan(tetapanApi, simpananApi),
     pemilik: pemilikEnjin,
     log,
     jalankanTugasanAnak,
-    cubaLoginAutoKerja: () => cubaLoginAutoKerja(),
+    cubaLoginAutoKerja: (opsyen) => cubaLoginAutoKerja(opsyen),
+    segarkanSesiCache,
+    jedaSegarSesiMs: TTL_SEGAR_SESI_MS,
     // Pengawal ini HANYA dipanggil untuk giliran AUTO: `masihLayak` dalam
     // giliran.mjs hanya berjalan apabila `automatik === true` (iaitu
     // state.modMula === 'auto'). Giliran manual (POST /api/mula, butang Mula)
@@ -357,7 +369,17 @@ async function main() {
     return { ada: false, sebab: 'Sesi idMe tidak sah/tidak diketahui menurut cache; log masuk automatik akan cuba memulihkan.' };
   }
 
-  cubaLoginAutoKerja = () => cubaLoginAutoKerjaTerpandu({
+  // Segaran cache sesi baca-sahaja (uji-login sebenar, TIADA kredensial
+  // ditaip). Dipanggil oleh giliran pada selang bersempadan (TTL_SEGAR_SESI_MS)
+  // supaya keputusan masa-kitaran tidak kekal lapuk; hasil ditulis ke cache
+  // oleh jalankanUjiLoginSebenar (tulisStatusSesi). Best-effort: kegagalan
+  // teknikal tidak menggagalkan tindakan utama.
+  async function segarkanSesiCache() {
+    try { return await jalankanUjiLoginSebenar(); } catch { return null; }
+  }
+
+  cubaLoginAutoKerja = (opsyen) => cubaLoginAutoKerjaTerpandu({
+    paksa: !!(opsyen && opsyen.paksa),
     bacaTetapan: tetapanApi.baca,
     adaKredensial: () => storeKredensial.ada(),
     sesiDisahkan: sesiKerjaDisahkan,

@@ -368,3 +368,90 @@ test('POST /api/mula -> 409 apabila klaim atomik tidak disokong; giliran kekal m
     assert.equal(mulaDipanggil, false);
   } finally { pelayan.close(); }
 });
+
+// ---------------- Log masuk idMe PAKSA pada isyarat sesi-tamat hidup ----------------
+
+test('sesi tamat: cubaLoginAutoKerja dipanggil dengan {paksa:true} (bypass cache)', async () => {
+  const klien = klienPalsuLengkap({ id: 'jpf1', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] });
+  const opsyenDipanggil = [];
+  const cubaLoginAutoKerjaFake = async (opsyen) => { opsyenDipanggil.push(opsyen); return { diminta: true, cuba: true }; };
+  let panggilan = 0;
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    panggilan++;
+    if (panggilan === 1) {
+      assert.equal(opsyen.mod, 'verifikasi');
+      return { stdout: '', stderr: '', hasil: { status: 'gagal', kod: 11, punca: 'sesi-tamat', perluManusia: true, sebab: 'Sesi idMe tamat.' } };
+    }
+    if (panggilan === 2) {
+      assert.equal(opsyen.mod, 'verifikasi');
+      return { stdout: '', stderr: '', hasil: { status: 'perlu-hantar', perubahan: 1, kod: 0 } };
+    }
+    assert.equal(opsyen.mod, 'hantar');
+    return { stdout: '', stderr: '', hasil: { status: 'disahkan', sebab: 'ok', bilHadir: 5, kod: 0 } };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake });
+  await g.jalankanTugasan('jpf1', { benarkanCubaSemula: true });
+  assert.equal(opsyenDipanggil.length, 1, 'tepat satu log masuk paksa');
+  assert.deepEqual(opsyenDipanggil[0], { paksa: true });
+  assert.equal(panggilan, 3, 'verifikasi + satu cubaan semula + hantar');
+  assert.equal(klien._selesaiPanggilan[klien._selesaiPanggilan.length - 1].keputusan, 'berjaya');
+});
+
+test('sesi tamat + log masuk paksa perlu-manusia -> TIADA cubaan semula tugasan, gagal dengan sebab jelas', async () => {
+  const klien = klienPalsuLengkap({ id: 'jpm1', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] });
+  let panggilanLoginAuto = 0;
+  const cubaLoginAutoKerjaFake = async () => { panggilanLoginAuto++; return { diminta: true, cuba: true, hasil: { status: 'perlu-manusia', perluManusia: true, sebab: 'CAPTCHA dikesan.' } }; };
+  let panggilan = 0;
+  const jalankanTugasanAnak = async () => {
+    panggilan++;
+    return { stdout: '', stderr: '', hasil: { status: 'gagal', kod: 11, punca: 'sesi-tamat', perluManusia: true, sebab: 'Sesi idMe tamat.' } };
+  };
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake });
+  await g.jalankanTugasan('jpm1', { benarkanCubaSemula: true });
+  assert.equal(panggilanLoginAuto, 1, 'SATU log masuk paksa');
+  assert.equal(panggilan, 1, 'tiada cubaan semula tugasan (perlu-manusia)');
+  const selesaiGagal = klien._selesaiPanggilan.filter((p) => p.keputusan === 'gagal');
+  assert.equal(selesaiGagal.length, 1);
+  assert.match(selesaiGagal[0].mesej, /memerlukan manusia/);
+});
+
+test('sesi tamat + log masuk paksa GAGAL teknikal (had cubaan) -> tiada cubaan semula senyap, sebab jelas', async () => {
+  const klien = klienPalsuLengkap({ id: 'jpt1', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] });
+  const cubaLoginAutoKerjaFake = async () => ({ diminta: true, cuba: true, hasil: { status: 'gagal', perluManusia: true, sebab: 'had cubaan tercapai.' } });
+  let panggilan = 0;
+  const jalankanTugasanAnak = async () => { panggilan++; return { stdout: '', stderr: '', hasil: { status: 'gagal', kod: 11, punca: 'sesi-tamat', perluManusia: true, sebab: 'Sesi idMe tamat.' } }; };
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake });
+  await g.jalankanTugasan('jpt1', { benarkanCubaSemula: true });
+  assert.equal(panggilan, 1, 'tiada cubaan semula tugasan');
+  assert.equal(klien._selesaiPanggilan.filter((p) => p.keputusan === 'gagal').length, 1);
+});
+
+test('cycle-time: segarkanSesiCache dithrottle kepada sekali setiap selang (bounded refresh)', async () => {
+  const klien = klienPalsu([]);
+  let panggilanSegar = 0;
+  const segarkanSesiCache = async () => { panggilanSegar++; };
+  let masa = 10_000;
+  const sekarangMs = () => masa;
+  const cubaLoginAutoKerjaFake = async () => ({ diminta: true, cuba: true });
+  const jalankanTugasanAnak = async () => ({ stdout: '', stderr: '', hasil: { status: 'tidak-berubah', sebab: 'x', kod: 0 } });
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake, segarkanSesiCache, jedaSegarSesiMs: 10_000, sekarangMs });
+  await g.jalankanSatuKitaran();
+  assert.equal(panggilanSegar, 1, 'segaran pertama pada kitaran pertama');
+  masa = 15_000;
+  await g.jalankanSatuKitaran();
+  assert.equal(panggilanSegar, 1, 'tidak segar semula dalam selang');
+  masa = 20_000;
+  await g.jalankanSatuKitaran();
+  assert.equal(panggilanSegar, 2, 'segar semula selepas selang luput');
+});
+
+test('cycle-time: tiada segarkanSesiCache disuntik -> tiada perubahan kelakuan', async () => {
+  const klien = klienPalsu([{ id: 'jns1', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-18', murid: [] }]);
+  let panggilanLoginAuto = 0;
+  const cubaLoginAutoKerjaFake = async () => { panggilanLoginAuto++; return { diminta: true, cuba: true }; };
+  const jalankanTugasanAnak = async () => ({ stdout: '', stderr: '', hasil: { status: 'tidak-berubah', sebab: 'x', kod: 0 } });
+  const g = buatGiliran({ klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak, cubaLoginAutoKerja: cubaLoginAutoKerjaFake });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(panggilanLoginAuto, 1);
+  assert.equal(r.diproses, 1);
+});
