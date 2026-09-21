@@ -470,3 +470,67 @@ test('adapter sebenar: lanjutkanPengesahan MENUNGGU butang Seterusnya yang muncu
   assert.equal(hasil.ok, true);
 });
 
+// Fixture halaman pemilih MOEIS: tahun + kelas + jadual ringkasan kelas.
+// Meniru kes sebenar 21/09/2026 — HADIR menyimpan "PRASEKOLAH" manakala
+// MOEIS memaparkan "PRASEKOLAH BIJAK".
+function htmlPemilihMoeis({ kelasOpsyen = ['PRASEKOLAH BIJAK'], baris = null } = {}) {
+  const barisHtml = (baris || [
+    ['PRASEKOLAH', 'PRASEKOLAH BIJAK', 'BELUM DIHANTAR', '19/19']
+  ]).map((r, i) => '<tr><td>' + (i + 1) + '</td><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td><td>' + r[3] + '</td></tr>').join('');
+  return (
+    '<!doctype html><html><body>' +
+    '<select id="txtThnting"><option value="">Pilih</option><option value="PRA">PRASEKOLAH</option><option value="T4">TAHUN EMPAT</option></select>' +
+    '<select id="txtNamakelas"><option value="">Pilih</option>' +
+    kelasOpsyen.map((o) => '<option value="' + o + '">' + o + '</option>').join('') +
+    '</select>' +
+    '<table><tbody>' + barisHtml + '</tbody></table>' +
+    '</body></html>'
+  );
+}
+
+test('adapter sebenar: pilihKelas menerima padanan awalan TIDAK AMBIGU (PRASEKOLAH -> PRASEKOLAH BIJAK)', async () => {
+  await muat(htmlPemilihMoeis());
+  const hasil = await adapter.pilihKelas('PRASEKOLAH');
+  assert.equal(hasil.ok, true);
+  assert.equal(hasil.cara, 'awalan');
+  assert.equal(hasil.padan, 'PRASEKOLAH BIJAK');
+  const dipilih = await page.evaluate(() => document.getElementById('txtNamakelas').value);
+  assert.equal(dipilih, 'PRASEKOLAH BIJAK');
+});
+
+test('adapter sebenar: pilihKelas BERHENTI apabila padanan awalan ambigu', async () => {
+  await muat(htmlPemilihMoeis({ kelasOpsyen: ['PRASEKOLAH BIJAK', 'PRASEKOLAH CERDIK'] }));
+  const hasil = await adapter.pilihKelas('PRASEKOLAH');
+  assert.equal(hasil.ok, false);
+  assert.equal(hasil.mentah, 'padanan-ambigu');
+  const dipilih = await page.evaluate(() => document.getElementById('txtNamakelas').value);
+  assert.equal(dipilih, '');
+});
+
+test('adapter sebenar: pilihKelas masih mengutamakan padanan TEPAT', async () => {
+  await muat(htmlPemilihMoeis({ kelasOpsyen: ['BIJAK'] }));
+  const hasil = await adapter.pilihKelas('BIJAK');
+  assert.equal(hasil.ok, true);
+  assert.equal(hasil.cara, 'tepat');
+});
+
+test('adapter sebenar: bacaRingkasanKelas menerima baris "PRASEKOLAH BIJAK" untuk permintaan "PRASEKOLAH"', async () => {
+  await muat(htmlPemilihMoeis());
+  const ring = await adapter.bacaRingkasanKelas('PRASEKOLAH', 'PRASEKOLAH');
+  assert.equal(ring.hadir, 19);
+  assert.equal(ring.jumlah, 19);
+  assert.equal(ring.kelasPadan, 'PRASEKOLAH BIJAK');
+});
+
+test('adapter sebenar: bacaRingkasanKelas tidak memilih baris apabila padanan awalan ambigu', async () => {
+  await muat(htmlPemilihMoeis({
+    baris: [
+      ['PRASEKOLAH', 'PRASEKOLAH BIJAK', 'BELUM DIHANTAR', '19/19'],
+      ['PRASEKOLAH', 'PRASEKOLAH CERDIK', 'BELUM DIHANTAR', '20/20']
+    ]
+  }));
+  const ring = await adapter.bacaRingkasanKelas('PRASEKOLAH', 'PRASEKOLAH');
+  assert.equal(ring, null);
+});
+
+

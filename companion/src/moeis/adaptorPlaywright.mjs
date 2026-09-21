@@ -570,16 +570,39 @@ export function buatAdaptorPlaywright(page, opsyen = {}) {
     async bacaRingkasanKelas(tahun, kelas) {
       return page.evaluate(
         ([t, k]) => {
+          // Padanan sama seperti pilihDropdown: tepat dahulu, kemudian awalan
+          // yang TIDAK AMBIGU (HADIR "PRASEKOLAH" lawan MOEIS "PRASEKOLAH BIJAK").
+          const norm = (x) => String(x == null ? '' : x).toUpperCase().replace(/[^A-Z0-9]/g, '');
+          const nt = norm(t);
+          const nk = norm(k);
+          const baris = [];
           for (const tr of Array.from(document.querySelectorAll('tr'))) {
             const tds = Array.from(tr.querySelectorAll('td'));
             if (tds.length < 5) continue;
-            if (tds[1].innerText.trim().toUpperCase() !== t.toUpperCase()) continue;
-            if (tds[2].innerText.trim().toUpperCase() !== k.toUpperCase()) continue;
             const m = tds[4].innerText.match(/(\d+)\s*\/\s*(\d+)/);
             if (!m) continue;
-            return { hadir: parseInt(m[1], 10), jumlah: parseInt(m[2], 10), status: tds[3].innerText.trim().replace(/\s+/g, ' ') };
+            baris.push({ tds, m });
           }
-          return null;
+          const unik = (pred) => {
+            const calon = baris.filter(pred);
+            return calon.length === 1 ? calon[0] : null;
+          };
+          const thnTepat = (b) => norm(b.tds[1].innerText) === nt;
+          const klsTepat = (b) => norm(b.tds[2].innerText) === nk;
+          const thnAwalan = (b) => norm(b.tds[1].innerText).startsWith(nt);
+          const klsAwalan = (b) => norm(b.tds[2].innerText).startsWith(nk);
+          const b =
+            unik((x) => thnTepat(x) && klsTepat(x)) ||
+            unik((x) => thnTepat(x) && klsAwalan(x)) ||
+            unik((x) => thnAwalan(x) && klsTepat(x)) ||
+            unik((x) => thnAwalan(x) && klsAwalan(x));
+          if (!b) return null;
+          return {
+            hadir: parseInt(b.m[1], 10),
+            jumlah: parseInt(b.m[2], 10),
+            status: b.tds[3].innerText.trim().replace(/\s+/g, ' '),
+            kelasPadan: b.tds[2].innerText.trim()
+          };
         },
         [tahun, kelas]
       );
@@ -693,16 +716,31 @@ export function buatAdaptorPlaywright(page, opsyen = {}) {
   };
 }
 
+// Padanan label dropdown MOEIS. Tepat dahulu; jika tiada, padanan awalan yang
+// TIDAK AMBIGU sahaja (contoh hidup: HADIR menyimpan "PRASEKOLAH" manakala
+// MOEIS memaparkan "PRASEKOLAH BIJAK"). Dua calon atau lebih = BERHENTI,
+// jangan sekali-kali teka kelas.
 async function pilihDropdown(page, selektor, label) {
   const hasil = await page.evaluate(([s, l]) => {
+    const norm = (x) => String(x == null ? '' : x).toUpperCase().replace(/[^A-Z0-9]/g, '');
     const el = document.querySelector(s);
     if (!el) return { ok: false, mentah: 'tiada-elemen' };
-    const opt = Array.from(el.options).find((o) => o.textContent.trim().toUpperCase() === l.toUpperCase());
-    if (!opt) return { ok: false, mentah: 'tiada-pilihan' };
+    const sasaran = norm(l);
+    const opsyen = Array.from(el.options).filter((o) => norm(o.textContent) !== '');
+    let calon = opsyen.filter((o) => norm(o.textContent) === sasaran);
+    let cara = 'tepat';
+    if (!calon.length) {
+      calon = opsyen.filter((o) => norm(o.textContent).startsWith(sasaran));
+      cara = 'awalan';
+    }
+    if (calon.length !== 1) {
+      return { ok: false, mentah: calon.length ? 'padanan-ambigu' : 'tiada-pilihan', bilanganCalon: calon.length };
+    }
+    const opt = calon[0];
     el.value = opt.value;
     el.dispatchEvent(new Event('change', { bubbles: true }));
     if (window.jQuery) window.jQuery(el).trigger('change');
-    return { ok: true, mentah: opt.value };
+    return { ok: true, mentah: opt.value, cara, padan: opt.textContent.trim() };
   }, [selektor, label]);
   await jeda(3000);
   return hasil;
