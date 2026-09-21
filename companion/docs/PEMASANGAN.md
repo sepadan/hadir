@@ -478,6 +478,13 @@ log masuk idMe **secara manual** sekali — sama ada melalui butang
 memadam `had-login.json` secara manual, itu juga berkesan tetapi tidak
 diperlukan.
 
+**Nota menukar suis (diketahui, bukan pepijat):** mematikan suis
+`hadKadarLogin` TIDAK memindahkan keadaan had antara mod — mod MATI mempunyai
+kaunter 2-cubaan/proses yang berasingan dan bermula dari sifar. Menukar suis
+ialah tindakan pemilik (tempatan sahaja), jadi ia dianggap penarikan balik
+perlindungan yang disengajakan, bukan jalan pintas. Biarkan suis HIDUP supaya
+had berterusan benar-benar terpakai.
+
 Suis ini boleh dimatikan semula bila-bila masa tanpa kehilangan had ASAL
 2/proses (kedua-dua rejim sedia dalam kod; suis hanya menentukan mana yang
 aktif). OTP/CAPTCHA/2FA kekal berhenti untuk manusia dalam KEDUA-DUA rejim,
