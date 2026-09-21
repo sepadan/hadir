@@ -174,6 +174,22 @@ test('benarkanTerusTanpaFrasa HIDUP + kunci-tiada-dibenarkan: hasil TIDAK PERNAH
   assert.equal(teks.includes(KRED.pengguna), false, 'pengguna tidak boleh muncul dalam hasil');
 });
 
+// ---------------- hantarBorangLogMasuk({ok:false}) -> perlu-manusia, tiada sahkanSesiSelepasLogin ----------------
+
+test('hantarBorangLogMasuk gagal (ok:false, cth dua butang "Daftar Masuk" pada idMe sebenar) -> perlu-manusia dengan sebab yang sama, TIDAK meneruskan ke sahkanSesiSelepasLogin', async () => {
+  const adapter = buatHalamanLoginPalsu({
+    hantarGagal: true,
+    hantarSebab: 'Tiada butang "Daftar Masuk" yang aktif dan kelihatan pada halaman pengesahan idMe. Kemungkinan borang belum lengkap, kotak semak pengesahan belum ditanda, atau kata laluan tidak diterima.'
+  });
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'perlu-manusia');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(hasil.sebab, 'Tiada butang "Daftar Masuk" yang aktif dan kelihatan pada halaman pengesahan idMe. Kemungkinan borang belum lengkap, kotak semak pengesahan belum ditanda, atau kata laluan tidak diterima.');
+  assert.deepEqual(hasil.bukti, ['butang-hantar-tiada']);
+  assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), true, 'hantar mesti dicuba');
+  assert.equal(adapter._panggilan.includes('sahkanSesiSelepasLogin'), false, 'tidak boleh meneruskan ke sahkan sesi jika hantar gagal');
+});
+
 test('laluan penuh berjaya: urutan lengkap navigasi -> IC -> lanjut -> baca kunci -> kotak semak -> kata laluan -> hantar -> sesi-sah', async () => {
   const adapter = buatHalamanLoginPalsu();
   const hasil = await jalankanLoginAuto(adapter, KRED);

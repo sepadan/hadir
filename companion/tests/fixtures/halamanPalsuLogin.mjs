@@ -16,7 +16,9 @@ export function buatHalamanLoginPalsu({
   otpSelepasHantar = false,
   urlAwal = 'https://idme.moe.gov.my/',
   sesiSah = true,
-  lanjutGagal = false
+  lanjutGagal = false,
+  hantarGagal = false,
+  hantarSebab = 'Tiada butang "Daftar Masuk" yang aktif dan kelihatan (ujian).'
 } = {}) {
   const panggilan = [];
   let semakKe = 0;
@@ -47,7 +49,11 @@ export function buatHalamanLoginPalsu({
     },
     async tandakanKunciKeselamatan() { panggilan.push('tandakanKunciKeselamatan'); kotakSemak = true; },
     async isiKataLaluanIdMe() { panggilan.push('isiKataLaluanIdMe'); },
-    async hantarBorangLogMasuk() { panggilan.push('hantarBorangLogMasuk'); },
+    async hantarBorangLogMasuk() {
+      panggilan.push('hantarBorangLogMasuk');
+      if (hantarGagal) return { ok: false, status: 'tiada-butang-hantar', sebab: hantarSebab };
+      return { ok: true };
+    },
     async sahkanSesiSelepasLogin() {
       panggilan.push('sahkanSesiSelepasLogin');
       if (sesiSah) return { status: 'sesi-sah', hos: 'moeispel.moe.gov.my' };

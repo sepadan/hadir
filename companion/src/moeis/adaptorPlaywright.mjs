@@ -5,14 +5,82 @@
 // keras brief pelaksanaan) — hanya dilog sebagai belum disahkan hidup dalam
 // docs/PEMASANGAN.md. Selektor diwarisi daripada moeis-bot/push.mjs
 // (rujukan baca sahaja, projek itu tidak disentuh).
+import fs from 'node:fs';
+import path from 'node:path';
 import { adalahHosIdMe } from './sesi.mjs';
 import { URL_APLIKASI_IDME, pilihPautanAplikasiMoeis, HOS_MOEIS } from './aplikasi.mjs';
+import { sensor } from '../log.mjs';
 
 const URL_KEHADIRAN_HARIAN = 'https://moeispel.moe.gov.my/sahsiah/kehadiran/pkhem/tabguru';
 const URL_LOGIN_IDME = 'https://idme.moe.gov.my/';
 const jeda = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function buatAdaptorPlaywright(page) {
+// Sanitasi DOM selepas kegagalan log masuk, untuk bundle diagnostik LOKAL
+// sahaja (tulisDiagnostikKegagalan di bawah). Fungsi TULEN dan BOLEH DISIRI
+// (function.toString()) supaya boleh dihantar terus ke `page.evaluate(fn)`
+// tanpa closure ke luar — ini juga membolehkan ujian mengimport dan
+// menjalankannya terhadap halaman tempatan sebenar. JANGAN sekali-kali
+// rujuk pemboleh ubah luar fungsi ini.
+//
+// Nota keselamatan: `sensor()` (log.mjs) TIDAK memask kata laluan — membuang
+// NILAI setiap input/textarea di sini adalah satu-satunya pertahanan sebelum
+// bundle ditulis ke cakera.
+export function sanitasiDomLoginGagal() {
+  var root = document.documentElement.cloneNode(true);
+
+  // 1) Buang NILAI setiap input/textarea (kata laluan, IC, dll.).
+  Array.prototype.forEach.call(root.querySelectorAll('input, textarea'), function (el) {
+    el.removeAttribute('value');
+    try { el.value = ''; } catch (e) { /* sesetengah jenis input tidak benarkan set value kosong */ }
+  });
+
+  // 2) Buang SEPENUHNYA medan hidden/CSRF/token (bukan sekadar nilai).
+  var pemilihBuang = [
+    'input[type=hidden]', 'input[name*=csrf i]', 'input[name*=token i]',
+    'input[name*=_token]', 'input[name*=__RequestVerificationToken i]'
+  ].join(', ');
+  Array.prototype.forEach.call(root.querySelectorAll(pemilihBuang), function (el) {
+    if (el.parentNode) el.parentNode.removeChild(el);
+  });
+
+  // 3) Gantikan frasa keselamatan yang dipaparkan dengan placeholder — SAMA
+  //    laluan carian seperti bacaKunciKeselamatan() (kelas khusus dahulu,
+  //    kemudian heuristik label pendek -> nextElementSibling) — struktur
+  //    (tag + kelas) DIKEKALKAN, hanya textContent digantikan.
+  var petunjuk = /kunci keselamatan|security phrase|security key|frasa keselamatan/i;
+  var placeholder = '[FRASA-DISAMARKAN]';
+  var kotakKhusus = root.querySelector('.security-phrase, .kunci-keselamatan, .kata-kunci-box');
+  var sudahGanti = false;
+  if (kotakKhusus) {
+    var teksKhusus = (kotakKhusus.textContent || '').trim();
+    if (teksKhusus && !petunjuk.test(teksKhusus)) {
+      kotakKhusus.textContent = placeholder;
+      sudahGanti = true;
+    }
+  }
+  if (!sudahGanti) {
+    var calon = Array.prototype.filter.call(root.querySelectorAll('*'), function (el) {
+      var teks = (el.textContent || '').trim();
+      return el.children.length === 0 && teks.length > 0 && teks.length <= 80 && petunjuk.test(teks);
+    });
+    for (var i = 0; i < calon.length; i++) {
+      var label = calon[i];
+      var kotakFrasa = label.nextElementSibling;
+      if (!kotakFrasa || kotakFrasa.tagName === 'INPUT' || kotakFrasa.tagName === 'LABEL') continue;
+      var teksFrasa = (kotakFrasa.textContent || '').trim();
+      if (teksFrasa && !petunjuk.test(teksFrasa)) {
+        kotakFrasa.textContent = placeholder;
+        break;
+      }
+    }
+  }
+
+  return '<!DOCTYPE html>\n' + root.outerHTML;
+}
+
+export function buatAdaptorPlaywright(page, opsyen = {}) {
+  const dirData = (opsyen && opsyen.dirData) || null;
+  const tulisLog = typeof (opsyen && opsyen.tulisLog) === 'function' ? opsyen.tulisLog : () => {};
   return {
     async navigasiHarian() {
       await page.goto(URL_KEHADIRAN_HARIAN, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -231,10 +299,109 @@ export function buatAdaptorPlaywright(page) {
     },
     // Hantar borang log masuk ("Daftar Masuk") pada halaman pengesahan —
     // selektor berlainan daripada lanjutkanPengesahan() dengan sengaja.
+    //
+    // idMe SEBENAR membawa DUA butang "Daftar Masuk" pada halaman pengesahan:
+    // placeholder disabled/hidden `#log_disbale_form` (sentiasa hadir lebih
+    // awal dalam DOM) DAN satu butang sebenar aktif+kelihatan. `.first()`
+    // membuta memilih placeholder dan `click()` melontar Timeout Playwright
+    // mentah (30s) yang bocor ke log companion sebagai "ralat teknikal".
+    //
+    // Pembetulan: imbas BERSEMPADAN (~8s, tinjau setiap ~250ms) kesemua
+    // calon, klik HANYA yang kelihatan DAN aktif — TIDAK PERNAH `.first()`
+    // membuta. Jika tiada calon sedemikian selepas had masa, pulangkan
+    // keputusan berstruktur (BUKAN throw) supaya pemanggil boleh melaporkan
+    // sebab jelas dan berhenti dengan perluManusia:true.
     async hantarBorangLogMasuk() {
-      const pilihan = ['button:has-text("Daftar Masuk")', 'button[type="submit"]', 'input[type="submit"]', 'button.btn-login'];
-      await page.locator(pilihan.join(', ')).first().click();
+      const pilihanSelektor = 'button:has-text("Daftar Masuk"), button[type="submit"], input[type="submit"], button.btn-login';
+      const HAD_MASA_MS = 8000;
+      const JEDA_POLL_MS = 250;
+      const mula = Date.now();
+      let butangSasaran = null;
+      while (Date.now() - mula < HAD_MASA_MS) {
+        const calon = page.locator(pilihanSelektor);
+        const bilangan = await calon.count().catch(() => 0);
+        for (let i = 0; i < bilangan; i++) {
+          const satu = calon.nth(i);
+          const [nampak, aktif] = await Promise.all([
+            satu.isVisible().catch(() => false),
+            satu.isEnabled().catch(() => false)
+          ]);
+          if (nampak && aktif) { butangSasaran = satu; break; }
+        }
+        if (butangSasaran) break;
+        await jeda(JEDA_POLL_MS);
+      }
+      if (!butangSasaran) {
+        return {
+          ok: false, status: 'tiada-butang-hantar',
+          sebab: 'Tiada butang "Daftar Masuk" yang aktif dan kelihatan pada halaman pengesahan idMe. ' +
+            'Kemungkinan borang belum lengkap, kotak semak pengesahan belum ditanda, atau kata laluan tidak diterima.'
+        };
+      }
+
+      // Pengawal pra-klik: log HANYA 3 boolean (TIDAK PERNAH nilai) segera
+      // sebelum klik — bukti diagnostik tanpa membocorkan kredensial/frasa.
+      const keadaan = await page.evaluate(() => {
+        var petunjuk = /kata kunci keselamatan/i;
+        var label = Array.from(document.querySelectorAll('label')).find(function (l) {
+          return petunjuk.test(l.textContent || '');
+        });
+        var kotak = null;
+        if (label) {
+          kotak = label.querySelector('input[type=checkbox]') ||
+            (label.htmlFor && document.getElementById(label.htmlFor)) ||
+            (label.closest('div') && label.closest('div').querySelector('input[type=checkbox]'));
+        }
+        var pwd = document.querySelector('input[type=password]');
+        return {
+          kotakDitanda: !!(kotak && kotak.checked),
+          kataLaluanTidakKosong: !!(pwd && pwd.value && pwd.value.length > 0),
+          kataLaluanKelihatan: !!(pwd && !pwd.disabled && pwd.offsetParent !== null)
+        };
+      }).catch(() => ({ kotakDitanda: false, kataLaluanTidakKosong: false, kataLaluanKelihatan: false }));
+      tulisLog('LOGIN_AUTO_PRAKLIK',
+        `kotakDitanda=${keadaan.kotakDitanda} kataLaluanTidakKosong=${keadaan.kataLaluanTidakKosong} kataLaluanKelihatan=${keadaan.kataLaluanKelihatan}`);
+
+      try {
+        await butangSasaran.click({ timeout: 5000 });
+      } catch (ralat) {
+        return {
+          ok: false, status: 'tiada-butang-hantar',
+          sebab: 'Butang "Daftar Masuk" ditemui tetapi klik gagal (' +
+            String((ralat && ralat.message) || ralat).split('\n')[0] + '); kemungkinan keadaan berubah serta-merta.'
+        };
+      }
       await jeda(5000);
+      return { ok: true };
+    },
+    // Bundle diagnostik LOKAL SAHAJA selepas kegagalan log masuk — TIDAK
+    // PERNAH dimuat naik/dilampirkan/dihantar ke mana-mana model/subagen.
+    // Ditulis ke <dirData>/log/diagnostik-login-<masa>/ (folder log yang sama
+    // seperti companion.log): dom-sanitasi.html (DOM disanitasi —
+    // sanitasiDomLoginGagal), skrin.png (tangkapan skrin VIEWPORT, bukan
+    // fullPage — elak menangkap kandungan luar skrin yang tidak berkaitan),
+    // sebab.txt (sebab jujur, turut melalui sensor() log.mjs). Best-effort
+    // sepenuhnya — kegagalan menulis diagnostik TIDAK BOLEH menjatuhkan
+    // aliran log masuk utama.
+    async tulisDiagnostikKegagalan(hasil) {
+      if (!dirData) return;
+      try {
+        const cap = new Date().toISOString().replace(/[:.]/g, '-');
+        const dirBundle = path.join(dirData, 'log', `diagnostik-login-${cap}`);
+        fs.mkdirSync(dirBundle, { recursive: true });
+
+        const domSanitasi = await page.evaluate(sanitasiDomLoginGagal).catch(() => '');
+        fs.writeFileSync(path.join(dirBundle, 'dom-sanitasi.html'), domSanitasi || '', 'utf8');
+
+        await page.screenshot({ path: path.join(dirBundle, 'skrin.png'), fullPage: false }).catch(() => {});
+
+        const sebabTeks = sensor(String((hasil && hasil.sebab) || 'Tiada sebab dilaporkan.'));
+        fs.writeFileSync(path.join(dirBundle, 'sebab.txt'), sebabTeks, 'utf8');
+
+        tulisLog('DIAGNOSTIK_LOGIN', `Bundle diagnostik ditulis (tempatan sahaja): ${dirBundle}`);
+      } catch (ralat) {
+        tulisLog('DIAGNOSTIK_LOGIN', 'Gagal menulis bundle diagnostik: ' + String((ralat && ralat.message) || ralat));
+      }
     },
     async sahkanSesiSelepasLogin() {
       await page.goto(URL_KEHADIRAN_HARIAN, { waitUntil: 'domcontentloaded', timeout: 60000 });

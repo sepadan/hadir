@@ -52,7 +52,33 @@ export const HAD_CUBAAN_MAKS = 2;
 // Aliran tulen terhadap satu `adapter` (lihat adaptorPlaywright.mjs untuk
 // pelaksanaan sebenar; ujian menyuntik adapter palsu). `kredensial` ialah
 // objek { pengguna, kataLaluan, kunciKeselamatan } daripada vault DPAPI.
+//
+// Pembungkus nipis di sekeliling `jalankanLoginAutoTeras`: pada MANA-MANA
+// keputusan kegagalan (perluManusia:true ATAU status bukan 'sesi-sah'/
+// 'kunci-tiada-dibenarkan', ATAU pengecualian) — cuba tulis bundle
+// diagnostik LOKAL SAHAJA (`adapter.tulisDiagnostikKegagalan`, jika adapter
+// menyediakannya) secara best-effort. Diagnostik TIDAK PERNAH boleh
+// menjatuhkan/menukar keputusan sebenar aliran log masuk.
 export async function jalankanLoginAuto(adapter, kredensial, opsyen = {}) {
+  let hasil;
+  try {
+    hasil = await jalankanLoginAutoTeras(adapter, kredensial, opsyen);
+  } catch (ralat) {
+    hasil = {
+      status: 'gagal', perluManusia: true,
+      sebab: 'Ralat teknikal semasa log masuk automatik: ' + String((ralat && ralat.message) || ralat),
+      bukti: ['ralat-teknikal']
+    };
+  }
+  const kegagalan = hasil.perluManusia === true ||
+    (hasil.status !== 'sesi-sah' && hasil.status !== 'kunci-tiada-dibenarkan');
+  if (kegagalan) {
+    try { await adapter.tulisDiagnostikKegagalan?.(hasil); } catch { /* diagnostik tidak boleh menjatuhkan aliran utama */ }
+  }
+  return hasil;
+}
+
+async function jalankanLoginAutoTeras(adapter, kredensial, opsyen) {
   const kunciDijangka = kredensial && kredensial.kunciKeselamatan ? String(kredensial.kunciKeselamatan) : '';
   const pengguna = kredensial && kredensial.pengguna ? String(kredensial.pengguna) : '';
   const kataLaluan = kredensial && kredensial.kataLaluan ? String(kredensial.kataLaluan) : '';
@@ -149,8 +175,19 @@ export async function jalankanLoginAuto(adapter, kredensial, opsyen = {}) {
   //    ditanda (invarian keselamatan, lihat komen fail di atas).
   await adapter.isiKataLaluanIdMe(kataLaluan);
 
-  // 10. Hantar borang ("Daftar Masuk").
-  await adapter.hantarBorangLogMasuk();
+  // 10. Hantar borang ("Daftar Masuk"). Adapter PRODUKSI memulangkan
+  //     {ok,status,sebab} — idMe sebenar membawa DUA butang "Daftar Masuk"
+  //     (placeholder disabled/hidden + satu aktif); jangan sekali-kali
+  //     anggap hantar berjaya tanpa semakan ok===true eksplisit.
+  const hantar = await adapter.hantarBorangLogMasuk();
+  if (!hantar || hantar.ok !== true) {
+    return {
+      status: 'perlu-manusia', perluManusia: true,
+      sebab: (hantar && hantar.sebab) ||
+        'Tidak dapat menghantar borang log masuk idMe (butang "Daftar Masuk" tidak ditemui); log masuk manual diperlukan.',
+      bukti: ['butang-hantar-tiada']
+    };
+  }
 
   // 11. Langkah kedua (OTP/CAPTCHA/2FA) selepas hantar: JANGAN pintas.
   const langkah2 = await adapter.semakCaptchaOtp();

@@ -268,6 +268,42 @@ berjaya disahkan.
   PC companion sendiri (UI tempatan bernonce); klien jauh (`POST
   /api/tetapan`) ditolak jika cuba menetapkannya.
 
+### Pembetulan langkah hantar: dua butang "Daftar Masuk" pada idMe sebenar
+
+Halaman pengesahan idMe membawa **DUA** butang berlabel "Daftar Masuk": satu
+placeholder `disabled`/tersembunyi (`#log_disbale_form`, sentiasa hadir lebih
+awal dalam struktur halaman) dan satu butang **sebenar aktif+kelihatan**.
+Mengklik butang pertama yang dijumpai tanpa semakan boleh tersilap memilih
+placeholder dan gagal senyap/tergantung.
+
+Companion kini mengimbas **bersempadan** (~8 saat, tinjau setiap ~250ms) dan
+mengklik **hanya** calon yang kelihatan **dan** aktif. Jika tiada butang
+sedemikian dijumpai dalam tempoh itu, companion **berhenti dengan sebab jelas**
+(cth borang belum lengkap, kotak semak pengesahan belum ditanda, atau kata
+laluan tidak diterima) — ia **tidak pernah** tergantung atau melaporkan ralat
+teknikal mentah yang mengelirukan.
+
+**Bundle diagnostik tempatan pada kegagalan log masuk.** Apabila log masuk
+automatik gagal atas sebarang sebab, companion menulis satu bundle ke
+`log/diagnostik-login-<masa>/` dalam folder data (folder yang sama seperti
+`companion.log`, ACL dihadkan kepada akaun Windows semasa):
+
+- `dom-sanitasi.html` — struktur halaman pada masa kegagalan, dengan nilai
+  **setiap** medan input/textarea dibuang, medan hidden/CSRF/token dibuang
+  sepenuhnya, dan frasa keselamatan yang dipaparkan digantikan dengan
+  `[FRASA-DISAMARKAN]` (struktur tag/kelas dikekalkan untuk diagnostik reka
+  bentuk halaman).
+- `skrin.png` — tangkapan skrin **viewport** (bukan skrin penuh) pada masa
+  kegagalan.
+- `sebab.txt` — sebab kegagalan dalam Bahasa Melayu, turut melalui penapis
+  log sedia ada.
+
+Bundle ini **tidak pernah dimuat naik, dilampirkan atau dihantar ke mana-mana
+model AI atau perkhidmatan luar** — ia kekal semata-mata pada cakera PC
+companion untuk pemeriksaan manual oleh pemilik. Ini penting kerana penapis
+log sedia ada (`src/log.mjs`) **tidak** memask kata laluan — membuang nilai
+medan input pada peringkat sanitasi DOM ialah pertahanan yang disengajakan.
+
 ### Bila enjin akan (dan TIDAK akan) log masuk automatik
 
 Sebelum ini, enjin hanya cuba log masuk automatik **sekali semasa startup**. Jika

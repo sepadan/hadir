@@ -11,6 +11,7 @@
 import { dapatkanDirData, bacaTetapan } from '../src/tetapan.mjs';
 import { buatStoranKredensial } from '../src/kredensial.mjs';
 import { jalankanLoginAuto } from '../src/moeis/login-auto.mjs';
+import { buatLog } from '../src/log.mjs';
 
 function arg(nama, lalai) {
   const i = process.argv.indexOf('--' + nama);
@@ -47,7 +48,11 @@ async function main() {
 
   const context = await bukaKonteks(dirData);
   const page = context.pages()[0] || await context.newPage();
-  const adapter = buatAdaptorPlaywright(page);
+  const log = buatLog({ dirData });
+  const adapter = buatAdaptorPlaywright(page, {
+    dirData,
+    tulisLog: (jenis, mesej) => log.tulis(jenis + ': ' + mesej)
+  });
   const tetapan = bacaTetapan(dirData);
 
   let hasil;

@@ -15,7 +15,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
-import { buatAdaptorPlaywright } from '../src/moeis/adaptorPlaywright.mjs';
+import { buatAdaptorPlaywright, sanitasiDomLoginGagal } from '../src/moeis/adaptorPlaywright.mjs';
 
 const FRASA = 'FRASA-CONTOH-SELAMAT';
 
@@ -177,3 +177,57 @@ test('adapter sebenar: lanjutkanPengesahan pulangkan {ok:true} apabila kotak sem
 // -> {ok:false} selepas timeout 15s) TIDAK diuji di sini kerana ia memaksa
 // tunggu 15s sebenar. Pembetulan tandatangan `waitForFunction(fn, undefined,
 // { timeout: 15000 })` disahkan oleh sumber + laluan gembira di atas.
+
+// ---------- hantarBorangLogMasuk: DUA butang "Daftar Masuk" idMe sebenar ----------
+//
+// idMe /loginverification sebenar membawa DUA butang "Daftar Masuk": satu
+// placeholder disabled+hidden `#log_disbale_form` (sentiasa lebih awal dalam
+// DOM) dan satu butang sebenar aktif+kelihatan. `.first()` membuta lama
+// memilih placeholder dan `click()` melontar Timeout Playwright mentah.
+
+test('adapter sebenar: hantarBorangLogMasuk klik butang AKTIF + KELIHATAN, BUKAN placeholder disabled/hidden log_disbale_form', async () => {
+  await muat(
+    '<!doctype html><html><body>' +
+    '<button disabled type="submit" id="log_disbale_form" class="btn btn-info btn-block" style="display:none" ' +
+    'onclick="window.__diklik=\'log_disbale_form\'">Daftar Masuk</button>' +
+    '<button type="submit" id="log_enable_form" class="btn btn-primary btn-block" ' +
+    'onclick="window.__diklik=\'log_enable_form\'">Daftar Masuk</button>' +
+    '</body></html>'
+  );
+  const hasil = await adapter.hantarBorangLogMasuk();
+  assert.equal(hasil.ok, true);
+  const diklik = await page.evaluate(() => window.__diklik || null);
+  assert.equal(diklik, 'log_enable_form', 'mesti klik butang AKTIF, bukan placeholder disabled/hidden');
+});
+
+test('adapter sebenar: TIADA butang "Daftar Masuk" aktif/kelihatan -> {ok:false, status:"tiada-butang-hantar"}, sebab jelas, TIADA raw Timeout, TIDAK throw (bounded ~8s)', async () => {
+  await muat(
+    '<!doctype html><html><body>' +
+    '<button disabled type="submit" id="log_disbale_form" class="btn btn-info btn-block" style="display:none">Daftar Masuk</button>' +
+    '</body></html>'
+  );
+  const hasil = await adapter.hantarBorangLogMasuk();
+  assert.equal(hasil.ok, false);
+  assert.equal(hasil.status, 'tiada-butang-hantar');
+  assert.match(hasil.sebab, /Daftar Masuk/);
+  assert.doesNotMatch(hasil.sebab, /Timeout/i, 'sebab tidak boleh membocorkan Timeout Playwright mentah');
+});
+
+// ---------- sanitasiDomLoginGagal: fungsi TULEN, boleh disiri untuk diagnostik ----------
+
+test('sanitasiDomLoginGagal: buang nilai input + medan csrf/hidden, gantikan frasa dengan placeholder, kekalkan struktur .kata-kunci-box', async () => {
+  await muat(
+    '<!doctype html><html><body>' +
+    '<input type="text" name="ic" value="SECRET-VALUE">' +
+    '<input type="hidden" name="csrf_token" value="rahsia-csrf-nilai">' +
+    '<div class="kata-kunci-box">FRASA-CONTOH-SELAMAT</div>' +
+    '</body></html>'
+  );
+  const html = await page.evaluate(sanitasiDomLoginGagal);
+  assert.equal(html.includes('SECRET-VALUE'), false, 'nilai input tidak boleh bocor');
+  assert.equal(html.includes('csrf_token'), false, 'medan csrf mesti dibuang sepenuhnya');
+  assert.equal(html.includes('rahsia-csrf-nilai'), false);
+  assert.equal(html.includes('FRASA-CONTOH-SELAMAT'), false, 'frasa sebenar tidak boleh bocor');
+  assert.match(html, /\[FRASA-DISAMARKAN\]/);
+  assert.match(html, /class="kata-kunci-box"/, 'struktur (tag+kelas) mesti dikekalkan');
+});
