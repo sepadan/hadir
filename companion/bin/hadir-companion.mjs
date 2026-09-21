@@ -10,7 +10,7 @@
 //   bina-artifak       panggil install/bina-artifak.ps1
 import os from 'node:os';
 import path from 'node:path';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { dapatkanDirData, bacaTetapan, tulisTetapanAtomik, bacaJson, bacaJsonKetat, tulisJsonAtomik, bacaAtauCiptaIdEnjin } from '../src/tetapan.mjs';
@@ -21,6 +21,8 @@ import {
   cubaLoginAutoKerja as cubaLoginAutoKerjaTerpandu, snapshotLoginAutoStatus
 } from '../src/moeis/login-auto.mjs';
 import { buatHadKadarLogin } from '../src/moeis/had-login.mjs';
+import { buatDispatcherKumpulan } from '../src/moeis/dispatcher-kumpulan.mjs';
+import { buatPengurusKumpulanPelayar } from '../src/moeis/kumpulan-pelayar.mjs';
 import { buatPengurusPasangan } from '../src/pasangan.mjs';
 import { buatLog } from '../src/log.mjs';
 import { buatKlienHadir } from '../src/klien-hadir.mjs';
@@ -103,16 +105,25 @@ async function klaimDisokong(klien, simpananApi) {
   }
 }
 
-// Menjalankan push.mjs sebagai proses anak berasingan supaya satu kegagalan
-// pelayar tidak menjatuhkan pelayan companion. stdout+stderr penuh dikembalikan
-// untuk log.tulisKerja(); baris terakhir 'HASIL:' dihuraikan sebagai keputusan.
+// Laluan SEJUK (satu proses anak = satu tugasan): menjalankan push.mjs
+// sebagai proses anak berasingan supaya satu kegagalan pelayar tidak
+// menjatuhkan pelayan companion. stdout+stderr penuh dikembalikan untuk
+// log.tulisKerja(); baris terakhir 'HASIL:' dihuraikan sebagai keputusan.
 //
 // Payload tugasan dihantar melalui STDIN, bukan argumen CLI: baris arahan
 // proses boleh dibaca oleh proses lain pengguna yang sama (Task Manager, WMI),
 // dan payload itu membawa nama murid tidak hadir. Medan `ic` turut dibuang oleh
 // buangIc() — enjin memadankan murid mengikut nama dan `data-idpelajar` sahaja
 // (penemuan semakan bebas: PII yang boleh dielak sepenuhnya).
-function jalankanTugasanAnak(job, opsyen) {
+//
+// Ini kekal sebagai LALUAN SANDARAN untuk laluan panas berasaskan kumpulan
+// (Option 2, lihat pengurusKumpulan di bawah): dipanggil terus oleh
+// pengurusKumpulan.jalankanTugasanAnak apabila kumpulan gagal dibuka SEBELUM
+// sebarang mutasi, dan menjadi fungsi TUNGGAL yang dihantar ke buatGiliran()
+// (`jalankanTugasanAnak: pengurusKumpulan.jalankanTugasanAnak`) supaya
+// giliran.mjs kekal TIDAK berubah dari segi cara ia memanggil pemboleh ubah
+// ini — tandatangan (job, opsyen) -> {kod, stdout, stderr, hasil} kekal SAMA.
+function jalankanTugasanAnakSejuk(job, opsyen) {
   // Kunci eksklusif pelayar: jika siasatan/login sedang memegang profil Edge,
   // JANGAN lancarkan push.mjs kedua (akan bertembung pada kunci profil).
   // Langkau dengan status 'langkau' — giliran melepaskan lease dan mencuba
@@ -327,11 +338,52 @@ async function main() {
   // minit tanpa churn pelayar setiap-poll.
   const TTL_SEGAR_SESI_MS = 10 * 60 * 1000;
 
+  // Kumpulan pelayar (Option 2, seni bina diluluskan): SATU konteks Edge
+  // dikongsi merentas SEMUA tugasan satu kitaran giliran — mula LEWAT pada
+  // tugasan pertama yang berjaya diklaim & layak (pengurusKumpulanPelayar
+  // hanya mencipta dispatcher pada panggilan `jalankanTugasanAnak` PERTAMA),
+  // bukan satu Edge sejuk per tugasan. `spawnPekerja` melancarkan
+  // bin/pekerja-batch.mjs sebagai proses anak BERTERUSAN (bukan
+  // execFile satu-tembakan seperti jalan-push.mjs) yang dikawal melalui
+  // protokol NDJSON stdin/stdout (dispatcher-kumpulan.mjs). Kunci eksklusif
+  // pelayar sedia ada (`kunciPelayar`) dikongsi label BAHARU 'kumpulan' —
+  // saling eksklusif dengan siasatan/log masuk manual/penjaga sesi yang
+  // menggunakan label 'siasatan:*'/'tugasan'.
+  //
+  // Kegagalan membuka kumpulan SEBELUM sebarang mutasi (Edge/Playwright tidak
+  // dapat dilancarkan) jatuh balik ke laluan sejuk lama
+  // (`jalankanTugasanAnakSejuk`) untuk TUGASAN ITU SAHAJA — lihat
+  // src/moeis/kumpulan-pelayar.mjs.
+  // Bunuh POKOK proses MILIK pekerja (Windows) — keturunan Edge/Playwright yang
+  // dilancarkan oleh pekerja kumpulan. `taskkill /T /F` pada PID pekerja sahaja
+  // (root pokok) — TIDAK PERNAH mengimbas/membunuh Edge peribadi pengguna.
+  // Disuntik ke dispatcher supaya tutup() boleh membersihkan keturunan pekerja
+  // yang yatim apabila pekerja tidak keluar dengan bersih dalam graceMs.
+  const bunuhPokokProses = (pid) => {
+    if (process.platform !== 'win32' || !pid) return false;
+    try {
+      execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 10000 });
+      return true;
+    } catch { return false; }
+  };
+
+  const pengurusKumpulan = buatPengurusKumpulanPelayar({
+    kunciPelayar,
+    buatDispatcher: () => buatDispatcherKumpulan({
+      spawnPekerja: () => spawn(process.execPath, [path.join(HERE, 'pekerja-batch.mjs'), '--data-dir', dirData], { stdio: ['pipe', 'pipe', 'pipe'] }),
+      buangIc,
+      tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
+      bunuhPokokProses
+    }),
+    jalankanTugasanAnakSejuk
+  });
+
   const giliran = buatGiliran({
     klien: buatKlienDaripadaTetapan(tetapanApi, simpananApi),
     pemilik: pemilikEnjin,
     log,
-    jalankanTugasanAnak,
+    jalankanTugasanAnak: pengurusKumpulan.jalankanTugasanAnak,
+    tutupKumpulanPelayar: pengurusKumpulan.tutupKumpulanPelayar,
     cubaLoginAutoKerja: (opsyen) => cubaLoginAutoKerja(opsyen),
     segarkanSesiCache,
     jedaSegarSesiMs: TTL_SEGAR_SESI_MS,
@@ -720,6 +772,24 @@ async function main() {
       autoMulaStatus.sebab = mesej;
     }
   });
+
+  // Pemberhentian hayat BERSEMPADAN (penemuan semakan Astra — blocker #6):
+  // pada SIGINT/SIGTERM, hentikan giliran TANPA mengganggu tulisan yang sedang
+  // berjalan (bounded `giliran.berhenti`), tutup kumpulan pelayar (lepaskan kunci
+  // + tutup Edge MILIK kumpulan), kemudian tutup pelayan. Tiada tugasan
+  // seterusnya selepas berhenti; tiada main-semula tulisan yang tidak diketahui.
+  let sedangTutup = false;
+  const tutupBersih = async () => {
+    if (sedangTutup) return;
+    sedangTutup = true;
+    try { await giliran.berhenti({ tungguMs: 30000 }); } catch { /* best-effort */ }
+    try { await pengurusKumpulan.tutupKumpulanPelayar(); } catch { /* gagal-tertutup; kunci kekal */ }
+    try { log.tulis('Companion dihentikan (isyarat proses).'); } catch { /* ignore */ }
+    pelayan.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 5000).unref();
+  };
+  process.on('SIGINT', tutupBersih);
+  process.on('SIGTERM', tutupBersih);
 }
 
 main().catch((ralat) => {

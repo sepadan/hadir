@@ -28,7 +28,21 @@ function adalahLangkau(hasil) { return !!(hasil && hasil.status === 'langkau'); 
 // — lalai selamat ialah TIDAK PERNAH cuba semula.
 function pastiTiadaSpawn(hasil) { return !!(hasil && hasil.pastiTiadaSpawn === true); }
 
-export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik, cubaLoginAutoKerja, segarkanSesiCache, jedaSegarSesiMs = 10 * 60 * 1000, sekarangMs }) {
+export function buatGiliran({
+  klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik, cubaLoginAutoKerja,
+  segarkanSesiCache, jedaSegarSesiMs = 10 * 60 * 1000, sekarangMs, tutupKumpulanPelayar
+}) {
+  // Suntikan OPSYENAL (Option 2 — kumpulan pelayar): giliran.mjs sendiri
+  // TIDAK tahu/tidak peduli tentang dispatcher/kunci pelayar. Ia hanya
+  // memanggil hook ini pada dua sempadan: (a) akhir setiap kitaran/tugasan
+  // (finally) supaya SATU konteks pelayar dikongsi merentas kumpulan tugasan
+  // itu, ditutup SEKALI sahaja selepas semuanya selesai; (b) SEBELUM
+  // memanggil pengurus log masuk induk apabila sesi tamat dikesan — elak
+  // deadlock kunci reentrant (pengurus log masuk memperoleh kunci pelayar
+  // SENDIRI untuk siasatan/log masuk, dan tidak boleh menunggu kunci yang
+  // masih dipegang kumpulan). Lalai tiada-op supaya laluan sejuk lama
+  // (tiada suntikan ini) kekal berfungsi tanpa perubahan.
+  const tutupKumpulan = typeof tutupKumpulanPelayar === 'function' ? tutupKumpulanPelayar : async () => {};
   const state = {
     aktif: false, sedangProses: false, kerjaSemasa: null, ralatTerakhir: '',
     keputusanTerakhir: null, sebabKelayakanTerakhir: '', bilLangkauTerakhir: 0,
@@ -46,6 +60,13 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
   // tugasan TIDAK dicuba semula secara senyap selepas berhenti sedemikian.
   async function cubaLoginAutoPaksa() {
     if (typeof cubaLoginAutoKerja !== 'function') return { perluManusia: false, sebab: '' };
+    // Tutup kumpulan pelayar + lepaskan kunci SEBELUM log masuk (Option 2) —
+    // pengurus log masuk induk memperoleh kunci pelayar SENDIRI untuk
+    // siasatan/log masuk; jika kumpulan masih memegangnya, log masuk akan
+    // dilangkau secara senyap (deadlock kunci reentrant). Pelayar gantian
+    // dibuka semula secara LEWAT pada panggilan jalankanTugasanAnak
+    // seterusnya, SELEPAS log masuk selesai.
+    await tutupKumpulan().catch(() => {});
     try {
       const r = await cubaLoginAutoKerja({ paksa: true });
       return {
@@ -269,6 +290,22 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
     throw ralatTerakhir;
   }
 
+  // Penutupan kumpulan pelayar pada SEMPADAN kitaran/tugasan. `state.sedangProses`
+  // KEKAL benar sepanjang penutupan (penemuan semakan Astra): jika ia diset
+  // palsu SEBELUM `tutupKumpulan`, tugasan/kitaran baharu boleh bermula semasa
+  // kumpulan masih ditutup (pelayar kedua pada profil yang sama). Kegagalan
+  // penutupan DIREKOD (gagal-tertutup), TIDAK ditelan senyap.
+  async function bersihkanSelepasKitaran() {
+    try {
+      await tutupKumpulan();
+    } catch (ralat) {
+      const mesej = 'Penutupan kumpulan pelayar gagal: ' + ((ralat && ralat.message) || ralat);
+      state.ralatTerakhir = state.ralatTerakhir ? state.ralatTerakhir + ' | ' + mesej : mesej;
+    } finally {
+      state.sedangProses = false;
+    }
+  }
+
   async function jalankanSatuKitaran() {
     if (state.sedangProses) return { dilangkau: true };
     // Segarkan cache sesi pada selang bersempadan (jedaSegarSesiMs) supaya
@@ -314,7 +351,10 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
       state.ralatTerakhir = ralat.message;
       throw ralat;
     } finally {
-      state.sedangProses = false;
+      // SATU konteks pelayar dikongsi merentas SEMUA calon kitaran ini
+      // (Option 2) — tutup SEKALI sahaja di sini, selepas semuanya selesai.
+      // sedangProses kekal benar sepanjang penutupan (lihat bersihkanSelepasKitaran).
+      await bersihkanSelepasKitaran();
     }
   }
 
@@ -334,7 +374,7 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
       state.keputusanTerakhir = r;
       return { diproses: 1, keputusan: [r] };
     } finally {
-      state.sedangProses = false;
+      await bersihkanSelepasKitaran();
     }
   }
 
@@ -384,7 +424,7 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
         state.kerjaSemasa = null;
       }
     } finally {
-      state.sedangProses = false;
+      await bersihkanSelepasKitaran();
     }
   }
 
@@ -406,6 +446,26 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
     state.timer = null;
   }
 
+  // Pemberhentian hayat (shutdown proses / henti giliran) BERSEMPADAN
+  // (penemuan semakan Astra — blocker #6): berhenti tanpa MENGGANGGU tulisan
+  // yang sedang berjalan (tiada abort pertengahan-tulis, tiada main-semula),
+  // TIDAK memproses tugasan seterusnya selepas berhenti, dan menutup kumpulan
+  // pelayar sekali sahaja. Menunggu kitaran dalam-penerbangan selesai sehingga
+  // `tungguMs`, kemudian tutup kumpulan (idempoten).
+  async function berhenti({ tungguMs = 30000 } = {}) {
+    hentikan();
+    const mula = Date.now();
+    while (state.sedangProses && (Date.now() - mula) < tungguMs) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    try {
+      await tutupKumpulan();
+    } catch (ralat) {
+      const mesej = 'Penutupan kumpulan pelayar semasa berhenti gagal: ' + ((ralat && ralat.message) || ralat);
+      state.ralatTerakhir = state.ralatTerakhir ? state.ralatTerakhir + ' | ' + mesej : mesej;
+    }
+  }
+
   function status() {
     return {
       aktif: state.aktif, sedangProses: state.sedangProses,
@@ -418,5 +478,5 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
     };
   }
 
-  return { mulakan, hentikan, status, jalankanSatuKitaran, jalankanTugasan, sahkanTugasan };
+  return { mulakan, hentikan, berhenti, status, jalankanSatuKitaran, jalankanTugasan, sahkanTugasan };
 }

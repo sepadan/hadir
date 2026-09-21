@@ -479,6 +479,118 @@ selepas muat semula membaca **identiti + kategori + sebab setiap murid**
 sepenuhnya terhadap `HalamanPalsu` (DOM mini) — lihat had keupayaan dalam
 `companion/docs/PEMASANGAN.md`.
 
+**Kumpulan pelayar (Option 2) — SATU konteks Edge dikongsi per-kitaran giliran:**
+Daripada satu Edge sejuk per tugasan, `giliran.mjs` kini mengikut laluan
+kumpulan: `src/moeis/kumpulan-pelayar.mjs` (glu kunci eksklusif +
+dispatcher + laluan sejuk) membuka **satu** dispatcher IPC pada panggilan
+pertama `jalankanTugasanAnak` dan memegang kunci pelayar label `kumpulan`
+merentas hayat kitaran (dilepaskan hanya oleh `tutupKumpulanPelayar()`).
+`src/moeis/dispatcher-kumpulan.mjs` melancarkan `bin/pekerja-batch.mjs`
+sebagai proses anak **berterusan** (bukan execFile satu-tembakan) yang
+memproses berbilang tugasan berurutan terhadap **satu** konteks dikongsi
+(`src/moeis/pekerja-batch.mjs`); setiap tugasan tetap menerima **halaman
+baharu + adapter baharu** (tidak pernah mempercayai kelas/tarikh/senarai
+murid halaman sebelumnya). Protokol NDJSON satu-baris:
+induk→anak `{"id","job","opsyen"}` melalui stdin, anak→induk
+`HASIL:{"id","hasil"}` melalui stdout (baris lain diabaikan); IC dibuang
+oleh `buangIc` SEBELUM ditulis ke stdin (invarian sama seperti laluan sejuk).
+Gelung protokol NDJSON itu sendiri difaktorkan ke modul BERSAMA
+`src/moeis/pekerja-ndjson.mjs` (diimport oleh `bin/pekerja-batch.mjs` produksi
+DAN oleh fixture ujian) supaya pelari produksi yang sama diuji — bukan salinan
+palsu berasingan.
+Kegagalan membuka konteks dilaporkan `{status:'gagal', pembukaanGagal:true}`
+(bukan lontaran) supaya `kumpulan-pelayar.mjs` menutup kumpulan, melepas
+kunci dan **jatuh balik ke laluan sejuk** untuk tugasan itu sahaja (job/opsyen
+asal, tanpa perubahan). Sempadan penutupan: `giliran.mjs` memanggil
+`tutupKumpulanPelayar()` pada akhir setiap kitaran/tugasan (finally) dan
+**sebelum** memanggil pengurus log masuk induk apabila sesi tamat dikesan
+(elak deadlock kunci reentrant); pelayar gantian dibuka semula lewat selepas
+penutupan.
+
+**Pengetatan hayat/penutupan (penemuan semakan bebas Astra — enam penyekat):**
+(1) **stderr pekerja kini disalirkan** ke bufer bersempadan (~4 KB) + sanitasi
+(aksara kawalan dibuang) — sebelum ini stderr tidak pernah dikonsumsi,
+berisiko deadlock paip dan menghilangkan diagnostik; tiada PII mentah dilog.
+(2) **Setiap permintaan ada masa tamat bersempadan** (lalai 15 minit, padan
+laluan sejuk) dan **ralat stdin (EPIPE) tidak lagi ditelan** — kedua-duanya
+menyelesaikan promise tertunda secara **jujur** (`{status:'gagal',
+tidakDiketahui:true}`, tiada main-semula membuta) dan menamatkan pekerja
+milik sendiri. (3) **`tutup()` kini membersihkan pokok proses MILIK pekerja**
+— `bunuhPokokProses` (`taskkill /PID <pid> /T /F` pada Windows, disuntik)
+membunuh keturunan Edge/Playwright pekerja apabila ia tidak keluar dalam
+`graceMs`, **tidak pernah** mengimbas/membunuh Edge peribadi pengguna.
+(4) **`state.sedangProses` kekal benar sepanjang penutupan kumpulan** (set
+palsu hanya dalam `finally` selepas `tutupKumpulan()` selesai) — sebelum ini
+ia diset palsu sebelum `await`, membuka tetingkap tugasan baharu semasa
+kumpulan masih ditutup; kegagalan penutupan direkod (gagal-tertutup), tidak
+ditelan senyap. (5) **Mesin keadaan eksplisit** `ditutup|dibuka|menutup|gagal`
+dalam `kumpulan-pelayar.mjs`: `buatDispatcher()` yang melontar melepas kunci
+(tiada apa dilancarkan); `d.tutup()` yang gagal **mengekalkan kunci**
+(gagal-tertutup — Edge yatim mungkin masih memegang profil) dan tugasan
+berikutnya dilangkau (`pastiTiadaSpawn:true`), bukan melancarkan pelayar kedua
+atau melepas kunci senyap; tutup serentak diserikan (janji tutup berkongsi).
+(6) **Cangkuk hayat pemberhentian** (`giliran.berhenti()` + pengendali
+`SIGINT`/`SIGTERM` dalam `bin/hadir-companion.mjs`): berhenti tanpa
+mengganggu tulisan sedang berjalan (bounded tunggu), **tiada tugasan
+seterusnya selepas berhenti**, dan menutup kumpulan/pelayan sekali.
+
+**Pengetatan hayat/penutupan — PUSINGAN KEDUA (semakan semula Astra, penyekat**
+**yang tertinggal oleh tuntutan "semua selesai" sebelum ini):** (1) **Bunuh
+pokok DAHULU sebelum kill langsung** — `bunuhPokokProses` (taskkill /T) kini
+dipanggil SEBELUM `kill()` langsung supaya keturunan Edge/Playwright tidak
+menjadi yatim (diparurkan semula) sebelum pokok ditemui; selepas itu tunggu
+pengesahan keluar (bounded). (2) **Pembersihan mesti DISAHKAN, bukan dianggap**
+— `tutup()` kini MENOLAK (gagal-tertutup) jika akar tidak terbukti keluar ATAU
+bunuh pokok disuntik tetapi GAGAL (keturunan mungkin yatim); handle anak
+dikekalkan sehingga pembersihan terbukti, dan kejatuhan SEMULA JADI (crash)
+pekerja mengekalkan handle supaya `tutup()` boleh cuba bunuh pokok keturunan
+yatim — jika tidak dapat disahkan, tutup menolak dan kunci dikekalkan.
+(3) **Keadaan RACUN TERMINAL** — keluar/putus/ralat stdin/tamat masa/limpaan
+protokol menetapkan dispatcher gagal kekal; `hantar()` seterusnya pulang
+`{status:'gagal', tidakDiketahui:true}` TANPA spawn automatik baharu (spawn
+semula boleh memegang semula profil dan menulis semula tugasan yang hasilnya
+tidak diketahui). (4) **Satu anak ditangkap (`a`) dalam SEMUA handler**, bukan
+pemboleh ubah `anak` boleh-ubah — keluar LEWAT pekerja lama diabaikan
+(`a !== anak`) dan tidak mengosongkan keadaan proses baharu. (5) **Ralat stdin
+(EPIPE) kini MENAMATKAN pekerja**, bukan hanya buang handle — pekerja yang
+mungkin masih hidup mesti dibunuh supaya profil Edge tidak kekal dipegang
+sementara kunci dilepas. (6) **stderr TIDAK PERNAH dilog mentah** — hanya kod
+diagnostik allowlist (`BERHENTI`, `KUMPULAN_PELAYAR_*`) diekstrak + kiraan
+bait; kandungan mentah (boleh membawa nama/token/IC) dibuang selepas dikira
+(penyekat asal hanya menapis aksara kawalan — TIDAK menghapus PII). (7)
+**stdout BERSEMPADAN** — penimbal baris melebihi 1 MiB = limpaan protokol →
+gagal tertutup (racun + tamatkan pekerja), bukan penimbal tanpa had sehingga
+newline tiba.
+
+**Pengetatan penutupan — PUSINGAN KETIGA (handshake pembersihan bersih):**
+Sebelum ini handler `exit` membuang `anak` (set null) serta-merta apabila
+`ditutup` ATAU `diracun`, dan `tutup()` menganggap sebarang keluar dalam
+`graceMs` (termasuk kod bukan sifar / terpaksa dibunuh) sebagai bersih —
+sekali gus pengurus melepaskan kunci walaupun pembunuhan pokok keturunan
+sebenarnya GAGAL. Kini: (1) handler `exit` hanya **REKOD** keluar (`kod` +
+`_sudahKeluar`), **tidak pernah** membuang handle; (2) penutupan bersih
+memerlukan **ack `BERSIH:`** daripada pekerja (dipancarkan oleh pelari NDJSON
+produksi HANYA selepas `context.close` selesai) **DAN** keluar kod 0 — tanpa
+kedua-duanya, `tutup()` membunuh pokok + kill (melalui **satu janji
+pembersihan dikongsi** antara racun dan tutup, jadi kill/pembunuhan pokok
+berlaku **tepat sekali** — tiada bunuh berulang / guna-semula PID akar) dan
+MENOLAK jika tidak disahkan; (3) panggilan balik bunuh pokok **dibatasi masa**.
+Ujian membuktikan: EPIPE+bunuh pokok gagal → tutup MENOLAK; tutup serentak
+dengan bunuh pokok lewat ditolak → MENOLAK; keluar bukan sifar semasa grace
+TIDAK dikira bersih; ack+keluar 0 melepas handle tanpa kill; kill berjaya
+berlaku tepat sekali.
+
+**Ujian IPC span SEBENAR (`tests/dispatcher-kumpulan-sebenar.test.mjs`):**
+Dispatcher produksi diuji terhadap proses anak Node **sebenar** (spawn
+`node`) yang bercakap protokol NDJSON penuh tetapi dengan kebergantungan
+pelayar **palsu tempatan** (`tests/fixtures/pekerja-batch-palsu.mjs` —
+`buatPekerjaBatch` dengan `buatHalamanPalsu`, tiada Playwright/Edge/MOEIS).
+Mod ujian fixture (`--mod-*`) mensimulasikan banjir stderr (>64 KB), gantung
+(tiada balasan), crash, dan baris `HASIL:` rosak; mod `--mod-echo` membuktikan
+end-to-end bahawa IC tidak pernah sampai ke stdin pekerja. **Lalai produksi
+TIDAK berubah** — mod palsu wujud hanya sebagai fail fixture ujian, tiada
+laluan boleh-pilih jauh/tidak selamat.
+
 ## 6. Penyelarasan murid
 
 - **Update Data Murid** menerima CSV idME dan menggunakan fungsi rasmi
@@ -765,6 +877,9 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 21 September 2026 | 1.11.20 | **Pengetatan penutupan — PUSINGAN KETIGA semakan Astra (handshake pembersihan bersih / ack `BERSIH:`).** Sebelum ini handler `exit` membuang handle `anak` (set null) serta-merta apabila `ditutup`/`diracun`, dan `tutup()` menganggap sebarang keluar dalam `graceMs` (termasuk kod bukan sifar / terpaksa dibunuh) sebagai bersih — pengurus melepaskan kunci walaupun pembunuhan pokok keturunan sebenarnya GAGAL. Kini: (1) handler `exit` hanya REKOD keluar (`kod` + `_sudahKeluar`), tidak pernah membuang handle; (2) penutupan bersih memerlukan ack `BERSIH:` daripada pekerja (dipancarkan oleh pelari NDJSON HANYA selepas `context.close` selesai) DAN keluar kod 0 — tanpa kedua-duanya, `tutup()` bunuh pokok + kill (melalui satu janji pembersihan DIKONGSI antara racun dan tutup, jadi kill/pembunuhan pokok berlaku TEPAT SEKALI, tiada guna-semula PID akar) dan MENOLAK jika tidak disahkan; (3) panggilan balik bunuh pokok DIBATASI MASA. Semantik sedia ada dikekalkan: tulisan separuh/tidak diketahui TIDAK PERNAH diulang secara automatik | Ujian: `node --test companion/tests/*.test.mjs` 405 ujian — 403 lulus, 2 dilangkau, 0 gagal (7 ujian baharu dispatcher: ack BERSIH + keluar 0 lepas handle tanpa kill; kill berjaya tepat sekali; keluar bukan sifar semasa grace tidak dikira bersih; tamat masa + tutup serentak dengan bunuh pokok lewat ditolak; EPIPE + bunuh pokok gagal → tutup menolak; kejatuhan semula jadi + bunuh pokok gagal → tutup menolak; keluar lewat pendua ialah no-op); `node companion/tests/asap-e2e.mjs` 53/53; `node tests/hadir.test.cjs` 23/23, exit 0. Tiada log masuk hidup/kredensial/rangkaian/registry/pelayar sebenar disentuh; laluan sejuk dan pengawal keselamatan kekal tidak berubah |
+| 21 September 2026 | 1.11.19 | **Pembetulan PUSINGAN KEDUA semakan Astra ke atas 1.11.18 — tuntutan semua-penyekat-selesai sebelum ini TIDAK tepat; tujuh penyekat konkrit + refaktor pelari NDJSON dibaiki.** (1) Bunuh pokok (taskkill /T) kini DAHULU sebelum kill langsung (sebelum ini kill dahulu → keturunan Edge/Playwright boleh yatim sebelum pokok ditemui). (2) `tutup()` MENOLAK (gagal-tertutup) jika pembersihan tidak dapat disahkan — akar mesti terbukti keluar DAN bunuh pokok mesti berjaya (jika disuntik); kejatuhan semula jadi (crash) mengekalkan handle supaya `tutup()` boleh cuba bunuh pokok keturunan yatim. (3) Keadaan RACUN TERMINAL — keluar/putus/EPIPE/tamat-masa/limpaan = tiada spawn automatik baharu; hantar seterusnya `tidakDiketahui:true`. (4) Satu anak ditangkap (`a`) dalam SEMUA handler (bukan `anak` boleh-ubah) — keluar LEWAT pekerja lama diabaikan. (5) Ralat stdin (EPIPE) kini MENAMATKAN pekerja (bukan buang handle) supaya profil tidak kekal dipegang. (6) stderr TIDAK PERNAH dilog mentah — hanya kod allowlist (BERHENTI, KUMPULAN_PELAYAR_*) + kiraan bait (penapis aksara kawalan asal TIDAK menghapus PII). (7) stdout bersempadan 1 MiB — limpaan protokol = gagal tertutup. Pelari NDJSON difaktorkan ke `src/moeis/pekerja-ndjson.mjs` diimport oleh `bin/pekerja-batch.mjs` produksi DAN fixture ujian (ujian span sebenar kini menguji pelari produksi, bukan salinan palsu) + ujian smoke bin `tests/pekerja-batch-bin.test.mjs` (EOF → tutup → exit 0, tanpa pelayar/portal). `bunuhPokokProses` async yang ditolak dinormalkan kepada false (tidak membocorkan ralat dalaman) | Ujian: `node --test companion/tests/*.test.mjs` 398 ujian — 396 lulus, 2 dilangkau, 0 gagal (baharu: `pekerja-ndjson.test.mjs` 6, `pekerja-batch-bin.test.mjs` 2, `dispatcher-kumpulan.test.mjs` diperluas kepada 19 — susunan bunuh-pokok-dahulu, tolak pembersihan-tidak-sah, racun terminal, keluar lewat, EPIPE-menamatkan, stderr-tiada-rahsia, limpaan stdout); `node companion/tests/asap-e2e.mjs` 53/53; `node tests/hadir.test.cjs` 23/23, exit 0. Tiada log masuk hidup/kredensial/rangkaian/registry/pelayar sebenar disentuh; laluan sejuk dan pengawal keselamatan kekal tidak berubah |
+| 21 September 2026 | 1.11.18 | **Kumpulan pelayar (Option 2) + pengetatan hayat/penutupan selepas semakan bebas Astra (enam penyekat).** Guna-semula pelayar Edge per-kitaran giliran: `src/moeis/kumpulan-pelayar.mjs` (glu kunci+dispatcher+laluan sejuk), `src/moeis/dispatcher-kumpulan.mjs` (IPC NDJSON, spawn berterusan), `src/moeis/pekerja-batch.mjs` (satu konteks dikongsi, halaman+adapter baharu per tugasan), `bin/pekerja-batch.mjs` (pekerja anak berterusan). Enam penyekat Astra dibaiki: (1) stderr pekerja kini disalirkan ke bufer bersempadan+disanitasi (elak deadlock paip, tiada PII mentah); (2) masa tamat permintaan bersempadan + ralat stdin (EPIPE) tidak ditelan → penyelesaian jujur `tidakDiketahui`, tiada main-semula membuta; (3) `tutup()` membersihkan pokok proses MILIK pekerja (`bunuhPokokProses` taskkill `/T /F`, disuntik — tidak pernah Edge peribadi); (4) `sedangProses` kekal benar sepanjang penutupan (elak race tugasan baharu semasa tutup); (5) mesin keadaan `ditutup|dibuka|menutup|gagal` — buatDispatcher melontar melepas kunci, d.tutup gagal mengekalkan kunci (gagal-tertutup); (6) `giliran.berhenti()` + pengendali SIGINT/SIGTERM (tiada tugasan selepas berhenti, tanpa abort pertengahan-tulis). Ujian IPC span SEBENAR baharu (spawn node sebenar + kebergantungan pelayar palsu tempatan; mod fixture `--mod-*` sahaja, lalai produksi tidak berubah) | Ujian: `node --test companion/tests/*.test.mjs` 383 ujian — 381 lulus, 2 dilangkau, 0 gagal (naik daripada 366/364/2/0 — 17 ujian baharu: dispatcher stderr/EPIPE/tamat-masa/tiada-main-semula/bunuh-pokok; kumpulan-pelayar buatDispatcher-lontar/tutup-gagal/tutup-serentak; giliran sedangProses-tetap-benar/berhenti/gagal-tutup-direkod; + 7 ujian IPC span sebenar); `node companion/tests/asap-e2e.mjs` 53/53; `node tests/hadir.test.cjs` 23/23, exit 0. Tiada log masuk hidup/kredensial sebenar/rangkaian/registry disentuh; laluan sejuk lama dan pengawal keselamatan kekal tidak berubah |
 | 21 September 2026 | 1.11.17 | **Pembetulan selepas semakan bebas keluarga model berbeza (DeepSeek) atas 1.11.16 — satu pepijat TERUK yang menjadikan jaminan keselamatan palsu, ditambah tiga pengetatan.** (1) TERUK: `bin/hadir-companion.mjs` menyambung limiter melalui `bacaJson`, yang MENELAN ralat `JSON.parse` dan memulangkan `null` — jadi fail `had-login.json` yang ROSAK disalah anggap sebagai "larian pertama" dan siling kadar **diset semula secara senyap**, walaupun kontrak `had-login.mjs` menuntut `baca` MELONTAR untuk menandakan `rosak`. Pembetulan: pembaca baharu `bacaJsonKetat` (`src/tetapan.mjs`) — `null` HANYA apabila fail tiada (ENOENT), MELONTAR pada fail yang ada tetapi rosak. (2) Laluan pemulihan `catatKejayaan()` hanya wujud pada laluan HTTP; perintah CLI `hadir-companion log-masuk-manual` kini juga mengosongkan limiter selepas log masuk manual berjaya, supaya blok 3-kegagalan/korup tidak boleh kekal selama-lamanya. (3) Sempadan hari siling harian ditukar daripada hari UTC kepada hari kalendar MALAYSIA (UTC+8): sebelum ini siling 24 "diset semula" pada 08:00 pagi waktu tempatan, iaitu tengah hari persekolahan. (4) `statusRingkas()` tidak lagi melaporkan angka TEPU rekaan (24/6/3) apabila keadaan tidak boleh dibaca — pembilang dilaporkan `null` dan UI memaparkan `?`, dengan `sebab` menjelaskan keadaan sebenar (UI tidak boleh menunjukkan angka palsu seolah-olah ia diukur). Tiada pengawal lain disentuh: OTP/CAPTCHA kekal berhenti, pengawal HTTPS+hos kekal sebelum menaip, suis kekal local-only dan lalai MATI | Ujian: `node --test companion/tests/*.test.mjs` 337 ujian — 335 lulus, 2 dilangkau, 0 gagal (3 ujian baharu dalam `had-login.test.mjs`: fail rosak SEBENAR melalui `bacaJsonKetat` mesti BLOK + pembilang `null`, fail tiada mesti lulus dan benar-benar ditulis, sempadan hari MYT mengosongkan siling harian); `node companion/tests/asap-e2e.mjs` 53/53; `node tests/hadir.test.cjs` 23/23, exit 0. Semakan bebas DeepSeek: keputusan LULUS BERSYARAT dengan pepijat TERUK di atas, kini dibetulkan |
 | 21 September 2026 | 1.11.16 | **Had kadar login auto idMe BERTERUSAN (kelulusan pemilik eksplisit), opt-in `hadKadarLogin` (lalai MATI).** `had-login.mjs` dikembangkan daripada siling sejuk 15 minit tidak disambungkan kepada polisi persisten sepanjang hari: 6 cubaan/jam gelongsor, siling harian 24 (TIDAK dikosongkan oleh kejayaan — hanya hari baharu UTC atau tetapan semula manual), berhenti serta-merta selepas 3 kegagalan berturut-turut (hanya log masuk manual berjaya memulihkan). Gagal tertutup dikekalkan/diperluas: fail keadaan rosak ATAU jam digulung ke belakang merentas sempadan hari = BLOK. `login-auto.mjs` memasang limiter ini pada KEDUA-DUA laluan (startup + job-time) HANYA apabila `hadKadarLogin:true`; apabila MATI, had ASAL 2 cubaan per proses kekal tidak berubah. OTP/CAPTCHA/2FA kekal berhenti untuk manusia, tidak pernah dipintas; pengawal HTTPS+hos idMe kekal sebelum menaip. UI tempatan (`render.mjs`) mendedahkan suis + amaran kesan keselamatan + status sebenar (hari ini X/24, tetingkap sejam Y/6, kegagalan berturut Z/3); `/api/lokal/status` mendedahkan `hadKadarLoginStatus`, dan `/api/tetapan` (klien jauh) menolak medan ini dengan 400 sama seperti `jagaSesi` | Ujian: `node --test companion/tests/*.test.mjs` 334 ujian — 332 lulus, 2 dilangkau, 0 gagal; `node companion/tests/asap-e2e.mjs` 53/53; `node tests/hadir.test.cjs` 23/23, exit 0. BELUM disahkan terhadap idMe/MOEIS hidup — semua ujian guna double storan/halaman dalam ingatan |
 | 21 September 2026 | 1.11.15 | **Baiki pemilihan kelas MOEIS apabila HADIR dan MOEIS menamakan kelas SAMA secara berbeza (kes hidup: `PRASEKOLAH` lawan `PRASEKOLAH BIJAK`).** `pilihDropdown` (`adaptorPlaywright.mjs`) sebelum ini menuntut padanan teks TEPAT, jadi pemetaan `petakanKelasMoeis('PRASEKOLAH')` → kelas `PRASEKOLAH` gagal walaupun kelas itu wujud dalam senarai MOEIS; `bacaRingkasanKelas` turut menapis baris ringkasan dengan padanan tepat yang sama, jadi `pilihKonteksDanStabil` tidak dapat mengesahkan kestabilan jadual murid dan pengesahan `badge` akan gagal walaupun pemilihan berjaya. Kini KEDUA-DUA menggunakan peraturan sama: (1) padanan **TEPAT** dahulu (perilaku lama dikekalkan sepenuhnya), (2) jika tiada, padanan **AWALAN yang TIDAK AMBIGU** — satu calon sahaja selepas normalisasi (huruf besar, buang bukan alfanumerik) — dan (3) jika dua calon atau lebih, **BERHENTI** (`padanan-ambigu`, tiada pemilihan/tiada baris) supaya kelas tidak pernah diteka. Perubahan tempatan pada padanan sahaja: tiada pengawal keselamatan, had log masuk, pengesahan selepas simpan atau invarian tulisan disentuh. Punca dasar dinyatakan jujur: nama kelas HADIR untuk prasekolah kehilangan bahagian kelas (`BIJAK`) semasa penciptaan/perolehan kelas, jadi padanan tahan-nama ini menyelesaikan kes hari ini tanpa meneka | Ujian: `node --test companion/tests/*.test.mjs` 324 ujian — 322 lulus, 2 dilangkau, 0 gagal (naik daripada 319/317/2/0 — 5 ujian baharu terhadap DOM pelayar SEBENAR dalam `adaptor-playwright.test.mjs`: `pilihKelas` menerima awalan tidak ambigu, `pilihKelas` berhenti pada padanan ambigu, `pilihKelas` mengutamakan tepat, `bacaRingkasanKelas` menerima baris `PRASEKOLAH BIJAK` untuk permintaan `PRASEKOLAH`, `bacaRingkasanKelas` pulang null pada padanan ambigu); `node companion/tests/asap-e2e.mjs` 53/53; `node tests/hadir.test.cjs` 23/23, exit 0. Tiada log masuk hidup/kredensial sebenar/rangkaian/registry disentuh |
