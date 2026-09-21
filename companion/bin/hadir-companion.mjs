@@ -317,7 +317,7 @@ async function main() {
     // uji-login/log-masuk-manual manual kekal dengan pengawal pastikanProfilBebas
     // sendiri kerana ia boleh dipicu bila-bila masa oleh admin.
     const hasil = await jalankanAnakSkrip('login-auto.mjs', ['--data-dir', dirData], 5 * 60 * 1000);
-    if (hasil && hasil.status === 'sesi-sah') {
+    if (hasil && (hasil.status === 'sesi-sah' || hasil.sesiSah === true)) {
       tulisStatusSesi({ status: 'sesi-sah', hos: 'moeispel.moe.gov.my', bukti: ['login-auto'] });
     }
     return hasil;

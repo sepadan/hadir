@@ -232,6 +232,42 @@ situ** → jika padan, tandakan kotak semak → isi kata laluan → hantar.
   DPAPI tidak melindungi daripada proses lain yang berjalan sebagai pengguna
   yang sama (lihat model ancaman dalam `BLUEPRINT.md`).
 
+### Suis `benarkanTerusTanpaFrasa` (opt-in berasingan, lalai MATI)
+
+Lalai tingkah laku di atas: apabila frasa "Kata Kunci Keselamatan" **tidak
+dapat dibaca sebagai teks** (kemungkinan dipaparkan sebagai imej), companion
+**berhenti** (`kunci-tiada`, `perluManusia:true`) — ini kekal selagi suis
+`benarkanTerusTanpaFrasa` MATI (lalai).
+
+Pemilik boleh menghidupkan suis **berasingan** ini di UI tempatan (bahagian
+**Automasi tempatan**, kotak semak sendiri dengan amaran) untuk membenarkan
+log masuk automatik **meneruskan** apabila frasa tidak dapat dibaca —
+companion menandakan kotak semak pengesahan dan menaip kata laluan seperti
+biasa, kemudian melaporkan status baharu `kunci-tiada-dibenarkan` jika sesi
+berjaya disahkan.
+
+**Risiko yang mesti difahami sebelum menghidupkan suis ini:**
+
+- Semakan frasa **dilangkau sepenuhnya** dalam keadaan ini. Perlindungan
+  anti-pancing kemudian bergantung **hanya** pada dua perkara: (1) semakan
+  HTTPS + hos idMe yang ketat (`idme.moe.gov.my` tepat, sudah disemak lebih
+  awal dalam aliran sebelum apa-apa ditaip), dan (2) kotak semak pengesahan
+  "Ya, ini adalah Kata Kunci Keselamatan saya." ditanda secara automatik.
+- Frasa yang dipaparkan sebagai imej **tidak pernah** di-OCR atau diteka oleh
+  companion — tiada percubaan membaca kandungan imej itu langsung. Suis ini
+  hanya mengubah **keputusan** apabila frasa tidak dapat dibaca, bukan cara
+  frasa dibaca.
+- Frasa yang **dibaca tetapi tidak padan** (kemungkinan halaman pancingan
+  sebenar, status `kunci-tidak-padan`) kekal ABORT **tanpa mengira suis ini**
+  — suis ini hanya melonggarkan kes "tidak dapat dibaca", bukan kes "tidak
+  padan".
+- Suis ini boleh dimatikan semula bila-bila masa di UI tempatan yang sama;
+  mematikannya mengembalikan tingkah laku lalai (`kunci-tiada`, ABORT) dengan
+  serta-merta pada percubaan log masuk automatik berikutnya.
+- Seperti `loginAuto`, suis ini **local-only** — hanya boleh diubah daripada
+  PC companion sendiri (UI tempatan bernonce); klien jauh (`POST
+  /api/tetapan`) ditolak jika cuba menetapkannya.
+
 ### Bila enjin akan (dan TIDAK akan) log masuk automatik
 
 Sebelum ini, enjin hanya cuba log masuk automatik **sekali semasa startup**. Jika

@@ -67,7 +67,7 @@ export function konteksAsas(port, override) {
     },
     loginAutoStatus: () => ({
       diminta: false, adaKredensial: false, sesiSah: null, percubaan: 0, had: 2,
-      hasilTerakhir: '', sebab: 'Belum dinilai.'
+      hasilTerakhir: '', benarkanTerusTanpaFrasa: false, sebab: 'Belum dinilai.'
     })
   };
   return Object.assign(asas, override);

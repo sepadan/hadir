@@ -107,6 +107,8 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 
 <label><input id="autoMulaGiliran" type="checkbox" style="width:auto;display:inline" /> Auto-mula giliran selepas companion berjaya bind (opt-in)</label>
 <label><input id="loginAuto" type="checkbox" style="width:auto;display:inline" /> Log masuk idMe automatik — cuba semula secara automatik bila sesi tamat semasa giliran berjalan (opt-in, lalai MATI)</label>
+<label><input id="benarkanTerusTanpaFrasa" type="checkbox" style="width:auto;display:inline" /> Teruskan log masuk idMe automatik walaupun frasa "Kata Kunci Keselamatan" tidak dapat dibaca (imej) (opt-in, lalai MATI)</label>
+<div class="amaran">AMARAN: Jika dihidupkan, semakan frasa keselamatan DILANGKAU apabila frasa dipaparkan sebagai imej. Perlindungan kemudian bergantung pada semakan HTTPS + hos idMe yang ketat dan kotak semak pengesahan sahaja. Frasa imej TIDAK PERNAH di-OCR atau diteka. Anda boleh mematikannya semula bila-bila masa.</div>
 <div id="loginAutoStatus" class="status" style="margin-top:2px"></div>
 <label for="tarikhBaru">Tambah tarikh sekolah (YYYY-MM-DD) — allowlist auto-mula giliran</label>
 <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
@@ -181,6 +183,7 @@ export function halamanLokalJs() {
       document.getElementById('autostart').checked = autostart.berdaftar === true && autostart.sepadan === true;
       document.getElementById('autoMulaGiliran').checked = tetapan.autoMulaGiliran === true;
       document.getElementById('loginAuto').checked = tetapan.loginAuto === true;
+      document.getElementById('benarkanTerusTanpaFrasa').checked = tetapan.benarkanTerusTanpaFrasa === true;
       var la = r.loginAutoStatus || {};
       papar('loginAutoStatus', (la.sebab || 'Belum dinilai.') + (la.percubaan > 0 ? ' (cubaan ' + la.percubaan + '/' + la.had + ')' : ''));
       kalendarSemasa = (tetapan.kalendarSekolah || []).slice();
@@ -259,7 +262,8 @@ export function halamanLokalJs() {
       apiUrl: document.getElementById('apiUrl').value,
       kunciKeselamatanDijangka: document.getElementById('kunciKeselamatan').value,
       autoMulaGiliran: document.getElementById('autoMulaGiliran').checked,
-      loginAuto: document.getElementById('loginAuto').checked
+      loginAuto: document.getElementById('loginAuto').checked,
+      benarkanTerusTanpaFrasa: document.getElementById('benarkanTerusTanpaFrasa').checked
     }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Tetapan disimpan.' : (r.ralat || 'Ralat.'));
       muatStatus();
@@ -269,6 +273,12 @@ export function halamanLokalJs() {
   document.getElementById('loginAuto').addEventListener('change', function () {
     panggil('/api/lokal/tetapan', 'POST', { loginAuto: document.getElementById('loginAuto').checked }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Suis loginAuto disimpan.' : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
+  });
+  document.getElementById('benarkanTerusTanpaFrasa').addEventListener('change', function () {
+    panggil('/api/lokal/tetapan', 'POST', { benarkanTerusTanpaFrasa: document.getElementById('benarkanTerusTanpaFrasa').checked }).then(function (r) {
+      papar('statusTetapan', r.ok ? 'Suis benarkanTerusTanpaFrasa disimpan.' : (r.ralat || 'Ralat.'));
       muatStatus();
     });
   });

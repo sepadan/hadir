@@ -115,6 +115,65 @@ test('kunci-tiada: frasa null (mungkin imej kunciAdaImej:true) -> perlu-manusia,
   assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false);
 });
 
+// ---------------- benarkanTerusTanpaFrasa (opt-in, lalai MATI) ----------------
+
+test('benarkanTerusTanpaFrasa HIDUP + frasa tidak dapat dibaca -> TERUSKAN sepenuhnya, kunci-tiada-dibenarkan, sesiSah:true', async () => {
+  const adapter = buatHalamanLoginPalsu({ kunciAdaImej: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED, { benarkanTerusTanpaFrasa: true });
+  assert.equal(hasil.status, 'kunci-tiada-dibenarkan');
+  assert.equal(hasil.perluManusia, false);
+  assert.equal(hasil.sesiSah, true);
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), true);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), true);
+  assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), true);
+  assert.equal(adapter._panggilan.includes('sahkanSesiSelepasLogin'), true);
+});
+
+test('benarkanTerusTanpaFrasa MATI (lalai) + frasa tidak dapat dibaca -> BERHENTI seperti biasa (kunci-tiada)', async () => {
+  const adapter = buatHalamanLoginPalsu({ kunciAdaImej: true });
+  // Tiada hujah ketiga langsung -> lalai MATI.
+  let hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'kunci-tiada');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), false);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false);
+
+  // Sama juga apabila dinyatakan eksplisit { benarkanTerusTanpaFrasa: false }.
+  const adapter2 = buatHalamanLoginPalsu({ kunciAdaImej: true });
+  hasil = await jalankanLoginAuto(adapter2, KRED, { benarkanTerusTanpaFrasa: false });
+  assert.equal(hasil.status, 'kunci-tiada');
+  assert.equal(adapter2._panggilan.includes('tandakanKunciKeselamatan'), false);
+});
+
+test('benarkanTerusTanpaFrasa HIDUP TETAPI frasa TIDAK PADAN (dibaca, berbeza) -> tetap BERHENTI (anti-pancing tidak dilonggarkan)', async () => {
+  const adapter = buatHalamanLoginPalsu({ kunciHalaman: 'FRASA-LAIN-BERBEZA' });
+  const hasil = await jalankanLoginAuto(adapter, KRED, { benarkanTerusTanpaFrasa: true });
+  assert.equal(hasil.status, 'kunci-tidak-padan');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), false);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false);
+});
+
+test('benarkanTerusTanpaFrasa HIDUP + frasa tidak dapat dibaca + OTP selepas hantar -> perlu-manusia (checkbox/password/submit berlaku, tiada sahkan sesi)', async () => {
+  const adapter = buatHalamanLoginPalsu({ kunciAdaImej: true, otpSelepasHantar: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED, { benarkanTerusTanpaFrasa: true });
+  assert.equal(hasil.status, 'perlu-manusia');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(adapter._panggilan.includes('tandakanKunciKeselamatan'), true);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), true);
+  assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), true);
+  assert.equal(adapter._panggilan.includes('sahkanSesiSelepasLogin'), false, 'tidak boleh meneruskan selepas OTP');
+});
+
+test('benarkanTerusTanpaFrasa HIDUP + kunci-tiada-dibenarkan: hasil TIDAK PERNAH mengandungi nilai kredensial', async () => {
+  const adapter = buatHalamanLoginPalsu({ kunciAdaImej: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED, { benarkanTerusTanpaFrasa: true });
+  assert.equal(hasil.status, 'kunci-tiada-dibenarkan');
+  const teks = JSON.stringify(hasil);
+  assert.equal(teks.includes(KRED.kataLaluan), false, 'kata laluan tidak boleh muncul dalam hasil');
+  assert.equal(teks.includes(KRED.pengguna), false, 'pengguna tidak boleh muncul dalam hasil');
+});
+
 test('laluan penuh berjaya: urutan lengkap navigasi -> IC -> lanjut -> baca kunci -> kotak semak -> kata laluan -> hantar -> sesi-sah', async () => {
   const adapter = buatHalamanLoginPalsu();
   const hasil = await jalankanLoginAuto(adapter, KRED);
@@ -286,6 +345,7 @@ test('ayatLoginAuto: ayat mengikut keutamaan yang didokumenkan', () => {
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'perlu-manusia', sebab: 'OTP dikesan' }), /Perlu manusia/);
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kunci-tidak-padan' }), /frasa keselamatan tidak padan/);
   assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kunci-tiada' }), /tidak dapat dibaca/);
+  assert.match(ayatLoginAuto({ diminta: true, adaKredensial: true, sesiSah: false, hasilTerakhir: 'kunci-tiada-dibenarkan' }), /benarkanTerusTanpaFrasa HIDUP/);
 });
 
 test('snapshotLoginAutoStatus: menggabungkan tetapan + status semasa + ayat', () => {
@@ -296,12 +356,24 @@ test('snapshotLoginAutoStatus: menggabungkan tetapan + status semasa + ayat', ()
     adaKredensial: () => true,
     bilCubaan: () => 1
   });
-  assert.deepEqual(Object.keys(snap).sort(), ['adaKredensial', 'diminta', 'had', 'hasilTerakhir', 'percubaan', 'sebab', 'sesiSah'].sort());
+  assert.deepEqual(Object.keys(snap).sort(),
+    ['adaKredensial', 'benarkanTerusTanpaFrasa', 'diminta', 'had', 'hasilTerakhir', 'percubaan', 'sebab', 'sesiSah'].sort());
   assert.equal(snap.diminta, true);
   assert.equal(snap.adaKredensial, true);
   assert.equal(snap.percubaan, 1);
   assert.equal(snap.had, 2);
+  assert.equal(snap.benarkanTerusTanpaFrasa, false, 'lalai MATI apabila tiada dalam tetapan');
   assert.match(snap.sebab, /Berjaya/);
+});
+
+test('snapshotLoginAutoStatus: benarkanTerusTanpaFrasa mencerminkan tetapan HIDUP', () => {
+  const status = buatStatusLoginAuto();
+  const snap = snapshotLoginAutoStatus(status, {
+    bacaTetapan: () => ({ loginAuto: true, benarkanTerusTanpaFrasa: true }),
+    adaKredensial: () => true,
+    bilCubaan: () => 0
+  });
+  assert.equal(snap.benarkanTerusTanpaFrasa, true);
 });
 
 // ---------------- had cubaan dikongsi antara startup dan job-time ----------------

@@ -25,7 +25,8 @@ import { ringkasanKalendar } from './auto-mula.mjs';
 // mesej jelas — bukan diabaikan secara senyap.
 const MEDAN_LOKAL_SAHAJA = [
   'originDibenarkan', 'apiUrl', 'kunciKeselamatanDijangka',
-  'autoMulaGiliran', 'kalendarSekolah', 'autoMulaDiaktifkanPada', 'autostart', 'loginAuto'
+  'autoMulaGiliran', 'kalendarSekolah', 'autoMulaDiaktifkanPada', 'autostart', 'loginAuto',
+  'benarkanTerusTanpaFrasa'
 ];
 
 const HAD_BADAN_BYTES = 32 * 1024;
@@ -355,6 +356,7 @@ async function pengendali(req, res) {
           tetapan: {
             autoMulaGiliran: t.autoMulaGiliran === true,
             loginAuto: t.loginAuto === true,
+            benarkanTerusTanpaFrasa: t.benarkanTerusTanpaFrasa === true,
             kalendarSekolah: t.kalendarSekolah || []
           },
           loginAutoStatus: (typeof konteks.loginAutoStatus === 'function'

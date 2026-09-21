@@ -68,12 +68,12 @@ test('status tempatan jujur: registry sebenar, sebab auto dan keupayaan log masu
     assert.equal(r.json.tetapan.loginAuto, false, 'loginAuto lalai MATI dalam status');
     assert.equal(r.json.kredensial.ada, false);
     assert.deepEqual(Object.keys(r.json.loginAutoStatus).sort(),
-      ['adaKredensial', 'diminta', 'had', 'hasilTerakhir', 'percubaan', 'sebab', 'sesiSah'].sort(),
+      ['adaKredensial', 'benarkanTerusTanpaFrasa', 'diminta', 'had', 'hasilTerakhir', 'percubaan', 'sebab', 'sesiSah'].sort(),
       '/api/lokal/status mesti mendedahkan loginAutoStatus penuh (visibiliti log masuk automatik job-time)');
   } finally { pelayan.close(); }
 });
 
-test('/api/status mendedahkan loginAutoStatus penuh (7 medan) di samping loginAuto boolean sedia ada', async () => {
+test('/api/status mendedahkan loginAutoStatus penuh (8 medan) di samping loginAuto boolean sedia ada', async () => {
   const { pelayan, port } = await mulakanPelayanUjian();
   try {
     const r = await mintaMentah(port, {
@@ -83,7 +83,7 @@ test('/api/status mendedahkan loginAutoStatus penuh (7 medan) di samping loginAu
     assert.equal(r.status, 200);
     assert.equal(r.json.loginAuto, false, 'medan loginAuto boolean sedia ada mesti kekal (asap-e2e bergantung padanya)');
     assert.deepEqual(Object.keys(r.json.loginAutoStatus).sort(),
-      ['adaKredensial', 'diminta', 'had', 'hasilTerakhir', 'percubaan', 'sebab', 'sesiSah'].sort());
+      ['adaKredensial', 'benarkanTerusTanpaFrasa', 'diminta', 'had', 'hasilTerakhir', 'percubaan', 'sebab', 'sesiSah'].sort());
   } finally { pelayan.close(); }
 });
 

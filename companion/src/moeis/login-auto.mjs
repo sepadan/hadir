@@ -32,6 +32,16 @@
 // dalam keputusan pulangan, log, atau mesej ralat. Keputusan hanya membawa
 // status + sebab generik + senarai bukti bukan-nilai.
 //
+// OPT-IN `benarkanTerusTanpaFrasa` (lalai MATI, diluluskan pemilik): apabila
+// suis ini HIDUP DAN frasa "Kata Kunci Keselamatan" tidak dapat dibaca sebagai
+// teks (mungkin dipaparkan sebagai imej), aliran DITERUSKAN — bukan diabort —
+// kerana pemilik telah membuat keputusan sedar bahawa perlindungan kemudian
+// bergantung SEPENUHNYA pada semakan HTTPS+hos idMe ketat (langkah 3, sudah
+// lulus) dan kotak semak pengesahan (langkah 8). Frasa imej TIDAK PERNAH
+// di-OCR atau diteka — ia kekal `null`, hanya KEPUTUSAN mengenainya berubah.
+// Frasa yang DIBACA tetapi TIDAK PADAN kekal ABORT (`kunci-tidak-padan`)
+// TANPA MENGIRA suis ini — isyarat anti-pancing itu tidak pernah dilonggarkan.
+//
 // Aliran ini BELUM disahkan terhadap idMe/MOEIS hidup (larangan keras brief
 // pelaksanaan) — ujian menggunakan adapter/laman palsu sahaja. Pengesahan
 // hidup berlaku kemudian dengan kehadiran pemilik, selepas kelulusan induk.
@@ -42,10 +52,11 @@ export const HAD_CUBAAN_MAKS = 2;
 // Aliran tulen terhadap satu `adapter` (lihat adaptorPlaywright.mjs untuk
 // pelaksanaan sebenar; ujian menyuntik adapter palsu). `kredensial` ialah
 // objek { pengguna, kataLaluan, kunciKeselamatan } daripada vault DPAPI.
-export async function jalankanLoginAuto(adapter, kredensial) {
+export async function jalankanLoginAuto(adapter, kredensial, opsyen = {}) {
   const kunciDijangka = kredensial && kredensial.kunciKeselamatan ? String(kredensial.kunciKeselamatan) : '';
   const pengguna = kredensial && kredensial.pengguna ? String(kredensial.pengguna) : '';
   const kataLaluan = kredensial && kredensial.kataLaluan ? String(kredensial.kataLaluan) : '';
+  const benarkanTerusTanpaFrasa = !!(opsyen && opsyen.benarkanTerusTanpaFrasa === true);
 
   if (!pengguna || !kataLaluan || !kunciDijangka) {
     return {
@@ -102,19 +113,27 @@ export async function jalankanLoginAuto(adapter, kredensial) {
 
   // 7. Keputusan frasa — TIGA status jujur berasingan (jangan sekali-kali
   //    kelirukan "tidak dapat dibaca" dengan "tidak padan"):
-  //      - kosong/null (tidak dapat dibaca sebagai teks, mungkin imej) ->
-  //        'kunci-tiada', ABORT, tiada kotak semak, tiada kata laluan.
+  //      - kosong/null (tidak dapat dibaca sebagai teks, mungkin imej):
+  //          * benarkanTerusTanpaFrasa MATI (lalai) -> 'kunci-tiada', ABORT,
+  //            tiada kotak semak, tiada kata laluan.
+  //          * benarkanTerusTanpaFrasa HIDUP (opt-in pemilik) -> TERUSKAN
+  //            (modTanpaFrasa=true) tanpa OCR/agakan — perlindungan bergantung
+  //            pada semakan hos (langkah 3, sudah lulus) + kotak semak.
   //      - dibaca tetapi berbeza -> 'kunci-tidak-padan' (pancingan sebenar),
-  //        ABORT, tiada kotak semak, tiada kata laluan.
+  //        ABORT, tiada kotak semak, tiada kata laluan — TIDAK DIKIRA suis ini.
   //      - dibaca dan padan -> teruskan.
-  if (kunciSebenar == null || String(kunciSebenar) === '') {
-    return {
-      status: 'kunci-tiada', perluManusia: true,
-      sebab: 'Frasa "Kata Kunci Keselamatan" tidak dapat dibaca sebagai teks (mungkin imej); log masuk manual diperlukan.',
-      bukti: ['kunci-tiada']
-    };
-  }
-  if (String(kunciSebenar) !== kunciDijangka) {
+  const frasaTidakDapatDibaca = (kunciSebenar == null || String(kunciSebenar) === '');
+  let modTanpaFrasa = false;
+  if (frasaTidakDapatDibaca) {
+    if (!benarkanTerusTanpaFrasa) {
+      return {
+        status: 'kunci-tiada', perluManusia: true,
+        sebab: 'Frasa "Kata Kunci Keselamatan" tidak dapat dibaca sebagai teks (mungkin imej); log masuk manual diperlukan.',
+        bukti: ['kunci-tiada']
+      };
+    }
+    modTanpaFrasa = true;
+  } else if (String(kunciSebenar) !== kunciDijangka) {
     return {
       status: 'kunci-tidak-padan', perluManusia: true,
       sebab: 'Frasa "Kata Kunci Keselamatan" idMe pada halaman tidak padan dengan yang disimpan. Kemungkinan halaman pancingan; tiada kotak semak ditekan, tiada kata laluan ditaip.',
@@ -146,6 +165,13 @@ export async function jalankanLoginAuto(adapter, kredensial) {
   // 12. Sahkan sesi terhasil.
   const sesi = await adapter.sahkanSesiSelepasLogin();
   if (sesi && sesi.status === 'sesi-sah') {
+    if (modTanpaFrasa) {
+      return {
+        status: 'kunci-tiada-dibenarkan', perluManusia: false, sesiSah: true,
+        sebab: 'Frasa "Kata Kunci Keselamatan" tidak dapat dibaca (imej) tetapi suis benarkanTerusTanpaFrasa HIDUP — log masuk diteruskan selepas semakan HTTPS + hos idMe dan kotak semak pengesahan ditanda; sesi kini sah.',
+        bukti: ['kunci-tiada-dibenarkan', 'sesi-sah']
+      };
+    }
     return { status: 'sesi-sah', perluManusia: false, sebab: 'Log masuk idMe automatik berjaya.', bukti: ['sesi-sah'] };
   }
   return {
@@ -246,7 +272,7 @@ async function cubaLoginAutoTerpandu({
   const hasil = await cubaSekaliLogin();
   if (status) {
     Object.assign(status, {
-      sesiSah: !!(hasil && hasil.status === 'sesi-sah'),
+      sesiSah: !!(hasil && (hasil.status === 'sesi-sah' || hasil.sesiSah === true)),
       hasilTerakhir: (hasil && hasil.status) ? hasil.status : 'tidak-diketahui',
       sebab: (hasil && hasil.sebab) || 'Hasil log masuk automatik tidak diketahui.'
     });
@@ -278,6 +304,7 @@ export function ayatLoginAuto(st) {
   if (st.hasilTerakhir === 'perlu-manusia') return 'Perlu manusia: ' + (st.sebab || 'langkah kedua (OTP/CAPTCHA/2FA) atau semakan manual.');
   if (st.hasilTerakhir === 'kunci-tidak-padan') return 'Perlu manusia: frasa keselamatan tidak padan — tiada kredensial ditaip.';
   if (st.hasilTerakhir === 'kunci-tiada') return 'Perlu manusia: frasa keselamatan tidak dapat dibaca (mungkin imej) — log masuk manual diperlukan.';
+  if (st.hasilTerakhir === 'kunci-tiada-dibenarkan') return 'Berjaya — frasa tidak dapat dibaca (imej) tetapi suis benarkanTerusTanpaFrasa HIDUP; log masuk diteruskan selepas semakan HTTPS+hos dan kotak semak pengesahan.';
   if (st.hasilTerakhir === 'hos-tidak-sah') return 'Perlu manusia: hos idMe tidak sah — tiada kredensial ditaip.';
   return st.sebab || 'Belum dinilai.';
 }
@@ -295,6 +322,7 @@ export function snapshotLoginAutoStatus(status, { bacaTetapan, adaKredensial, bi
   return {
     diminta, adaKredensial: ada, sesiSah,
     percubaan, had: HAD_CUBAAN_MAKS, hasilTerakhir,
+    benarkanTerusTanpaFrasa: t.benarkanTerusTanpaFrasa === true,
     sebab: ayatLoginAuto({ diminta, adaKredensial: ada, sesiSah, hasilTerakhir, sebab: status ? status.sebab : '' })
   };
 }

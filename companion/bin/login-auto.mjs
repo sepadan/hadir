@@ -8,7 +8,7 @@
 // dipulangkan, atau disalurkan melalui argumen CLI/env.
 //
 // Guna: node login-auto.mjs --data-dir <laluan>
-import { dapatkanDirData } from '../src/tetapan.mjs';
+import { dapatkanDirData, bacaTetapan } from '../src/tetapan.mjs';
 import { buatStoranKredensial } from '../src/kredensial.mjs';
 import { jalankanLoginAuto } from '../src/moeis/login-auto.mjs';
 
@@ -48,10 +48,11 @@ async function main() {
   const context = await bukaKonteks(dirData);
   const page = context.pages()[0] || await context.newPage();
   const adapter = buatAdaptorPlaywright(page);
+  const tetapan = bacaTetapan(dirData);
 
   let hasil;
   try {
-    hasil = await jalankanLoginAuto(adapter, kred);
+    hasil = await jalankanLoginAuto(adapter, kred, { benarkanTerusTanpaFrasa: tetapan.benarkanTerusTanpaFrasa === true });
   } finally {
     await context.close().catch(() => {});
   }
