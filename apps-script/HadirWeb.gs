@@ -933,12 +933,14 @@ function hadirMoeisJobKlaim_(id, pemilik, benarkanCubaSemula, rahsia) {
     // dan benar-benar luput.
     var leaseMentah = s.getRange(indeks + 2, 13).getValue();
     var leaseSah = typeof leaseMentah === 'number' && isFinite(leaseMentah);
+    var leaseTiada = leaseMentah === '' || leaseMentah == null;
     var sekarang = Date.now();
     var mahuVerifikasiSahaja = status === 'tersimpan' && benarkanCubaSemula === 'verifikasi';
     var bolehKlaim = false;
     if (status === 'menunggu') bolehKlaim = true;
     else if (status === 'sedang_dihantar' && pemilikSediaAda === pemilik) bolehKlaim = true; // heartbeat lease oleh pemilik sama
     else if (status === 'sedang_dihantar' && pemilikSediaAda !== pemilik && leaseSah && leaseMentah < sekarang) bolehKlaim = true; // lease sah dan luput, runner mati
+    else if (status === 'sedang_dihantar' && pemilikSediaAda === '' && !leaseSah && leaseTiada) bolehKlaim = true; // tiada pemilik & tiada lease aktif (tugasan lama/manual) — tiada enjin memegang
     else if (status === 'gagal' && benarkanCubaSemula === true) bolehKlaim = true;
     else if (mahuVerifikasiSahaja) bolehKlaim = true;
     if (!bolehKlaim) return null;

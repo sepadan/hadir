@@ -230,10 +230,16 @@ export function buatGiliran({ klien, pemilik, log, jalankanTugasanAnak, semakKel
     state.sedangProses = true;
     try {
       const senarai = await klien.senarai();
-      const menunggu = (senarai || []).filter((j) => j.status === 'menunggu');
+      // Tugasan 'menunggu' (fresh) DAN 'sedang_dihantar' dipertimbangkan untuk
+      // klaim. 'sedang_dihantar' yang lease-nya luput (runner mati) atau yang
+      // dimiliki oleh pemilik sama (restart) mesti boleh diklaim semula —
+      // pemulihan tugasan tersekat. Backend (hadirMoeisJobKlaim_) yang
+      // memutuskan secara atomik sama ada klaim dibenarkan; klaim yang tidak
+      // dibenarkan pulang null dan tugasan itu dilangkau tanpa kesan.
+      const calon = (senarai || []).filter((j) => j.status === 'menunggu' || j.status === 'sedang_dihantar');
       const keputusan = [];
       let dilangkau = 0;
-      for (const j of menunggu) {
+      for (const j of calon) {
         // `automatik` hanya benar apabila giliran dimulakan oleh auto-mula
         // (state.modMula === 'auto'). Giliran manual (POST /api/mula) mengekalkan
         // kelakuan HEAD: tiada penapis kalendar/kesegaran, tiada cubaan semula

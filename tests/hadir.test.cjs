@@ -324,6 +324,20 @@ sah(/function hadirMoeisJobSelesai_\(id, keputusan, mesej, bilHadirSelepas, pemi
 sah(blokSelesai.includes('pemilikSemasa !== pemilik') && blokSelesai.includes("statusSemasa !== 'sedang_dihantar'"),
   'moeisJobSelesai mesti menolak laporan daripada enjin bukan pemegang klaim atau status yang tidak sepadan');
 
+// Pemulihan tugasan tersekat (21 September 2026): tugasan 'sedang_dihantar'
+// yang ditinggalkan enjin mati/restart mesti boleh diklaim semula. Tiga laluan
+// klaim mesti wujud: (1) pemilik sama (restart/heartbeat), (2) pemilik
+// berlainan dengan lease sah yang luput (runner mati), (3) tugasan yatim tanpa
+// pemilik & tanpa lease (tugasan lama/manual). Tidak ada laluan ini bermakna
+// tugasan tersekat kekal tidak boleh diproses.
+const blokKlaim = backend.match(/function hadirMoeisJobKlaim_\([\s\S]*?\n}/)[0];
+sah(blokKlaim.includes("status === 'sedang_dihantar' && pemilikSediaAda === pemilik"),
+  'Klaim pemilik sama (restart/heartbeat) tiada — tugasan tersekat tidak boleh dipulihkan segera');
+sah(blokKlaim.includes('leaseMentah < sekarang'),
+  'Klaim pemilik berlainan selepas lease luput (runner mati) tiada');
+sah(blokKlaim.includes('leaseTiada'),
+  'Pemulihan tugasan yatim tanpa pemilik & tanpa lease tiada');
+
 const payloadCompanion = path.join(root, 'companion', 'src', 'moeis', 'payload.mjs');
 if (fs.existsSync(payloadCompanion)) {
   const p = baca('companion/src/moeis/payload.mjs');
@@ -438,3 +452,4 @@ console.log('✓ Hantar ke MOEIS menyekat penghantaran tidak lengkap dan mengela
 console.log('✓ Versi PWA v1.11.0 dan cache aset dinaikkan serentak');
 console.log('✓ Klaim atomik + lease + status tersimpan tersedia untuk giliran MOEIS berasingan');
 console.log('✓ Enjin PC (Companion) HADIR Admin: pengawal admin, sessionStorage lalai, tiada wildcard CORS di frontend');
+

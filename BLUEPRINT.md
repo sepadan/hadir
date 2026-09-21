@@ -179,7 +179,16 @@ dikemas kini bersama jika MOEIS menukar senarainya.
   (15 minit) supaya dua enjin yang cuba tugasan yang sama serentak hanya satu
   berjaya; `moeisJobLepas(id, pemilik, rahsia)` melepaskan balik ke `menunggu`
   bagi henti bersih. Lease luput membenarkan runner lain mengambil alih jika
-  runner asal mati. `moeisJobSelesai` menerima keputusan tambahan `tersimpan`
+  runner asal mati. **Pemulihan tugasan tersekat:** tugasan `sedang_dihantar`
+  yang ditinggalkan enjin mati/restart boleh diklaim semula melalui tiga laluan
+  — (a) pemilik sama (ID enjin **stabil** merentasi restart, disimpan di
+  `<dirData>/id-enjin.json` sebagai UUID tempatan, bukan `hostname:pid`) menuntut
+  semula **serta-merta**; (b) pemilik berlainan selepas lease 15 minit luput;
+  (c) tugasan yatim tanpa `PEMILIK` & tanpa `LEASE_SELEPAS` (tugasan lama/manual).
+  Poll giliran companion kini mempertimbangkan status `sedang_dihantar` (bukan
+  hanya `menunggu`) supaya pemulihan ini benar-benar dicuba; backend kekal
+  penentu atomik di bawah `ScriptLock` — klaim tidak dibenarkan pulang `null`
+  dan tugasan dilangkau tanpa kesan. `moeisJobSelesai` menerima keputusan tambahan `tersimpan`
   ("Tersimpan — menunggu pengesahan": dialog Simpan MOEIS berjaya tetapi
   pengesahan selepas muat semula tidak lengkap) — ini **bukan** kejayaan dan
   tidak pernah dicuba semula secara automatik. Tab `HADIR_MOEIS_JOB` mempunyai
@@ -368,6 +377,22 @@ alih dan had keupayaan yang diuji: [`companion/docs/PEMASANGAN.md`](companion/do
   Bundle ini **TIDAK PERNAH** dimuat naik/dilampirkan/dihantar ke mana-mana
   model atau perkhidmatan luar — ia kekal pada cakera PC companion sahaja,
   dalam folder log yang ACL-nya sudah dihadkan kepada akaun Windows semasa.
+- **Ketahanan log masuk automatik terhadap halaman lambat/separa dimuatkan**
+  (`adaptorPlaywright.mjs` + `login-auto.mjs`). Dua kegagalan HIDUP pemilik
+  (2026-09-21) berkongsi gejala sama: `.first().fill()/.click()` pada medan IC
+  / kata laluan / butang yang belum dirender melontar *Timeout* Playwright
+  mentah (30s) yang bocor ke log sebagai "ralat teknikal". Adapter kini
+  **menunggu** setiap elemen log masuk menjadi **sedia** (hadir + kelihatan +
+  aktif) secara **bersempadan** (lalai ~15s, tinjau ~250ms) sebelum
+  berinteraksi — `isiPenggunaIdMe`, `lanjutkanPengesahan`,
+  `bacaKunciKeselamatan` (frasa dibaca daripada fungsi tulen baharu
+  `bacaFrasaKunciKeselamatan`, ditinjau sehingga muncul), `tandakanKunciKeselamatan`
+  dan `isiKataLaluanIdMe`. `isiPenggunaIdMe`/`isiKataLaluanIdMe` kini
+  memulangkan `{ok,sebab}` dan `jalankanLoginAuto` menyemak pulangan itu,
+  ABORT dengan status `medan-ic-tiada` / `medan-kata-laluan-tiada` dan sebab
+  Bahasa Melayu yang jelas (bukan Timeout mentah). Invarian keselamatan
+  (anti-pancing, CAPTCHA/OTP, had 2 cubaan) TIDAK disentuh; had masa boleh
+  dikecilkan dalam ujian melalui opsyen `masaSediaMs`/`jedaPollMs` adapter.
 - **Pemulihan giliran auto (bounded, `pasangPemulihanAutoMula` dalam
   `src/orchestrasi-auto.mjs`).** Jika auto-mula startup gagal (cth sesi idMe
   tidak sah semasa bind) tetapi suis `autoMulaGiliran` masih ON, companion

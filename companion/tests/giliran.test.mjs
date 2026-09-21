@@ -38,6 +38,8 @@ function klienPalsuLengkap(jobAwal) {
       let boleh = false;
       if (job.status === 'menunggu') boleh = true;
       else if (job.status === 'sedang_dihantar' && job.pemilik === pemilik) boleh = true;
+      else if (job.status === 'sedang_dihantar' && job.pemilik !== pemilik && typeof job.leaseMs === 'number' && job.leaseMs < Date.now()) boleh = true; // lease luput -> runner mati
+      else if (job.status === 'sedang_dihantar' && job.pemilik === '' && (job.leaseMs === undefined || job.leaseMs === null || job.leaseMs === '')) boleh = true; // tiada pemilik & tiada lease
       else if (job.status === 'gagal' && benarkanCubaSemula === true) boleh = true;
       else if (verifikasiSahaja) boleh = true;
       if (!boleh) return null;
@@ -454,4 +456,61 @@ test('cycle-time: tiada segarkanSesiCache disuntik -> tiada perubahan kelakuan',
   const r = await g.jalankanSatuKitaran();
   assert.equal(panggilanLoginAuto, 1);
   assert.equal(r.diproses, 1);
+});
+
+// --- Pemulihan tugasan tersekat ('sedang_dihantar' oleh enjin mati/restart) ---
+
+test('pemulihan tersekat: tugasan sedang_dihantar dengan lease luput diklaim semula oleh enjin lain', async () => {
+  const klien = klienPalsuLengkap({ id: 'jstuck1', status: 'sedang_dihantar', pemilik: 'runner-lama', leaseMs: Date.now() - 60 * 1000, kelas: '3 BIJAK', tarikhIso: '2026-09-21', murid: [] });
+  const jalankanTugasanAnak = async (job, opsyen) => opsyen.mod === 'verifikasi'
+    ? { stdout: '', stderr: '', hasil: { status: 'perlu-hantar', sebab: 'x', kod: 0 } }
+    : { stdout: '', stderr: '', hasil: { status: 'disahkan', sebab: 'ok', bilHadir: 0, kod: 0 } };
+  const g = buatGiliran({ klien, pemilik: 'runner-baharu', log: logPalsu(), jalankanTugasanAnak });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(r.diproses, 1, 'tugasan sedang_dihantar dengan lease luput mesti diklaim semula');
+  assert.equal(klien._klaimPanggilan.length, 1);
+  assert.equal(klien._klaimPanggilan[0].id, 'jstuck1');
+  assert.equal(klien._selesaiPanggilan[0].keputusan, 'berjaya');
+});
+
+test('pemulihan tersekat: restart (pemilik sama) klaim semula tugasan sedang_dihantar SEGERA tanpa tunggu lease luput', async () => {
+  // Enjin dimulakan semula dengan `pemilik` STABIL yang sama -> klaim pemilik
+  // sama dibenarkan walau lease belum luput (heartbeat lease baris 940).
+  const klien = klienPalsuLengkap({ id: 'jstuck2', status: 'sedang_dihantar', pemilik: 'id-enjin-stabil', leaseMs: Date.now() + 10 * 60 * 1000, kelas: '3 BIJAK', tarikhIso: '2026-09-21', murid: [] });
+  const jalankanTugasanAnak = async () => ({ stdout: '', stderr: '', hasil: { status: 'tidak-berubah', sebab: 'tiada perubahan', kod: 0 } });
+  const g = buatGiliran({ klien, pemilik: 'id-enjin-stabil', log: logPalsu(), jalankanTugasanAnak });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(r.diproses, 1);
+  assert.equal(klien._selesaiPanggilan[0].keputusan, 'berjaya');
+});
+
+test('pemulihan tersekat: tugasan sedang_dihantar dipegang enjin HIDUP (lease sah) TIDAK dirampas', async () => {
+  const klien = klienPalsuLengkap({ id: 'jstuck3', status: 'sedang_dihantar', pemilik: 'runner-hidup', leaseMs: Date.now() + 10 * 60 * 1000, kelas: '3 BIJAK', tarikhIso: '2026-09-21', murid: [] });
+  let dipanggil = false;
+  const jalankanTugasanAnak = async () => { dipanggil = true; return { hasil: { status: 'tidak-berubah', kod: 0 } }; };
+  const g = buatGiliran({ klien, pemilik: 'runner-baharu', log: logPalsu(), jalankanTugasanAnak });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(r.diproses, 0, 'lease sah oleh enjin lain tidak boleh dirampas');
+  assert.equal(dipanggil, false, 'tiada kerja dijalankan untuk tugasan yang masih dipegang');
+});
+
+test('pemulihan tersekat: tugasan sedang_dihantar tanpa pemilik & tanpa lease boleh diklaim', async () => {
+  const klien = klienPalsuLengkap({ id: 'jstuck4', status: 'sedang_dihantar', pemilik: '', leaseMs: '', kelas: '3 BIJAK', tarikhIso: '2026-09-21', murid: [] });
+  const jalankanTugasanAnak = async () => ({ stdout: '', stderr: '', hasil: { status: 'tidak-berubah', sebab: 'tiada perubahan', kod: 0 } });
+  const g = buatGiliran({ klien, pemilik: 'runner-baharu', log: logPalsu(), jalankanTugasanAnak });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(r.diproses, 1, 'tugasan yatim tanpa pemilik/lease mesti boleh diklaim');
+});
+
+test('pemulihan tersekat: lease korup (bukan nombor) dengan pemilik bukan kosong TIDAK dirampas (fail tertutup)', async () => {
+  // leaseMs bukan nombor (cth rentetan sampah) + pemilik bukan kosong mesti kekal
+  // gagal-tertutup: enjin lain tidak boleh merampas tugasan yang lease-nya tidak
+  // boleh ditafsir (penemuan semakan bebas sebelum ini).
+  const klien = klienPalsuLengkap({ id: 'jstuck5', status: 'sedang_dihantar', pemilik: 'runner-lama', leaseMs: 'abc', kelas: '3 BIJAK', tarikhIso: '2026-09-21', murid: [] });
+  let dipanggil = false;
+  const jalankanTugasanAnak = async () => { dipanggil = true; return { hasil: { status: 'tidak-berubah', kod: 0 } }; };
+  const g = buatGiliran({ klien, pemilik: 'runner-baharu', log: logPalsu(), jalankanTugasanAnak });
+  const r = await g.jalankanSatuKitaran();
+  assert.equal(r.diproses, 0, 'lease korup + pemilik bukan kosong tidak boleh dirampas');
+  assert.equal(dipanggil, false);
 });

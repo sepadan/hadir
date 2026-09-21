@@ -74,6 +74,14 @@ deploy semula** medan itu tiada (`null`) → auto-mula menolak semua tugasan
 (gagal tertutup, selamat). Deploy **New version** pada deployment sedia ada
 supaya auto-mula berfungsi.
 
+**Pemulihan tugasan tersekat (v1.11.x):** `hadirMoeisJobKlaim_` kini menerima
+tiga laluan klaim bagi tugasan `sedang_dihantar` yang ditinggalkan enjin
+mati/restart — pemilik sama (ID enjin stabil companion), pemilik berlainan
+selepas lease luput, dan tugasan yatim tanpa `PEMILIK` & tanpa `LEASE_SELEPAS`.
+**Tanpa deploy semula** laluan ketiga (tugasan yatim) tiada; tugasan `sedang_dihantar`
+tanpa pemilik/lease kekal tidak boleh dipulihkan. Deploy **New version** pada
+deployment sedia ada supaya pemulihan penuh berfungsi.
+
 ## Relay tiga sistem
 
 `terimaSyncMurid` dan `terimaSyncGuru` menerima data daripada AKSI/SEMAK hanya

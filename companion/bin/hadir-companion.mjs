@@ -13,7 +13,7 @@ import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { dapatkanDirData, bacaTetapan, tulisTetapanAtomik, bacaJson, tulisJsonAtomik } from '../src/tetapan.mjs';
+import { dapatkanDirData, bacaTetapan, tulisTetapanAtomik, bacaJson, tulisJsonAtomik, bacaAtauCiptaIdEnjin } from '../src/tetapan.mjs';
 import { buatSimpananRahsia, buatSimpananApi } from '../src/simpanan.mjs';
 import { buatStoranKredensial } from '../src/kredensial.mjs';
 import {
@@ -48,7 +48,12 @@ function argFlag(nama, lalai) {
 }
 
 const dirData = dapatkanDirData(argFlag('data-dir', process.env.HADIR_COMPANION_DATA_DIR || null));
-const pemilikEnjin = `${os.hostname()}:${process.pid}`;
+// `pemilik` klaim mesti STABIL merentasi restart supaya enjin yang dimulakan
+// semula (crash/restart OS/autostart) dapat mengambil semula tugasan
+// 'sedang_dihantar' yang ditinggalkan proses sebelumnya dengan SEGERA (klaim
+// pemilik sama), bukan menunggu lease 15 minit luput. ID disimpan di
+// <dirData>/id-enjin.json (UUID rawak tempatan, bukan rahsia).
+const pemilikEnjin = bacaAtauCiptaIdEnjin(dirData);
 
 function buatTetapanApi() {
   return {

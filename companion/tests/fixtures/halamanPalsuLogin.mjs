@@ -30,7 +30,11 @@ export function buatHalamanLoginPalsu({
   lanjutGagal = false,
   kotakGagal = false,
   hantarGagal = false,
-  hantarSebab = 'Tiada butang "Daftar Masuk" yang aktif dan kelihatan (ujian).'
+  hantarSebab = 'Tiada butang "Daftar Masuk" yang aktif dan kelihatan (ujian).',
+  isiPenggunaGagal = false,
+  isiPenggunaSebab = 'Medan IC tidak muncul (ujian).',
+  isiKataLaluanGagal = false,
+  isiKataLaluanSebab = 'Medan kata laluan tidak muncul (ujian).'
 } = {}) {
   const panggilan = [];
   let semakKe = 0;
@@ -46,7 +50,14 @@ export function buatHalamanLoginPalsu({
       return null;
     },
     async urlHalaman() { panggilan.push('urlHalaman'); return urlAwal; },
-    async isiPenggunaIdMe() { panggilan.push('isiPenggunaIdMe'); },
+    // Adapter PRODUKSI kini memulangkan {ok,sebab} (menunggu medan menjadi
+    // sedia). Adapter palsu meniru kontrak ini: {ok:true} pada laluan gembira,
+    // {ok:false} apabila isiPenggunaGagal (meniru medan IC tidak muncul).
+    async isiPenggunaIdMe() {
+      panggilan.push('isiPenggunaIdMe');
+      if (isiPenggunaGagal) return { ok: false, status: 'medan-ic-tiada', sebab: isiPenggunaSebab };
+      return { ok: true };
+    },
     async lanjutkanPengesahan() {
       panggilan.push('lanjutkanPengesahan');
       if (lanjutGagal) return { ok: false, sebab: 'Halaman pengesahan tidak muncul (ujian).' };
@@ -69,7 +80,11 @@ export function buatHalamanLoginPalsu({
       kotakSemak = true;
       return true;
     },
-    async isiKataLaluanIdMe() { panggilan.push('isiKataLaluanIdMe'); },
+    async isiKataLaluanIdMe() {
+      panggilan.push('isiKataLaluanIdMe');
+      if (isiKataLaluanGagal) return { ok: false, status: 'medan-kata-laluan-tiada', sebab: isiKataLaluanSebab };
+      return { ok: true };
+    },
     async hantarBorangLogMasuk() {
       panggilan.push('hantarBorangLogMasuk');
       if (hantarGagal) return { ok: false, status: 'tiada-butang-hantar', sebab: hantarSebab };

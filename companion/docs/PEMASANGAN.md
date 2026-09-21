@@ -173,6 +173,27 @@ kedua yang membuka Edge tanpa sebab.
 - Satu tugasan hanya dicuba **sekali secara automatik** sepanjang hayat proses;
   cubaan semula memerlukan tindakan manual admin.
 
+### Pemulihan tugasan tersekat (`sedang_dihantar` oleh enjin mati/restart)
+
+Apabila proses companion mati atau dimulakan semula di tengah-tengah kerja,
+tugasan itu boleh tertinggal berstatus `sedang_dihantar`. Pemulihan berlaku
+pada **poll manual** (butang **Mula** / **Jalankan sekarang**), bukan
+auto-mula (yang kekal gagal-tertutup terhadap `sedang_dihantar`):
+
+- **ID enjin stabil.** `pemilik` klaim bukan lagi `hostname:pid`; ia ialah UUID
+  rawak tempatan yang disimpan di `<dirData>/id-enjin.json`. Apabila companion
+  dimulakan semula, ID **sama** dikemukakan, jadi ia menuntut semula tugasan
+  `sedang_dihantar` yang ditinggalkan proses sebelumnya **serta-merta** (klaim
+  pemilik sama) tanpa menunggu lease 15 minit.
+- **Poll mempertimbangkan `sedang_dihantar`.** Giliran manual kini cuba klaim
+  tugasan `menunggu` DAN `sedang_dihantar`; backend (Apps Script) memutuskan
+  secara atomik sama ada klaim dibenarkan — pemilik sama, lease luput, atau
+  tugasan yatim tanpa pemilik/lease. Klaim tidak dibenarkan pulang `null` dan
+  tugasan itu dilangkau tanpa kesan (tugasan yang masih dipegang enjin hidup
+  tidak pernah dirampas).
+- `id-enjin.json` bukan rahsia dan tidak mengandungi sebarang data murid; ia
+  hanyalah pengecam mesin tempatan.
+
 ### Log masuk idMe automatik (opt-in, lalai MATI)
 
 Companion kini mempunyai **vault kredensial idMe tempatan sendiri** dan log
@@ -303,6 +324,33 @@ model AI atau perkhidmatan luar** — ia kekal semata-mata pada cakera PC
 companion untuk pemeriksaan manual oleh pemilik. Ini penting kerana penapis
 log sedia ada (`src/log.mjs`) **tidak** memask kata laluan — membuang nilai
 medan input pada peringkat sanitasi DOM ialah pertahanan yang disengajakan.
+
+### Ketahanan terhadap halaman lambat / separa dimuatkan
+
+Log masuk automatik pernah gagal pada halaman idMe yang **lambat atau separa
+dimuatkan**: langkah mengisi IC / kata laluan / menekan butang menggunakan
+`.first().fill()/.click()` yang, apabila elemen belum dirender, melontar
+*Timeout* Playwright mentah (30s) yang bocor ke log sebagai "ralat teknikal".
+
+Kini adapter **menunggu** setiap elemen log masuk menjadi **sedia** (hadir +
+kelihatan + aktif) secara **bersempadan** (lalai ~15s, tinjau setiap ~250ms)
+sebelum berinteraksi:
+
+- **Medan IC** (`isiPenggunaIdMe`) — tunggu medan KAD PENGENALAN sedia sebelum
+  mengisi; jika tidak muncul, pulangkan status `medan-ic-tiada` (bukan throw).
+- **Butang lanjut** (`lanjutkanPengesahan`) — tunggu butang Seterusnya sedia
+  sebelum mengklik (bukan `.first()` membuta).
+- **Frasa keselamatan** (`bacaKunciKeselamatan`) — tinjau DOM sehingga frasa
+  muncul (bukan sekali baca yang boleh pulang `null` sebelum render selesai).
+- **Kotak semak** (`tandakanKunciKeselamatan`) — tinjau sehingga kotak semak
+  muncul sebelum menanda.
+- **Medan kata laluan** (`isiKataLaluanIdMe`) — tunggu medan sedia sebelum
+  mengisi; jika tidak muncul, pulangkan status `medan-kata-laluan-tiada`.
+
+Setiap kegagalan pulang **sebab jelas dalam Bahasa Melayu** (bukan *Timeout*
+mentah) dan aliran berhenti dengan `perluManusia:true` — tiada kata laluan
+ditaip, tiada hantar — mengekalkan semua invarian keselamatan (anti-pancing,
+CAPTCHA/OTP, had 2 cubaan).
 
 ### Bila enjin akan (dan TIDAK akan) log masuk automatik
 

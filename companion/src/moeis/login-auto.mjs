@@ -119,7 +119,17 @@ async function jalankanLoginAutoTeras(adapter, kredensial, opsyen) {
   // 4. Isi IC (pengguna) SAHAJA — idMe memerlukan IC dahulu untuk memaparkan
   //    frasa "Kata Kunci Keselamatan" pada /loginverification. Kata laluan
   //    TIDAK ditaip di sini; medan itu belum wujud pada peringkat ini.
-  await adapter.isiPenggunaIdMe(pengguna);
+  //    Adapter PRODUKSI memulangkan {ok,sebab} dan MENUNGGU medan menjadi sedia
+  //    (halaman lambat/separa dimuatkan) — bukan melontar Timeout mentah.
+  const isiIc = await adapter.isiPenggunaIdMe(pengguna);
+  if (isiIc && isiIc.ok !== true) {
+    return {
+      status: 'perlu-manusia', perluManusia: true,
+      sebab: isiIc.sebab ||
+        'Medan IC tidak dapat diisi pada halaman log masuk idMe; log masuk manual diperlukan.',
+      bukti: ['medan-ic-tiada']
+    };
+  }
 
   // 5. Lanjutkan ke halaman pengesahan (/loginverification). Jika halaman itu
   //    tidak muncul, berhenti — jangan cuba baca frasa pada halaman yang salah.
@@ -187,8 +197,18 @@ async function jalankanLoginAutoTeras(adapter, kredensial, opsyen) {
   }
 
   // 9. Isi kata laluan — HANYA SEKARANG, selepas frasa padan DAN kotak semak
-  //    ditanda (invarian keselamatan, lihat komen fail di atas).
-  await adapter.isiKataLaluanIdMe(kataLaluan);
+  //    ditanda (invarian keselamatan, lihat komen fail di atas). Adapter
+  //    PRODUKSI memulangkan {ok,sebab} dan MENUNGGU medan kata laluan menjadi
+  //    sedia (halaman lambat/separa dimuatkan).
+  const isiKataLaluan = await adapter.isiKataLaluanIdMe(kataLaluan);
+  if (isiKataLaluan && isiKataLaluan.ok !== true) {
+    return {
+      status: 'perlu-manusia', perluManusia: true,
+      sebab: isiKataLaluan.sebab ||
+        'Medan kata laluan tidak dapat diisi pada halaman pengesahan idMe; log masuk manual diperlukan.',
+      bukti: ['medan-kata-laluan-tiada']
+    };
+  }
 
   // 10. Hantar borang ("Daftar Masuk"). Adapter PRODUKSI memulangkan
   //     {ok,status,sebab} — idMe sebenar membawa DUA butang "Daftar Masuk"

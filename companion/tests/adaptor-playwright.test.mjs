@@ -310,3 +310,163 @@ test('sanitasiDomLoginGagal: buang nilai input + medan csrf/hidden, gantikan fra
   assert.match(html, /\[FRASA-DISAMARKAN\]/);
   assert.match(html, /class="kata-kunci-box"/, 'struktur (tag+kelas) mesti dikekalkan');
 });
+
+// ---------- ketahanan halaman lambat/separa dimuatkan (slow/partial render) ----------
+//
+// Adapter PRODUKSI kini MENUNGGU elemen log masuk menjadi SEDIA (hadir +
+// kelihatan + aktif) secara bersempadan sebelum mengisi/mengklik — bukan
+// `.first().fill()/.click()` yang melontar Timeout Playwright mentah pada
+// halaman lambat. Fixture di bawah menyuntik elemen selepas setTimeout untuk
+// meniru render yang lewat; adapter mesti menunggu (bukan gagal serta-merta).
+
+function htmlIcLambat({ masa = 700 } = {}) {
+  return (
+    '<!doctype html><html><head><meta charset="utf-8"></head><body>' +
+    '<div id="sementara">Memuatkan...</div>' +
+    '<script>' +
+    'setTimeout(function () {' +
+    '  var i = document.createElement("input");' +
+    '  i.type = "text";' +
+    '  i.setAttribute("placeholder", "KAD PENGENALAN");' +
+    '  i.id = "ic-lambat";' +
+    '  document.body.appendChild(i);' +
+    '}, ' + masa + ');' +
+    '</script>' +
+    '</body></html>'
+  );
+}
+
+function htmlKataLaluanLambat({ masa = 700 } = {}) {
+  return (
+    '<!doctype html><html><body>' +
+    '<script>' +
+    'setTimeout(function () {' +
+    '  var p = document.createElement("input");' +
+    '  p.type = "password";' +
+    '  p.id = "pwd-lambat";' +
+    '  document.body.appendChild(p);' +
+    '}, ' + masa + ');' +
+    '</script>' +
+    '</body></html>'
+  );
+}
+
+function htmlFrasaLambat({ frasa = FRASA, masa = 700 } = {}) {
+  return (
+    '<!doctype html><html><body>' +
+    '<div class="seksyen-kunci"><div class="label-kunci">Kata Kunci Keselamatan</div></div>' +
+    '<script>' +
+    'setTimeout(function () {' +
+    '  var b = document.createElement("div");' +
+    '  b.className = "kata-kunci-box";' +
+    '  b.style.background = "#ffffff";' +
+    '  b.textContent = ' + JSON.stringify(frasa) + ';' +
+    '  document.querySelector(".seksyen-kunci").appendChild(b);' +
+    '}, ' + masa + ');' +
+    '</script>' +
+    '</body></html>'
+  );
+}
+
+function htmlKotakLambat({ masa = 700 } = {}) {
+  return (
+    '<!doctype html><html><body>' +
+    '<script>' +
+    'setTimeout(function () {' +
+    '  var l = document.createElement("label");' +
+    '  l.innerHTML = \'<input id="check_log" class="form-check-input" name="check" type="checkbox"> Ya, ini adalah Kata Kunci Keselamatan saya.\';' +
+    '  document.body.appendChild(l);' +
+    '  var d = document.createElement("div");' +
+    '  d.id = "submit_form";' +
+    '  d.style.display = "none";' +
+    '  d.innerHTML = \'<input id="password" type="password">\';' +
+    '  document.body.appendChild(d);' +
+    '  document.getElementById("check_log").addEventListener("click", function () {' +
+    '    document.getElementById("submit_form").style.display = this.checked ? "block" : "none";' +
+    '  });' +
+    '}, ' + masa + ');' +
+    '</script>' +
+    '</body></html>'
+  );
+}
+
+test('adapter sebenar: isiPenggunaIdMe MENUNGGU medan IC yang muncul lewat dan berjaya mengisi', async () => {
+  await muat(htmlIcLambat({ masa: 700 }));
+  const hasil = await adapter.isiPenggunaIdMe('PENGGUNA-UJIAN');
+  assert.equal(hasil.ok, true);
+  const nilai = await page.evaluate(() => document.getElementById('ic-lambat').value);
+  assert.equal(nilai, 'PENGGUNA-UJIAN');
+});
+
+test('adapter sebenar: isiPenggunaIdMe medan IC TIDAK pernah muncul -> {ok:false, status:medan-ic-tiada}, TIADA throw', async () => {
+  const adaptorPantas = buatAdaptorPlaywright(page, { masaSediaMs: 1500, jedaPollMs: 100 });
+  await muat('<!doctype html><html><body><div>tiada borang</div></body></html>');
+  const hasil = await adaptorPantas.isiPenggunaIdMe('PENGGUNA-UJIAN');
+  assert.equal(hasil.ok, false);
+  assert.equal(hasil.status, 'medan-ic-tiada');
+});
+
+test('adapter sebenar: isiKataLaluanIdMe MENUNGGU medan kata laluan yang muncul lewat dan berjaya mengisi', async () => {
+  await muat(htmlKataLaluanLambat({ masa: 700 }));
+  const hasil = await adapter.isiKataLaluanIdMe('KATA-LALUAN-PALSU-TAK-SAH');
+  assert.equal(hasil.ok, true);
+  const nilai = await page.evaluate(() => document.getElementById('pwd-lambat').value);
+  assert.equal(nilai, 'KATA-LALUAN-PALSU-TAK-SAH');
+});
+
+test('adapter sebenar: isiKataLaluanIdMe medan TIDAK pernah muncul -> {ok:false, status:medan-kata-laluan-tiada}, TIADA throw', async () => {
+  const adaptorPantas = buatAdaptorPlaywright(page, { masaSediaMs: 1500, jedaPollMs: 100 });
+  await muat('<!doctype html><html><body><div>tiada borang</div></body></html>');
+  const hasil = await adaptorPantas.isiKataLaluanIdMe('KATA-LALUAN-PALSU-TAK-SAH');
+  assert.equal(hasil.ok, false);
+  assert.equal(hasil.status, 'medan-kata-laluan-tiada');
+});
+
+test('adapter sebenar: bacaKunciKeselamatan MENUNGGU frasa yang muncul lewat (bukan null serta-merta)', async () => {
+  await muat(htmlFrasaLambat({ frasa: FRASA, masa: 700 }));
+  const frasa = await adapter.bacaKunciKeselamatan();
+  assert.equal(frasa, FRASA);
+});
+
+test('adapter sebenar: tandakanKunciKeselamatan MENUNGGU kotak semak yang muncul lewat dan mendedahkan kata laluan', async () => {
+  await muat(htmlKotakLambat({ masa: 700 }));
+  const hasil = await adapter.tandakanKunciKeselamatan();
+  assert.equal(hasil, true);
+  const keadaan = await page.evaluate(() => ({
+    ditanda: document.getElementById('check_log').checked,
+    pwdNampak: (() => { const p = document.getElementById('password'); return !!p && !p.disabled && p.offsetParent !== null; })()
+  }));
+  assert.equal(keadaan.ditanda, true);
+  assert.equal(keadaan.pwdNampak, true);
+});
+
+function htmlButangLanjutLambat({ masa = 700 } = {}) {
+  return (
+    '<!doctype html><html><body>' +
+    '<div id="peringkat-ic"></div>' +
+    '<div id="peringkat-verifikasi" style="display:none">' +
+    '<div class="label-kunci">Kata Kunci Keselamatan</div>' +
+    '<label><input type="checkbox"> Ya, ini adalah Kata Kunci Keselamatan saya.</label>' +
+    '</div>' +
+    '<script>' +
+    'setTimeout(function () {' +
+    '  var b = document.createElement("button");' +
+    '  b.id = "butang-seterusnya";' +
+    '  b.textContent = "Seterusnya";' +
+    '  b.addEventListener("click", function () {' +
+    '    document.getElementById("peringkat-ic").style.display = "none";' +
+    '    document.getElementById("peringkat-verifikasi").style.display = "block";' +
+    '  });' +
+    '  document.getElementById("peringkat-ic").appendChild(b);' +
+    '}, ' + masa + ');' +
+    '</script>' +
+    '</body></html>'
+  );
+}
+
+test('adapter sebenar: lanjutkanPengesahan MENUNGGU butang Seterusnya yang muncul lewat dan beralih ke halaman pengesahan', async () => {
+  await muat(htmlButangLanjutLambat({ masa: 700 }));
+  const hasil = await adapter.lanjutkanPengesahan();
+  assert.equal(hasil.ok, true);
+});
+

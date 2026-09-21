@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bacaTetapan, tulisTetapanAtomik, TETAPAN_LALAI } from '../src/tetapan.mjs';
+import { bacaTetapan, tulisTetapanAtomik, TETAPAN_LALAI, bacaAtauCiptaIdEnjin } from '../src/tetapan.mjs';
 import { samarkanIc, samarkanEmel, samarkanToken, samarkanNama } from '../src/log.mjs';
 import { sahkanProtectorBerfungsi } from '../src/simpanan.mjs';
 import { test as ujianBersyarat } from 'node:test';
@@ -59,6 +59,24 @@ test('bacaTetapan: intervalSaat < 30 dipaksa naik kepada 30 (minimum giliran)', 
   const dirData = fs.mkdtempSync(path.join(os.tmpdir(), 'hadir-tetapan-'));
   tulisTetapanAtomik(dirData, { ...TETAPAN_LALAI, intervalSaat: 2 });
   assert.equal(bacaTetapan(dirData).intervalSaat, 30);
+  fs.rmSync(dirData, { recursive: true, force: true });
+});
+
+test('bacaAtauCiptaIdEnjin: ID stabil merentasi restart (persist ke id-enjin.json)', () => {
+  const dirData = fs.mkdtempSync(path.join(os.tmpdir(), 'hadir-id-enjin-'));
+  const pertama = bacaAtauCiptaIdEnjin(dirData);
+  const kedua = bacaAtauCiptaIdEnjin(dirData);
+  assert.equal(pertama, kedua, 'ID enjin mesti kekal sama dalam folder data yang sama');
+  assert.ok(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pertama), 'ID ialah UUID');
+  assert.ok(fs.existsSync(path.join(dirData, 'id-enjin.json')), 'fail id-enjin.json mesti wujud');
+  fs.rmSync(dirData, { recursive: true, force: true });
+});
+
+test('bacaAtauCiptaIdEnjin: fail rosak diganti dengan UUID baharu (bukan terperangkap)', () => {
+  const dirData = fs.mkdtempSync(path.join(os.tmpdir(), 'hadir-id-enjin-'));
+  fs.writeFileSync(path.join(dirData, 'id-enjin.json'), '{ rosak');
+  const id = bacaAtauCiptaIdEnjin(dirData);
+  assert.ok(/^[0-9a-f]{8}-/i.test(id), 'ID baharu yang sah mesti dijana apabila fail rosak');
   fs.rmSync(dirData, { recursive: true, force: true });
 });
 

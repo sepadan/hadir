@@ -259,8 +259,11 @@ try {
   const dilarang = failNyata.filter((f) => /(?<!status-)sesi\.json|storageState|cookies?\.(json|txt)|auth[\/-]state\.json|kredensial\.(json|txt|log|bak)/i.test(f));
   sah('tiada fail kuki/sesi teks biasa ditulis (ujian tingkah laku cakera)',
     dilarang.length === 0, JSON.stringify(dilarang));
+  // `id-enjin.json` = UUID enjin yang stabil (bukan rahsia, tiada kuki/token);
+  // ia menjadikan `pemilik` kekal sama selepas enjin dimulakan semula supaya
+  // backend membenarkan klaim semula tanpa menunggu lease luput.
   sah('fail yang ada hanyalah keadaan tempatan yang dijangka',
-    failNyata.every((f) => /^(tetapan\.json|rahsia\.dat|kredensial\.dat|status-sesi\.json|log\/)/.test(f)),
+    failNyata.every((f) => /^(tetapan\.json|rahsia\.dat|kredensial\.dat|status-sesi\.json|id-enjin\.json|log\/)/.test(f)),
     JSON.stringify(failNyata));
   // rahsia.dat mesti disulit (bukan JSON teks biasa).
   const mentahRahsia = fs.readFileSync(path.join(dirData, 'rahsia.dat'));

@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 export const NAMA_FOLDER_DATA = 'HADIR-MOEIS-Companion';
 
@@ -141,6 +142,23 @@ export function tulisJsonAtomik(dirData, nama, objek) {
   const sementara = laluan + '.tmp-' + process.pid + '-' + Date.now();
   fs.writeFileSync(sementara, JSON.stringify(objek, null, 2), 'utf8');
   fs.renameSync(sementara, laluan);
+}
+
+// ID enjin yang STABIL merentasi restart proses (disimpan di id-enjin.json).
+// Digunakan sebagai `pemilik` klaim MOEIS supaya enjin yang dimulakan semula
+// (crash/restart OS/autostart) masih dikenali sebagai pemilik SAMA bagi
+// tugasan 'sedang_dihantar' yang ditinggalkan proses sebelumnya — ini
+// membolehkan pemulihan klaim SEGERA (heartbeat pemilik sama, baris 940 di
+// hadirMoeisJobKlaim_) tanpa menunggu lease 15 minit luput. Nilai ialah UUID
+// rawak tempatan: bukan rahsia, bukan cap jari perkakasan, dan stabil hanya
+// dalam folder data PC itu.
+export function bacaAtauCiptaIdEnjin(dirData) {
+  const sedia = bacaJson(dirData, 'id-enjin.json', null);
+  const id = sedia && typeof sedia.id === 'string' && sedia.id.length >= 8 ? sedia.id : '';
+  if (id) return id;
+  const baharu = crypto.randomUUID();
+  tulisJsonAtomik(dirData, 'id-enjin.json', { id: baharu, dicipta: new Date().toISOString() });
+  return baharu;
 }
 
 // Medan yang tidak boleh sekali-kali diterima oleh POST /api/tetapan — rahsia

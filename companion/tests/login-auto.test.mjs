@@ -158,6 +158,34 @@ test('benarkanTerusTanpaFrasa HIDUP + kotak semak GAGAL -> masih kotak-pengesaha
   assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false);
 });
 
+// ---------------- ketahanan halaman lambat/separa dimuatkan ----------------
+// Adapter PRODUKSI kini memulangkan {ok,sebab} daripada isiPenggunaIdMe /
+// isiKataLaluanIdMe dan MENUNGGU medan menjadi sedia. Aliran mesti menyemak
+// pulangan ini dan ABORT dengan sebab jelas (bukan bocor "ralat teknikal").
+
+test('isiPenggunaIdMe gagal (medan IC tidak muncul) -> perlu-manusia, bukti medan-ic-tiada, tiada langkah seterusnya', async () => {
+  const adapter = buatHalamanLoginPalsu({ isiPenggunaGagal: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'perlu-manusia');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(adapter._panggilan.includes('isiPenggunaIdMe'), true);
+  assert.equal(adapter._panggilan.includes('lanjutkanPengesahan'), false, 'tidak boleh lanjut jika IC tidak diisi');
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), false);
+  assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false);
+  assert.ok(Array.isArray(hasil.bukti) && hasil.bukti.includes('medan-ic-tiada'));
+});
+
+test('isiKataLaluanIdMe gagal (medan kata laluan tidak muncul) -> perlu-manusia, tiada hantar, tiada sahkan sesi', async () => {
+  const adapter = buatHalamanLoginPalsu({ isiKataLaluanGagal: true });
+  const hasil = await jalankanLoginAuto(adapter, KRED);
+  assert.equal(hasil.status, 'perlu-manusia');
+  assert.equal(hasil.perluManusia, true);
+  assert.equal(adapter._panggilan.includes('isiKataLaluanIdMe'), true, 'kata laluan mesti dicuba');
+  assert.equal(adapter._panggilan.includes('hantarBorangLogMasuk'), false, 'tidak boleh hantar jika kata laluan tidak diisi');
+  assert.equal(adapter._panggilan.includes('sahkanSesiSelepasLogin'), false);
+  assert.ok(Array.isArray(hasil.bukti) && hasil.bukti.includes('medan-kata-laluan-tiada'));
+});
+
 test('kunci-tiada: frasa null (mungkin imej kunciAdaImej:true) -> perlu-manusia, tiada kotak semak, tiada kata laluan', async () => {
   const adapter = buatHalamanLoginPalsu({ kunciAdaImej: true });
   const hasil = await jalankanLoginAuto(adapter, KRED);
