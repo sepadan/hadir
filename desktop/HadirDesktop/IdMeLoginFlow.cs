@@ -272,12 +272,19 @@ public sealed class IdMeLoginManager
     /// <summary>Single-flight + indefinite transient retry with exponential backoff.</summary>
     public Task<HasilLoginAuto> CubaDenganCubaSemulaAsync(CancellationToken ct = default)
     {
+        Task<HasilLoginAuto> penerbangan;
         lock (_gate)
         {
             if (_dalamPenerbangan != null) return _dalamPenerbangan;
             _dalamPenerbangan = TerasAsync(ct);
+            penerbangan = _dalamPenerbangan;
         }
-        return _dalamPenerbangan;
+        // Return the LOCAL capture, never the field: the task's own `finally`
+        // clears `_dalamPenerbangan` when it completes, and a very fast (all
+        // scripted callbacks already done) attempt can complete on the thread
+        // pool BETWEEN the unlock and this return — re-reading the field here
+        // would then return null and NRE at the caller's `await`.
+        return penerbangan;
     }
 
     private async Task<HasilLoginAuto> TerasAsync(CancellationToken ct)

@@ -148,12 +148,18 @@ public sealed class PortalLifecycle
     /// <summary>One demand-only cycle. Single-flight; never runs two cycles at once.</summary>
     public Task<KeadaanPortal> PeriksaDanJalankanAsync(CancellationToken ct = default)
     {
+        Task<KeadaanPortal> penerbangan;
         lock (_gate)
         {
             if (_dalamPenerbangan != null) return _dalamPenerbangan;
             _dalamPenerbangan = TerasAsync(ct);
+            penerbangan = _dalamPenerbangan;
         }
-        return _dalamPenerbangan;
+        // Return the LOCAL capture, never the field: the task's own `finally`
+        // clears `_dalamPenerbangan` when it completes, and a very fast cycle
+        // can complete on the thread pool BETWEEN the unlock and this return —
+        // re-reading the field here would return null and NRE at `await`.
+        return penerbangan;
     }
 
     private async Task<KeadaanPortal> TerasAsync(CancellationToken ct)
