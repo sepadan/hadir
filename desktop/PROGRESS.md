@@ -1,5 +1,74 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Shared idMe credential + demand-only auto-login in embedded WebView2 (2026-09-22, default OFF)
+
+Owner goal: fully automatic — app stores the idMe password locally (DPAPI),
+logs in automatically ONLY when there is unfinished attendance to submit, keeps
+the portal in the tray with no separate Edge popup, zero portal/login activity
+when the queue is empty.
+
+### What was built (all default OFF, fixture-tested, no production writes)
+
+- `HadirDesktop/KredensialIdMeStore.cs` — reads/writes the SAME `kredensial.dat`
+  as the companion engine (DPAPI CurrentUser, null entropy, JSON
+  `{pengguna,kataLaluan,kunciKeselamatan}`). No plaintext fallback.
+- `HadirDesktop/IdMeLoginSafety.cs` — pure safety gates (HTTPS+exact-host check,
+  phrase decision, session classification, narrow credential-rejection regex,
+  OTP/CAPTCHA evidence set).
+- `HadirDesktop/IdMeLoginFlow.cs` — pure staged flow (port of
+  `jalankanLoginAutoTeras`) + `IdMeLoginManager` (single-flight, indefinite
+  exponential-backoff retry for transient, the ONE rejection guard) +
+  `IdMeLoginDemand` (demand-only trigger: waiting-HADIR-task is the only signal).
+- `HadirDesktop/PenjagaPenolakanKredensial.cs` — consecutive CREDENTIAL-rejection
+  guard (default 5, 0 = never stop, one-click "Cuba lagi"), app-owned JSON state.
+- `HadirDesktop/IdMeLoginWebView2.cs` — production DOM bridge over
+  `CoreWebView2.ExecuteScriptAsync` (types IC/password only after every gate;
+  OTP/CAPTCHA fail-safe returns sanitized URL+element diagnostic). NOT live-verified.
+- `HadirDesktop/IdMeSettingsDialog.cs` — "Akaun idMe" settings (masked entry,
+  "Simpan pada PC ini", "Padam kredensial", status shows only masked user;
+  rejection-guard N + "Cuba lagi").
+- `HadirDesktop/IdMeLoginSettings.cs` — non-secret opt-in switches (LoginAuto OFF,
+  BenarkanTerusTanpaFrasa OFF, MaksPenolakanBerturut = 5).
+- `HadirDesktop/MainForm.cs` / `TrayHost.cs` / `DemoLabel.cs` — tray "Akaun idMe…"
+  + "Cuba log masuk" wiring; navigation allowlist widens to idMe/MOEIS origins
+  ONLY when the owner enables auto-login. No timer, no keepalive loop.
+
+### Owner policy (final, supersedes the earlier 6/hour + 24/day ceiling)
+
+- NO hourly/daily ceiling. Pre-flight/session checks never consume budget; only
+  an actual credential submission counts.
+- Only an EXPLICIT "wrong password / wrong IC" rejection advances the guard;
+  everything else (network/timeout/host/page-not-ready/busy/ambiguous/session/
+  server) retries INDEFINITELY with exponential backoff.
+- Guard is owner-configurable (0 = never stop, default 5) + one-click "Cuba lagi".
+- OTP/CAPTCHA still stops for the owner; security-phrase/checkbox is a normal step.
+
+### DPAPI compatibility (verified WITHOUT printing the value)
+
+A throwaway .NET 8 probe (`%LOCALAPPDATA%/Temp/hadir-dpapi-probe`, not in repo)
+read the real companion blob via `ProtectedData.Unprotect(bytes, null,
+CurrentUser)`: `boleh-nyahsulit=True`, `json-sah=True`, all 3 fields present,
+masked user `8***`, `keputusan=SERASI`. The blob formats ARE compatible — the
+owner does NOT need to re-type the password; the shared store works as-is.
+
+### Tests
+
+`dotnet test` (desktop): **189 passed / 0 failed** (was 99). New suites:
+`KredensialIdMeStoreTests`, `IdMeLoginSafetyTests`, `PenjagaPenolakanKredensialTests`,
+`IdMeLoginManagerTests` (pre-flight no-budget, transient backoff retry, rejection
+guard at 5, "Cuba lagi"), `IdMeLoginFlowTests` (staged flow vs scripted fake DOM:
+wrong-host no typing, phrase-mismatch abort, checkbox-fail no password,
+OTP stop, success), `IdMeLoginDemandTests` (zero activity when queue empty).
+
+### Not done (out of scope for this phase, parent gate pending)
+
+- Real live idMe/MOEIS login (hard boundary: no production writes).
+- Portal lifecycle (tray hide/close on idle) and auto-send — later phases.
+- Waiting-task detection is a seam (`AdaKerjaMenungguAsync()` returns false until
+  the auto-send phase wires the real HADIR-record watcher).
+- No commit yet — awaiting the parent gate.
+
+
 ## Real idMe login inside embedded WebView2 — LIVE observation (2026-09-22)
 
 Decisive gate for replacing the Edge popup with an embedded portal: does the

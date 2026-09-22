@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -12,7 +14,7 @@ public sealed class MainForm : Form
     private readonly AppStateMachine _stateMachine = new();
     private readonly TrayHost _tray;
     private readonly FixturePortalServer _portalServer = new();
-    private readonly NavigationGuard _navigationGuard;
+    private NavigationGuard _navigationGuard = null!;
     private readonly FixtureEngineStatusSource _fixtureSource = new();
     private readonly LoopbackEngineStatusSource _loopbackSource = new();
     private readonly DevDebugTransport? _devDebug;
@@ -20,6 +22,15 @@ public sealed class MainForm : Form
     private readonly HttpClient _deviceHttp = new();
     private readonly DevicePanel _devicePanel;
     private readonly string? _observationLogPath;
+
+    // --- idMe credential (shared DPAPI store) + demand-only auto-login ---
+    private readonly DpapiKredensialIdMeStore _kredensialStore = new();
+    private readonly JsonIdMeLoginSettingsStore _idMeSettingsStore = new();
+    private readonly PenolakanKredensialStateStore _penolakanStateStore = new();
+    private readonly PenjagaPenolakanKredensial _penjaga;
+    private readonly WebView2IdMeLoginDom _loginDom;
+    private readonly IdMeLoginManager _loginManager;
+    private readonly IdMeLoginDemand _loginDemand;
 
     private IEngineStatusSource _statusSource;
     private WebView2 _webView = null!;
@@ -41,6 +52,26 @@ public sealed class MainForm : Form
         // so the real login page can render (read-only). Normal mode keeps the
         // empty allowlist = fixture/loopback only.
         _navigationGuard = new NavigationGuard(_realPortal.AllowedOrigins);
+
+        // idMe auto-login plumbing (default OFF). The credential store is the
+        // SAME shared DPAPI file as the companion engine (HADIR-MOEIS-Companion/
+        // kredensial.dat). The only auto-retry stop is the owner-configurable
+        // consecutive-credential-rejection guard (0 = never stop, default 5);
+        // transient failures retry indefinitely with exponential backoff. No
+        // hourly/daily ceiling — a needed login is never blocked by earlier
+        // probes. Nothing runs until the owner enables it AND a waiting HADIR
+        // task is signalled — no timer, no keepalive loop.
+        _penjaga = new PenjagaPenolakanKredensial(
+            _penolakanStateStore.Baca,
+            _penolakanStateStore.Tulis,
+            () => _idMeSettingsStore.Baca().MaksPenolakanBerturut);
+        _loginDom = new WebView2IdMeLoginDom(() => _webView.CoreWebView2);
+        _loginManager = new IdMeLoginManager(
+            () => _kredensialStore.Ada(),
+            () => IdMeLoginFlow.JalankanAsync(_loginDom, _kredensialStore.Baca(), _idMeSettingsStore.Baca().BenarkanTerusTanpaFrasa),
+            _penjaga,
+            sesiSah: SesiSahProbeAsync);
+        _loginDemand = new IdMeLoginDemand(_idMeSettingsStore, _loginManager, AdaKerjaMenungguAsync);
         _devicePanel = new DevicePanel(
             new DeviceRegistrationClient(_deviceHttp, DemoLabel.HadirBackendApiUrl),
             DemoLabel.HadirBackendApiUrl,
@@ -67,6 +98,8 @@ public sealed class MainForm : Form
         _tray = new TrayHost(SystemIcons.Application);
         _tray.ShowRequested += (_, _) => ShowFromTray();
         _tray.OpenSettingsRequested += (_, _) => OpenEngineSettings();
+        _tray.IdMeSettingsRequested += (_, _) => OpenIdMeSettings();
+        _tray.LoginAutoRequested += async (_, _) => await CubaLoginAutoAtasPermintaanAsync();
         _tray.ExitRequested += (_, _) => ExitForReal();
 
         BuildLayout();
@@ -339,6 +372,80 @@ public sealed class MainForm : Form
 
         _navLabel.Text = "Membuka tetapan tempatan enjin (baca sahaja)…";
         _webView.CoreWebView2.Navigate(DemoLabel.EngineSettingsUrl);
+    }
+
+    /// <summary>
+    /// Opens the "Akaun idMe" settings dialog (masked credential entry + opt-in
+    /// auto-login switches + rejection-guard control). After it closes, the
+    /// navigation allowlist is recomputed so enabling auto-login widens it to
+    /// the exact idMe/MOEIS origins (and disabling narrows it back).
+    /// </summary>
+    private void OpenIdMeSettings()
+    {
+        ShowFromTray();
+        using var dialog = new IdMeSettingsDialog(_kredensialStore, _idMeSettingsStore, _loginManager);
+        dialog.ShowDialog(this);
+        RebuildNavigationGuard();
+    }
+
+    /// <summary>
+    /// Rebuilds the navigation allowlist from the real-portal dev mode origins
+    /// PLUS the idMe/MOEIS origins when (and only when) the owner has enabled
+    /// the auto-login feature. Everything else stays blocked.
+    /// </summary>
+    private void RebuildNavigationGuard()
+    {
+        var origins = new List<string>(_realPortal.AllowedOrigins);
+        if (_idMeSettingsStore.Baca().LoginAuto)
+        {
+            origins.Add(IdMeLoginEndpoints.IdMeOrigin);
+            origins.Add(IdMeLoginEndpoints.MoeisOrigin);
+        }
+        _navigationGuard = new NavigationGuard(origins);
+    }
+
+    /// <summary>
+    /// Demand-only auto-login entry point (tray "Cuba log masuk" and, later,
+    /// the auto-send phase). Gated by the waiting-task check inside
+    /// <see cref="IdMeLoginDemand"/>: with no unfinished attendance it does
+    /// nothing at all. Never run on a timer/keepalive.
+    /// </summary>
+    public async Task CubaLoginAutoAtasPermintaanAsync()
+    {
+        var hasil = await _loginDemand.CubaAutoAsync();
+        _navLabel.Text = $"Login idMe auto: {hasil.Status} — {hasil.Sebab}";
+    }
+
+    /// <summary>
+    /// Direct session probe for the manager (pre-flight, never consumes any
+    /// budget, never navigates, never polls in the background): true only when
+    /// the embedded portal is currently on a MOEIS host (already logged in).
+    /// </summary>
+    private Task<SesiProbe> SesiSahProbeAsync()
+    {
+        var wv = _webView.CoreWebView2;
+        if (wv == null) return Task.FromResult(new SesiProbe(false));
+        try
+        {
+            var sah = Uri.TryCreate(wv.Source, UriKind.Absolute, out var u)
+                && u.Host.Equals("moeispel.moe.gov.my", StringComparison.OrdinalIgnoreCase);
+            return Task.FromResult(new SesiProbe(sah));
+        }
+        catch
+        {
+            return Task.FromResult(new SesiProbe(false));
+        }
+    }
+
+    /// <summary>
+    /// Waiting-HADIR-task probe — the ONE and only demand signal. Wired in the
+    /// future auto-send phase (which watches today's HADIR records for
+    /// unfinished attendance). Until then: no known waiting work => no login,
+    /// no portal open, zero idMe/MOEIS activity.
+    /// </summary>
+    private Task<bool> AdaKerjaMenungguAsync()
+    {
+        return Task.FromResult(false);
     }
 
     /// <summary>Called (marshalled to UI thread) when a second launch signals this instance.</summary>

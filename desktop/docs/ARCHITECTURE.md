@@ -98,6 +98,24 @@ use, this must be tested explicitly, including:
 - Cookie/session persistence behavior tied to the dedicated WebView2
   user-data folder.
 
+### Shared idMe credential + demand-only auto-login (added, default OFF)
+
+As of 2026-09-22 the shell has a staged, default-OFF path for exactly this:
+
+- **Shared DPAPI credential** (`KredensialIdMeStore`) reads/writes the SAME
+  `kredensial.dat` as the companion engine (DPAPI CurrentUser, null entropy) —
+  verified read-only compatible with the companion's real blob, no re-typing.
+- **Masked owner entry** (`IdMeSettingsDialog`): the owner types the password
+  into the app's own masked field; the value is never printed/logged/committed.
+- **Demand-only auto-login** (`IdMeLoginFlow` + `IdMeLoginManager` +
+  `IdMeLoginDemand` + `WebView2IdMeLoginDom`): the ONLY trigger is a waiting
+  HADIR task (unfinished attendance); with an empty queue there is zero
+  portal/login activity and no timer/keepalive. Reuses the same safety gates
+  (HTTPS+host before typing, phrase/checkbox, OTP/CAPTCHA stop). The only
+  auto-retry stop is a consecutive-credential-rejection guard (default 5,
+  0 = never stop, one-click clear).
+- All OFF by default; fixture-tested only; no live idMe/MOEIS writes yet.
+
 ## Security barrier: CDP / remote debugging
 
 Chromium's remote-debugging protocol (CDP), if exposed

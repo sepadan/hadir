@@ -14,6 +14,8 @@ public sealed class TrayHost : IDisposable
 
     public event EventHandler? ShowRequested;
     public event EventHandler? OpenSettingsRequested;
+    public event EventHandler? IdMeSettingsRequested;
+    public event EventHandler? LoginAutoRequested;
     public event EventHandler? ExitRequested;
 
     public TrayHost(Icon icon)
@@ -21,6 +23,9 @@ public sealed class TrayHost : IDisposable
         var menu = new ContextMenuStrip();
         menu.Items.Add(DemoLabel.TrayShow, null, (_, _) => ShowRequested?.Invoke(this, EventArgs.Empty));
         menu.Items.Add(DemoLabel.TrayOpenSettings, null, (_, _) => OpenSettingsRequested?.Invoke(this, EventArgs.Empty));
+        menu.Items.Add(DemoLabel.TrayIdMeSettings, null, (_, _) => IdMeSettingsRequested?.Invoke(this, EventArgs.Empty));
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(DemoLabel.TrayLoginAuto, null, (_, _) => LoginAutoRequested?.Invoke(this, EventArgs.Empty));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(DemoLabel.TrayExit, null, (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty));
 
