@@ -1,5 +1,60 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Togol dulang "Hantar ke MOEIS (automatik)" (2026-09-23, lalai MATI)
+
+Penghantaran automatik kini milik pemilik, bukan medan kod. Sebelum ini
+`MainForm._penghantaranDihidupkan` ialah `bool` yang tiada UI — sentiasa MATI dan
+tiada cara menghidupkannya. Medan itu dibuang; jawapannya kini datang dari
+tetapan tersimpan dan boleh ditogol dari menu dulang.
+
+- `IdMeLoginSettings.cs` — `IdMeLoginTetapan.HantarAuto` (bool, lalai `false`),
+  disimpan dalam JSON biasa yang SAMA (`idme-login.json`, bukan rahsia).
+  Gagal-tertutup: fail hilang atau rosak dibaca sebagai MATI, tidak pernah HIDUP.
+  Bebas daripada `LoginAuto` — log masuk dahulu, hantar hanya bila togol ini
+  hidup; `LoginAuto` HIDUP + `HantarAuto` MATI bermakna log masuk tanpa sebarang
+  tulisan ke MOEIS.
+- `TrayHost.cs` — parameter pilihan `hantarAutoBaca` / `hantarAutoTulis`. Item
+  `DemoLabel.TrayHantarAuto` hanya muncul apabila KEDUA-DUA callback diberi
+  (pemanggil sedia ada/ujian tidak terjejas). Corak sama seperti togol autostart:
+  `CheckOnClick`, `Checked` diset SEBELUM langgan `CheckedChanged` — membuka menu
+  tidak pernah menulis tetapan, hanya klik pemilik yang menulis. TrayHost kekal
+  tanpa pengetahuan tentang stor.
+- `MainForm.cs` — `dihidupkan: () => _idMeSettingsStore.Baca().HantarAuto`
+  (dibaca semula setiap kitaran, jadi togol berkuat kuasa serta-merta dan kekal
+  merentas restart); `HantarAutoTetapkan` membaca semula tetapan, menukar satu
+  medan sahaja, kemudian `Simpan` — jadi medan dialog "Akaun idMe" tidak hilang.
+
+### Ujian
+
+```
+dotnet build desktop/HadirDesktop.sln              # Build succeeded, 0 Error(s)
+dotnet test  desktop/HadirDesktop.sln --no-restore # Passed! 418 / Failed: 0
+```
+
+418 lulus / 0 gagal (sebelum ini 403; **+15**):
+
+- `HantarAutoTetapanTests` (7) — lalai MATI, fail tiada/rosak → MATI, simpan→baca
+  kekal merentas "restart" (stor baharu pada laluan sama), MATI disimpan semula
+  dibaca MATI, `HantarAuto` bebas daripada `LoginAuto`, dan medan lain
+  (`MaksPenolakanBerturut`) tidak hilang bila hanya `HantarAuto` ditukar.
+- `TrayHostHantarAutoTests` (7) — item tiada tanpa callback dan tiada dengan satu
+  callback sahaja; `Checked` mengikut nilai tersimpan; membina menu tidak pernah
+  menulis; klik menulis `true`, klik semula menulis `false`; dari keadaan HIDUP
+  klik pertama menulis `false`.
+- `KitaranPenghantaranTests` (+1) — togol MATI = backend tidak pernah disentuh,
+  togol HIDUP = tepat satu penghantaran.
+
+Amaran `CS8619` pada `MainForm.cs` sudah wujud pada HEAD (451f1cb) — bukan
+daripada slice ini (disahkan dengan build atas pokok kerja yang distash).
+
+### Disahkan vs tidak disahkan
+
+- DISAHKAN: build + 418 ujian, semuanya terhadap data palsu/fail sementara.
+  Tiada backend sebenar, tiada MOEIS, tiada kredensial.
+- TIDAK DISAHKAN (langsung): menu dulang sebenar tidak diklik oleh manusia dalam
+  slice ini, dan menghidupkan togol pada PC sebenar (yang akan membenarkan
+  penghantaran sebenar ke MOEIS) belum pernah dilakukan.
+
 ## Desktop talks DIRECTLY to the HADIR backend: KLAIM → HANTAR → SELESAI (2026-09-23, default OFF)
 
 First step towards retiring the Node engine: the desktop app can now own a task

@@ -45,7 +45,6 @@ public sealed class MainForm : Form
     private readonly HadirBackendClient? _backendClient;
     private readonly PenghantaranMoeisWebView2 _penghantarMoeis;
     private readonly AliranPenghantaranMoeis _aliranPenghantaran;
-    private bool _penghantaranDihidupkan; // DEFAULT OFF until a real opt-in UI exists
 
     /// <summary>
     /// Cancels an in-flight demand cycle on real shutdown. The login manager
@@ -110,7 +109,10 @@ public sealed class MainForm : Form
 
         // Submission pass: built AFTER the login pieces so the WebView2 lambda
         // (deferred) can reference _webView, and wired as the lifecycle's
-        // "after a valid session" hook. DEFAULT OFF (opt-in _penghantaranDihidupkan).
+        // "after a valid session" hook. DEFAULT OFF — the owner opts in from the
+        // tray ("Hantar ke MOEIS (automatik)"), and the answer is re-read from
+        // the stored settings on EVERY cycle, so it survives a restart and a
+        // corrupt/missing settings file reads back as OFF.
         // Claim->submit->complete talks STRAIGHT to the Apps Script backend
         // (engine-independent) using the shared engine secret via DPAPI.
         // Fail-closed: no readable secret/URL = no backend = no claim, no send.
@@ -128,7 +130,7 @@ public sealed class MainForm : Form
         _aliranPenghantaran = new AliranPenghantaranMoeis(
             _backendClient != null ? new BackendKerjaPenuhSource(_backendClient) : _kerjaPenuh,
             _penghantarMoeis,
-            dihidupkan: () => _penghantaranDihidupkan,
+            dihidupkan: () => _idMeSettingsStore.Baca().HantarAuto,
             backend: _backendClient,
             pemilik: () => _pemilikStore.Dapatkan());
 
@@ -171,7 +173,11 @@ public sealed class MainForm : Form
         Height = 750;
         StartPosition = FormStartPosition.CenterScreen;
 
-        _tray = new TrayHost(SystemIcons.Application, new AutostartManager(new RegistryRunKey()));
+        _tray = new TrayHost(
+            SystemIcons.Application,
+            new AutostartManager(new RegistryRunKey()),
+            hantarAutoBaca: () => _idMeSettingsStore.Baca().HantarAuto,
+            hantarAutoTulis: HantarAutoTetapkan);
         _tray.ShowRequested += (_, _) => ShowFromTray();
         _tray.OpenSettingsRequested += (_, _) => OpenEngineSettings();
         _tray.IdMeSettingsRequested += (_, _) => OpenIdMeSettings();
@@ -463,6 +469,19 @@ public sealed class MainForm : Form
         using var dialog = new IdMeSettingsDialog(_kredensialStore, _idMeSettingsStore, _loginManager);
         dialog.ShowDialog(this);
         RebuildNavigationGuard();
+    }
+
+    /// <summary>
+    /// Menyimpan togol "Hantar ke MOEIS (automatik)" dari dulang. Tetapan lain
+    /// dibaca semula dahulu supaya hanya medan ini berubah (dialog "Akaun idMe"
+    /// mungkin telah menulis medan lain). Bebas daripada <c>LoginAuto</c>: log
+    /// masuk dahulu, hantar hanya apabila togol ini hidup.
+    /// </summary>
+    private void HantarAutoTetapkan(bool hidup)
+    {
+        var tetapan = _idMeSettingsStore.Baca();
+        tetapan.HantarAuto = hidup;
+        _idMeSettingsStore.Simpan(tetapan);
     }
 
     /// <summary>

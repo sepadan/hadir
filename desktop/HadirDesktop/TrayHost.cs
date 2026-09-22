@@ -20,7 +20,17 @@ public sealed class TrayHost : IDisposable
     public event EventHandler? CubaLagiRequested;
     public event EventHandler? ExitRequested;
 
-    public TrayHost(Icon icon, IAutostartManager? autostart = null)
+    /// <param name="hantarAutoBaca">Baca togol "hantar ke MOEIS" tersimpan.</param>
+    /// <param name="hantarAutoTulis">Simpan togol "hantar ke MOEIS".</param>
+    /// <remarks>
+    /// Dua callback itu menjaga TrayHost tanpa pengetahuan tentang stor tetapan.
+    /// Tanpa KEDUA-DUA callback, item togol langsung tidak dipapar.
+    /// </remarks>
+    public TrayHost(
+        Icon icon,
+        IAutostartManager? autostart = null,
+        Func<bool>? hantarAutoBaca = null,
+        Action<bool>? hantarAutoTulis = null)
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add(DemoLabel.TrayShow, null, (_, _) => ShowRequested?.Invoke(this, EventArgs.Empty));
@@ -59,6 +69,21 @@ public sealed class TrayHost : IDisposable
             menu.Items.Add(new ToolStripSeparator());
         }
 
+        // Togol penghantaran automatik ke MOEIS. Corak sama seperti autostart:
+        // Checked diset SEBELUM langgan CheckedChanged, jadi memaparkan menu
+        // tidak pernah menulis tetapan — hanya klik pemilik yang menulis.
+        if (hantarAutoBaca != null && hantarAutoTulis != null)
+        {
+            var itemHantar = new ToolStripMenuItem(DemoLabel.TrayHantarAuto)
+            {
+                CheckOnClick = true,
+                Checked = hantarAutoBaca(),
+            };
+            itemHantar.CheckedChanged += (_, _) => hantarAutoTulis(itemHantar.Checked);
+            menu.Items.Add(itemHantar);
+            menu.Items.Add(new ToolStripSeparator());
+        }
+
         menu.Items.Add(DemoLabel.TrayExit, null, (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty));
 
         _notifyIcon = new NotifyIcon
@@ -71,6 +96,12 @@ public sealed class TrayHost : IDisposable
 
         _notifyIcon.DoubleClick += (_, _) => ShowRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// Item menu dulang — untuk ujian/diagnostik sahaja. Membaca sahaja; tiada
+    /// keadaan diubah dengan mengaksesnya.
+    /// </summary>
+    public ToolStripItemCollection ItemMenu => _notifyIcon.ContextMenuStrip!.Items;
 
     /// <summary>
     /// Reflects the portal lifecycle state in the tray: the tooltip (truncated to

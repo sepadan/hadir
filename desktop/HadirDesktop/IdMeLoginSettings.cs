@@ -28,6 +28,15 @@ public sealed record IdMeLoginTetapan
     /// one-click "Cuba lagi" clears the counter immediately.
     /// </summary>
     public int MaksPenolakanBerturut { get; set; } = 5;
+
+    /// <summary>
+    /// Owner opt-in to actually SUBMIT the matched attendance to MOEIS after a
+    /// valid idMe session. Default OFF. Independent of <see cref="LoginAuto"/>
+    /// (which only governs logging in): when this is OFF the flow logs in but
+    /// never writes to MOEIS — it only observes. Turning it ON is the act that
+    /// makes the desktop a real submitter.
+    /// </summary>
+    public bool HantarAuto { get; set; }
 }
 
 public interface IIdMeLoginSettingsStore

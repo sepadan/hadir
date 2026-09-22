@@ -290,6 +290,27 @@ public class KitaranPenghantaranTests
     }
 
     [Fact]
+    public async Task TogolMati_TiadaPenghantaran_TogolHidup_Menghantar()
+    {
+        // The owner toggle ("Hantar ke MOEIS (automatik)") reaches the pass as
+        // `dihidupkan`. OFF = the backend is never touched; ON = one submission.
+        var backendMati = new FakeBackend(new[] { Kerja() });
+        var penghantarMati = new FakePenghantar(FakePenghantar.Disahkan());
+        var hasilMati = await Aliran(backendMati, penghantarMati, dihidupkan: false).JalankanAsync();
+
+        Assert.Equal(AliranPenghantaranMoeis.StatusDimatikan, hasilMati.Status);
+        Assert.Empty(backendMati.Jejak);
+        Assert.Empty(penghantarMati.Dihantar);
+
+        var backendHidup = new FakeBackend(new[] { Kerja() });
+        var penghantarHidup = new FakePenghantar(FakePenghantar.Disahkan());
+        var hasilHidup = await Aliran(backendHidup, penghantarHidup, dihidupkan: true).JalankanAsync();
+
+        Assert.Equal(AliranPenghantaranMoeis.StatusDihantar, hasilHidup.Status);
+        Assert.Single(penghantarHidup.Dihantar);
+    }
+
+    [Fact]
     public async Task TiadaIdPemilik_TiadaKlaimDanTiadaPenghantaran()
     {
         var backend = new FakeBackend(new[] { Kerja() });
