@@ -602,6 +602,141 @@ end-to-end bahawa IC tidak pernah sampai ke stdin pekerja. **Lalai produksi
 TIDAK berubah** — mod palsu wujud hanya sebagai fail fixture ujian, tiada
 laluan boleh-pilih jauh/tidak selamat.
 
+### 5.3 Shell desktop (desktop/)
+
+`desktop/` ialah shell Windows tray (WinForms `net8.0-windows` + WebView2)
+yang mengehoskan pandangan portal enjin dalam satu permukaan WebView2 terbenam
+(bukan tetingkap Edge pop-out). Ia ialah **penyesuai pengangkutan/cecangkerang**:
+peraturan kehadiran, tulisan MOEIS dan auth idMe kekal eksklusif dalam
+`companion/`, bukan di sini.
+
+- **Baca sahaja, ber-autentikasi.** Status enjin dibaca melalui
+  `LoopbackEngineStatusSource` yang melakukan jabat tangan nonce sebenar
+  (`GET /` → `302 /?n=<nonce>`), sahkan redirect kekal pada **origin loopback
+  yang sama** (skim+hos+port), kemudian `GET /api/lokal/status` dengan
+  `X-HADIR-Lokal: <nonce>` + `Origin` loopback tepat. Nonce **tidak pernah**
+  dilog/diikuti. Hasil diklasifikasi berasingan: `Ok / Offline / Unauthorized /
+  Timeout / Malformed` — tidak diruntuhkan kepada satu "tidak berjalan".
+- **Tiada kawalan enjin.** Tiada start/stop/restart, tiada tulisan tetapan,
+  tiada log masuk/idMe sebenar — DEMO memuatkan fixture tempatan sahaja.
+- **Tetapan tempatan** membuka UI tetapan enjin sebenar (ber-nonce) dalam
+  WebView2 terbenam — navigasi sahaja, tiada tulisan dari pihak shell.
+- **CDP hanya mod dev opt-in, dengan get pintu masuk asal ketat.**
+  `--remote-debugging-port` (loopback, port rawak, profil `webview2-dev-*`
+  terasing) dihidupkan **hanya** bila `HADIR_DEV_DEBUG=1`; mod normal tidak
+  pernah menghantarnya (disahkan secara luaran oleh
+  `verify-normal-mode.mjs`). Jambatan mesej dev
+  (`MainForm.CoreWebView2_WebMessageReceived`) hanya menerima mesej daripada
+  asal fixture dev yang TEPAT (`DevFixtureOrigin.IsDevFixture`) — UI tetapan
+  enjin sebenar atau halaman SSO masa depan yang dimuatkan dalam WebView2
+  yang sama TIDAK BOLEH menggerakkan tetingkap hos. Playwright
+  `connectOverCDP` terbukti (bukan semakan lompong) memandu adaptor produksi
+  (`buatAdaptorPlaywright`) terhadap fixture MOEIS-serupa yang dihidangkan,
+  merentas 3 kelas rekaan berturutan, sambil tetingkap diminimumkan —
+  fingerprint proses/baris-perintah sebenar dan pengesahan ikatan loopback
+  sebenar (`netstat`), bukan andaian — lihat
+  `desktop/docs/PLAYWRIGHT-CDP-REPORT.md`. **Keserasian idMe SSO TIDAK
+  disahkan.**
+
+## 5b. Ciri berbilang PC (pendaftaran peranti + kepimpinan berpagar, staged, OFF secara lalai)
+
+Ciri ini membenarkan lebih daripada satu instalasi desktop bagi SATU akaun
+idMe/sekolah, dengan tepat SATU peranti menjadi "pemimpin" (leader) pada bila-
+bila masa. Ia dikawal sepenuhnya oleh Script Property `HADIR_PELBAGAI_PC`
+(`'1'` = ON; ketiadaan/apa-apa nilai lain = OFF). **OFF secara lalai** —
+tiada kod pengeluaran menggunakan ciri ini sehingga dinyalakan secara eksplisit,
+dan status ini belum pernah dinyalakan dalam produksi.
+
+Kontrak (sumber tunggal: `hadir-pc/kontrak.schema.json`, dicerminkan — bukan
+diimport, kerana Apps Script tidak boleh mengimport ESM — dalam
+`apps-script/HadirWeb.gs`, dan disemak semula oleh `hadir-pc/klien-peranti.mjs`
+serta model C# tolerap `desktop/HadirDesktop/DeviceRegistryModels.cs`):
+
+- **Rahsia setiap peranti**: dijana rawak oleh klien semasa pendaftaran;
+  backend HANYA menyimpan `sha256(rahsia)`. Rahsia sekolah/enjin yang sedia ada
+  tidak pernah didedahkan kepada laluan ini.
+- **`akaun` ialah kunci kumpulan LEGAP**: ia ialah label pengelompokan sekolah
+  yang dikonfigurasi oleh pentadbir, TIDAK PERNAH id akaun idMe sebenar, alamat
+  e-mel, nombor IC guru, atau kata laluan. Kerana `pcStatusAwam` mendedahkan
+  `akaun` secara awam, nilai itu MESTI kekal legap dan tidak boleh dipetakan
+  balik kepada identiti/kredensial sebenar.
+- **Kod pendaftaran sekali guna**: admin menerbitkan kod pendek berumur pendek
+  (`hadirPcTerbitKodDaftar_`, TTL lalai 15 minit); kod itu ditandakan
+  `digunakan` selepas satu pendaftaran berjaya dan tidak boleh diguna semula.
+- **Tepat satu pemimpin bagi setiap akaun**: rekod `akaun:<akaun>` menyimpan
+  `{ pemimpin, leaseMs, generasi }`. `klaimKepimpinan` menolak peranti yang
+  belum berdaftar/`nyahaktif`; jika pemegang lease semasa masih sah ia
+  ditolak; jika lease telah tamat DAN tiada tugasan aktif dipegang oleh
+  pemimpin lama, pengambilalihan dibenarkan.
+- **Pemagaran generasi monotonik (fencing)**: setiap tindakan mutasi (`degup`,
+  `klaimKepimpinan`, dan get gerbang `sahkanPenulis`) mesti mengesahkan
+  `generasi` penulis berbanding `generasi` semasa akaun/peranti. Penulis yang
+  dipagar (contohnya bekas pemimpin selepas `nyahaktifPeranti` atau selepas
+  pengambilalihan) ditolak — tiada tulisan menimpa terma yang lebih baharu.
+- **Sekatan pengambilalihan tugasan aktif**: sebelum membenarkan
+  pengambilalihan kepimpinan selepas lease tamat, backend menyemak
+  `HADIR_MOEIS_JOB` bagi baris berstatus `sedang_dihantar`/`tersimpan` yang
+  dimiliki pemimpin lama — jika wujud, pengambilalihan ditolak supaya kerja
+  yang masih berjalan tidak diganggu.
+- **Status awam legap**: `pcStatusAwam` (tiada gate ciri/pentadbir secara
+  sengaja) hanya mendedahkan id peranti legap + cap masa nampak kali terakhir
+  + keadaan lease + generasi bagi setiap akaun — TIDAK PERNAH serial, nama,
+  akaun sebenar sebagai PII, atau rahsia. `senaraiPerantiAdmin` (admin sahaja,
+  via `hadirSesi_`) turut tidak pernah mendedahkan `rahsiaHash`.
+- **Klasifikasi keadaan** (`kelaskanKeadaanPeranti` dalam `hadir-pc/kontrak.mjs`,
+  dicerminkan semula inline dalam `app.js`) membezakan `tidak_diketahui` /
+  `luar_talian` / `luput` / `aktif` HANYA daripada cap masa berbanding sekarang
+  — tiada dakwaan "PC online" yang direka-reka.
+
+**Had jujur (tidak boleh diselesaikan oleh reka bentuk semasa):**
+Apps Script TIDAK BOLEH memagar pelayar portal fizikal secara transaksional.
+Pelayar lama yang masih aktif mesti berhenti menulis apabila kehilangan
+kepimpinan atas inisiatifnya sendiri (backend tidak boleh memaksa proses luar
+berhenti); tulisan yang sedang berjalan semasa kehilangan lease berada dalam
+keadaan tidak pasti — model penyelesaian ialah "baca dahulu" (sahkan semula
+generasi/pemimpin sebelum mempercayai tulisan berjaya), bukan transaksi
+teragih; dan tiada jaminan sekatan rangkaian (network partition) dibuat atau
+disiratkan di mana-mana dalam ciri ini.
+
+### Status pelaksanaan hujung-ke-hujung (bukan probe sahaja)
+
+Selepas audit hujung-ke-hujung (22 Sep 2026), hiris ini kini merangkumi laluan
+lengkap — bukan lagi sekadar "probe baca sahaja" — tetapi **masih OFF secara
+lalai dan tidak pernah dideploy / dihidupkan dalam produksi**:
+
+- **UI admin (`app.js` + `index.html`, pane `Peranti PC`)**: admin (dengan
+  token sesi) boleh menerbitkan kod daftar sekali guna (`pcTerbitKodDaftar`)
+  dan menyahaktifkan peranti aktif (`pcNyahaktifPeranti`). Setiap butang ialah
+  aksi sebenar, bukannya placeholder; gated oleh `state.token`; Bahasa Melayu
+  sepenuhnya.
+- **Desktop (C#)**: `DevicePanel` ialah panel pendaftaran sebenar — daftar
+  dengan kod + akaun + nama, simpan rahsia peranti melalui `DpapiDeviceSecretStore`
+  (DPAPI `CurrentUser`, tiada fallback teks biasa; fail hilang/rosak → `null`),
+  dan gelung degup `HeartbeatLoop` opt-in (mula/henti manual, bersiri, tiada
+  gelung pendua, backoff eksponen bersempadan + set semula, tamat terminal
+  bila peranti dinyahaktifkan/ciri dilumpuhkan, batal semasa `Dispose`).
+  Pendaftaran menolak sebarang titik akhir yang bukan corak Apps Script
+  (`HadirEndpointValidator`) — loopback dibenarkan untuk ujian tempatan sahaja.
+- **Rahsia peranti tidak pernah** dipulangkan oleh mana-mana endpoint
+  senarai/admin, tidak pernah dilog, dan tidak pernah disimpan sebagai teks
+  biasa pada klien.
+- **Kepimpinan hanya DILAPORKAN** (Pemimpin / Sedia-standby), bukan
+  dilaksanakan: fasa ini TIDAK mengaktifkan sebarang penulis kehadiran. Pemagaran
+  generasi/generation mesti akhirnya mengawal penulis sebenar pada fasa akan
+  datang; penulis lama yang masih aktif kekal wujud bersebelahan buat sementara
+  (lihat "Had jujur" di atas) dan belum disambung kepada gerbang ini.
+- **UI kekal skop kelulusan manual**: pendaftaran memerlukan kod yang diterbitkan
+  pentadbir; tiada laluan di mana pengguna memilih sendiri peranan/akaun
+  istimewa atau dipetakan secara automatik daripada registry OS.
+- **Ujian**: `tests/hadir-pc-vm.test.cjs` (29 kes) menjalankan fungsi SEBENAR
+  `apps-script/HadirWeb.gs` dalam VM Node dengan Spreadsheet/Properties/Lock/
+  Auth palsu — pendaftaran atomik, sekali guna, output degup bersanitasi,
+  pemagaran generasi pengambilalihan serentak, flag OFF melumpuhkan semua
+  tulisan, status awam tanpa penciptaan helaian, dan auth admin pada laluan.
+  Ujian desktop (`dotnet test`, 99 kes) meliputi DPAPI (rahsia sintetik terpencil),
+  gelung degup, dan integrasi HTTP palsu (daftar → simpan rahsia → degup →
+  nyahaktif → tamat terminal) melalui loopback.
+
 ## 6. Penyelarasan murid
 
 - **Update Data Murid** menerima CSV idME dan menggunakan fungsi rasmi

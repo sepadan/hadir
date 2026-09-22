@@ -1,0 +1,439 @@
+# HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
+
+## Genuine WebView2/CDP feasibility gate correction (2026-09-22)
+
+The previous "Playwright↔WebView2 feasibility proven" entry below rested on a
+vacuous checker: two of its assertions were a tautology (`x || true`) and a
+regex over a hardcoded string, and it only read a marker DOM node/page title —
+never the production MOEIS adapter. This iteration replaced the checker and
+closed a real gap in the dev message bridge. See
+`docs/PLAYWRIGHT-CDP-REPORT.md` ("What was fixed") for the full writeup.
+
+Changes:
+
+- `HadirDesktop/DevFixtureOrigin.cs` (new) — pure origin predicate; wired into
+  `MainForm.CoreWebView2_WebMessageReceived` so the dev bridge only honours
+  messages from the exact dev-fixture origin, never the real settings UI or a
+  future SSO page. Unit-tested: `HadirDesktop.Tests/DevFixtureOriginTests.cs`
+  (12 cases).
+- `HadirDesktop/FixturePortalServer.cs` — dev fixture now serves 3 distinct
+  MOEIS-like class-picker scenarios (`/dev/kelas/1..3`, plus `/dev` defaulting
+  to scenario 1), mirroring `companion/tests/adaptor-playwright.test.mjs` /
+  `pekerja-batch-adaptor-sebenar.test.mjs` fixture shape exactly, so the
+  production adapter can be exercised against a served page.
+- `dev-fixture/playwright/drive-fixture.mjs` — full rewrite: genuine
+  owned-process/cmdline fingerprint (`semakFingerprintWebView2`, via
+  `netstat`+`tasklist`+`Get-CimInstance`), real loopback-bind verification
+  (`semakAlamatLoopback`, via `netstat -ano -p TCP`), exact dev-fixture origin
+  matching (`adalahAsalFixtureDev`) with a negative test against the normal
+  fixture origin, and driving the production
+  `companion/src/moeis/adaptorPlaywright.mjs` (`pilihKelas`,
+  `bacaRingkasanKelas`) against all 3 scenarios sequentially while the host
+  window stays minimized, asserting the 3 reads are mutually distinct.
+- `dev-fixture/playwright/drive-fixture.test.mjs` (new) — 19 pure-function
+  unit tests for the 4 exported helpers above.
+- `dev-fixture/playwright/verify-normal-mode.mjs` (new) — external proof that
+  a normal-mode launch (no `HADIR_DEV_DEBUG`) never carries
+  `--remote-debugging-port` on any `msedgewebview2.exe`, and that
+  `devtools-port.txt` is absent or predates the launch.
+
+### Results (this machine, 2026-09-22, .NET SDK 8.0.407, Node 24.19.0)
+
+```
+dotnet build   # 0 warnings, 0 errors
+dotnet test    # Passed! Failed: 0, Passed: 47, Skipped: 0, Total: 47
+```
+
+`node drive-fixture.test.mjs` (pure unit tests, no app running):
+
+```
+ℹ tests 19
+ℹ pass 19
+ℹ fail 0
+```
+
+`HADIR_SHUTDOWN=1 node drive-fixture.mjs` (dev-debug exe running,
+`HADIR_DEV_DEBUG=1`):
+
+```
+PASS  CDP endpoint reachable and reports a Browser string  -> browser=Edg/153.0.4234.48 product=undefined
+PASS  Listener socket verified bound to loopback (netstat)  -> alamat=127.0.0.1
+PASS  Owning PID for CDP port resolved via netstat  -> pid=27440
+PASS  Owning process fingerprints as our isolated msedgewebview2.exe (image + dev profile + port in cmdline)  -> imej=msedgewebview2.exe devProfilePresent=true portInCmdline=true
+PASS  WebView2 exposes at least one page over CDP  -> 1 page(s)
+PASS  Located a page whose origin is the exact dev fixture (/dev)  -> http://127.0.0.1:50602/dev
+PASS  Dev fixture landed on default scenario (kelas-1)  -> kelas-1
+PASS  Fixture marker reads DEV-FIXTURE-OK  -> DEV-FIXTURE-OK
+PASS  Host confirmed minimized (host-state echoed back)  -> host-state:Minimized
+PASS  Navigated to /dev/kelas/1  -> http://127.0.0.1:50602/dev/kelas/1
+PASS  Scenario marker matches /dev/kelas/1  -> kelas-1
+PASS  pilihKelas('PRASEKOLAH') selects 'PRASEKOLAH BIJAK'  -> {"ok":true,"mentah":"PRASEKOLAH BIJAK","cara":"awalan","padan":"PRASEKOLAH BIJAK"}
+PASS  bacaRingkasanKelas('PRASEKOLAH', 'PRASEKOLAH') reads 19/19  -> {"hadir":19,"jumlah":19,"status":"BELUM DIHANTAR","kelasPadan":"PRASEKOLAH BIJAK"}
+PASS  Navigated to /dev/kelas/2  -> http://127.0.0.1:50602/dev/kelas/2
+PASS  Scenario marker matches /dev/kelas/2  -> kelas-2
+PASS  pilihKelas('TAHUN EMPAT') selects 'TAHUN EMPAT CERGAS'  -> {"ok":true,"mentah":"TAHUN EMPAT CERGAS","cara":"awalan","padan":"TAHUN EMPAT CERGAS"}
+PASS  bacaRingkasanKelas('TAHUN EMPAT', 'TAHUN EMPAT') reads 25/28  -> {"hadir":25,"jumlah":28,"status":"BELUM DIHANTAR","kelasPadan":"TAHUN EMPAT CERGAS"}
+PASS  Navigated to /dev/kelas/3  -> http://127.0.0.1:50602/dev/kelas/3
+PASS  Scenario marker matches /dev/kelas/3  -> kelas-3
+PASS  pilihKelas('TAHUN LIMA') selects 'TAHUN LIMA GEMILANG'  -> {"ok":true,"mentah":"TAHUN LIMA GEMILANG","cara":"awalan","padan":"TAHUN LIMA GEMILANG"}
+PASS  bacaRingkasanKelas('TAHUN LIMA', 'TAHUN LIMA') reads 12/15  -> {"hadir":12,"jumlah":15,"status":"BELUM DIHANTAR","kelasPadan":"TAHUN LIMA GEMILANG"}
+PASS  Each of the 3 scenario reads is DISTINCT (no state inheritance)  -> PRASEKOLAH BIJAK | TAHUN EMPAT CERGAS | TAHUN LIMA GEMILANG
+PASS  Negative test: normal fixture origin (/) is REJECTED as a dev-fixture target  -> http://127.0.0.1:50602/
+PASS  Returned to the dev fixture after the negative test  -> http://127.0.0.1:50602/dev
+PASS  Self-test: wildcard/public binds are rejected by semakAlamatLoopback  -> 0.0.0.0:50601, 192.168.1.5:50601, [::]:50601
+PASS  Self-test: loopback binds are accepted by semakAlamatLoopback  -> 127.0.0.1:50601, [::1]:50601
+PASS  Host restored to Normal  -> host-state:Normal
+
+--- summary ---
+27/27 checks passed
+Shutdown requested (dev-only).
+PASS  No HadirDesktop.exe process remains after shutdown
+PASS  No orphan msedgewebview2.exe with our dev profile remains
+
+--- summary ---
+29/29 checks passed
+```
+
+`node verify-normal-mode.mjs` (separate launch, no `HADIR_DEV_DEBUG`):
+
+```
+HADIR normal-mode CDP absence verification
+PASS  HADIR_DEV_DEBUG is not set in this environment
+PASS  No msedgewebview2.exe under the normal profile has --remote-debugging-port  -> normalProfileProcesses=6 withCdp=0
+PASS  devtools-port.txt is absent or predates this normal-mode launch  -> mtime=2026-09-22T07:04:59.010Z ageMs=49945
+
+--- summary ---
+3/3 checks passed
+```
+
+Post-run scoped process check (PowerShell, filtered to processes whose
+command line references `HadirDesktop`): 0 matching `msedgewebview2.exe`
+processes remained after the normal-mode session was killed — the many other
+`msedgewebview2.exe` processes observed on this machine belong to the user's
+own unrelated browser/Edge usage and were left untouched.
+
+### Limitations on this machine
+
+- The intermediate FAIL observed while iterating (an earlier fixture markup
+  bug — a duplicate `id="dev-senario"` element where a `<meta>` shadowed the
+  intended `<span>`, so `textContent` read the empty meta) was caught and
+  fixed by this same drive run before the final green pass above — left in as
+  evidence the harness is not vacuous (it actually failed on a real bug).
+- WebView2 idMe SSO remains genuinely unverified — this correction only
+  strengthens the dev-fixture gate; it does not touch or attempt real
+  idMe/MOEIS navigation (hard constraint).
+
+## Implemented this iteration (2026-09-22)
+
+- **Authenticated read-only status integration.** `LoopbackEngineStatusSource`
+  now performs the real nonce handshake (`GET /` → `302 /?n=<nonce>`), reads the
+  nonce from the `Location` header without following or logging it, validates
+  the redirect stays on the **same loopback origin** (scheme+host+port), then
+  calls `GET /api/lokal/status` with `X-HADIR-Lokal: <nonce>` + exact loopback
+  `Origin`. Outcomes are classified distinctly: `Ok / Offline / Unauthorized /
+  Timeout / Malformed` (never collapsed to one "not running").
+- **Accurate model parsing.** `EngineStatusModel` parses the real nested shape —
+  `rahsiaEnjinAda`/`adaRahsiaEnjin`, `giliran.aktif/modMula/sedangProses`,
+  `autoMula.bermula`, `kalendar.bilangan/amaran`, `moeis.sesiAda`, `pasangan`
+  count — tolerantly (missing fields default, malformed JSON → `Malformed`).
+- **Settings opens the REAL engine settings.** The "Tetapan Tempatan" tray item
+  now navigates the embedded WebView2 to the engine's protected loopback
+  settings UI (`http://127.0.0.1:8747/`, nonce-gated by the companion) — no more
+  unrelated fake dialog. Read-only from our side: we navigate, never write
+  settings, never restart, never control the engine. A "Portal Fixture" button
+  returns to the demo fixture; a status-strip dropdown switches the source
+  (simulasi vs enjin sebenar).
+- **Dev/test debug transport (opt-in).** `DevDebugTransport` enables
+  `--remote-debugging-port` on a random loopback port + an isolated ephemeral
+  `webview2-dev-<port>` profile **only** when `HADIR_DEV_DEBUG=1`. Normal mode
+  never passes it (verified). See `docs/PLAYWRIGHT-CDP-REPORT.md`.
+- **Playwright↔WebView2 feasibility proven.** Node Playwright
+  `connectOverCDP` drove the embedded WebView2 dev fixture while the host window
+  was minimized; graceful exit left no orphan `msedgewebview2.exe` processes.
+  9/9 drive checks passed. WebView2 idMe SSO remains **UNVERIFIED**.
+
+## Build / test commands and results (run from `desktop/`)
+
+```
+dotnet build   # 0 warnings, 0 errors
+dotnet test    # 35 passed, 0 failed
+```
+
+Both run against .NET SDK 8.0.407 on Windows (2026-09-22).
+
+## Live read-only status smoke (real engine, via the new adapter)
+
+`dev-fixture/verify` console harness (references the built DLL, read-only):
+
+```
+dotnet run -c Debug   # prints booleans/counts only — never nonce/PII
+```
+
+Observed against the running companion (`127.0.0.1:8747`):
+`kind=Ok ok=True versi=1.0.0 pc=Flex5 adaRahsiaEnjin=True giliranAktif=True
+modMula=auto sedangProses=True autoMulaBermula=True kalendarBilangan=53
+kalendarAmaran=False moeisSesiAda=True`. No PII, no secrets.
+
+## Iteration 1 — DEMO desktop app (DONE)
+
+---
+
+## Implemented (iteration 1)
+
+- `HadirDesktop.sln` with `HadirDesktop` (WinForms, `net8.0-windows`) and
+  `HadirDesktop.Tests` (xUnit, `net8.0-windows`) projects.
+- `Program.cs` — single-instance via named `Mutex`
+  (`Global\HadirDesktop.SingleInstance`), second launch signals the first
+  instance via a named `EventWaitHandle` and exits without opening a window.
+- `SingleInstance.cs` — mutex + signal wrapper, disposable.
+- `AppStateMachine.cs` — pure `Running` / `HiddenToTray` / `Exiting` state
+  machine, no UI dependencies.
+- `TrayHost.cs` — `NotifyIcon` + context menu (Tunjuk / Tetapan Tempatan /
+  Keluar), one-time "still running" balloon tip.
+- `MainForm.cs` — WinForms host: DEMO banner, embedded `WebView2` (dedicated
+  user-data folder under `%LOCALAPPDATA%\HadirDesktop\webview2-demo`),
+  status strip (app state, engine status + source label, manual refresh
+  button, nav-blocked notice), close-to-tray wiring, minimal local settings
+  dialog to switch the engine status source (fixture vs loopback).
+- `EngineStatusModel.cs` — immutable record, tolerant `System.Text.Json`
+  parsing of a representative `/api/status` shape; never throws on
+  missing/malformed input.
+- `IEngineStatusSource.cs` / `FixtureEngineStatusSource.cs` /
+  `LoopbackEngineStatusSource.cs` — simulated default + best-effort,
+  read-only, short-timeout loopback GET with no polling.
+- `NavigationGuard.cs` — pure allowlist: any `127.0.0.1` / `localhost` /
+  `::1` origin plus an explicit configured origin list; blocks everything
+  else (external domains, `about:`/non-http(s) schemes, non-loopback IPs,
+  `null`).
+- `FixturePortalServer.cs` — `HttpListener` bound to `127.0.0.1` on an
+  ephemeral port, serves one static "Portal Palsu (Fixture)" HTML page,
+  disposed on app exit.
+- `DemoLabel.cs` — single source of truth for all DEMO-mode labels (window
+  title, banner, tray strings, source labels, fixture portal title).
+- `docs/ARCHITECTURE.md`, `docs/PLAN.md` — multi-device design and phased plan.
+- Test suite: `SingleInstanceTests`, `AppStateMachineTests`,
+  `NavigationGuardTests`, `EngineStatusModelTests`,
+  `FixtureEngineStatusSourceTests` — 21 tests total.
+
+## Build / test commands and results (run from `desktop/`)
+
+```
+dotnet build
+```
+→ Build succeeded. 0 Warning(s), 0 Error(s).
+Output: `desktop/HadirDesktop/bin/Debug/net8.0-windows/HadirDesktop.exe`
+
+```
+dotnet test
+```
+→ Passed! Failed: 0, Passed: 21, Skipped: 0, Total: 21.
+
+Both commands were run against a clean checkout of `desktop/` on
+2026-09-22, .NET SDK 8.0.407, on Windows.
+
+## Runtime verification (performed 2026-09-22, after Claude delegation)
+
+The exe was actually launched and exercised on a live desktop session (not just
+`dotnet build`/`dotnet test`). Evidence captured:
+
+- **Launch**: `HadirDesktop.exe` starts and stays resident (PID observed,
+  ~56 MB — WebView2 process tree initialized, not a blank/stub).
+- **Window title**: `HADIR Desktop — MOD DEMO` (visible in the title bar).
+- **Embedded WebView2 renders the fixture portal**: accessibility-tree capture
+  of the live window shows a `Document` node titled
+  `Portal Palsu (Fixture) — bukan idMe/MOEIS sebenar`, with body text
+  `AMARAN: bukan idMe/MOEIS sebenar — data rekaan untuk demo sahaja` and
+  `Kehadiran simulasi: 0 rekod dihantar. Ini bukan sistem pengeluaran.` — the
+  fixture page is genuinely rendered inside the WebView2 control, not blank.
+- **Single instance**: a second `HadirDesktop.exe` launch exited immediately
+  (exit code 0); `tasklist` shows exactly 1 `HadirDesktop.exe` process.
+- **Close-X → tray**: clicking the window Close button kept the process alive
+  (still resident afterward) — hide-to-tray semantics confirmed; real Exit is
+  only via the tray menu (source-verified in `MainForm.MainForm_FormClosing`).
+- **Navigation allowlist / DEMO isolation**: the DEMO build never loads the
+  real idMe/MOEIS origin; only loopback + explicit fixture origin are allowed.
+
+Screenshot (for the record, viewable by the parent if desired):
+`C:\Users\seman\AppData\Local\hermes\cache\images\computer_use_5b3e0657d76c44d4a9e86eb8708c3a1c.png`
+
+This closes the previously-flagged "interactive/visual verification not
+performed" gap for the DEMO shell's core behaviors.
+
+## Pending (not built in this iteration)
+
+- Everything in Phase 2–4 of `docs/PLAN.md`: backend device registration,
+  heartbeat, account-lease fencing, revision outbox autosend, admin
+  roles/web remote status.
+- Real idMe/MOEIS navigation and WebView2 SSO compatibility — intentionally
+  unproven per constraint; see `docs/ARCHITECTURE.md`.
+- Any engine control (start/stop/restart) — this iteration is read-only
+  status only, by design (hard constraint 3 in the implementation brief).
+- Persistent logging to `%LOCALAPPDATA%\HadirDesktop\logs\` — not wired up;
+  no file logging was added (see "Deviations").
+- Application icon — tray/window use `SystemIcons.Application` (stock icon);
+  no custom HADIR icon was provided.
+
+## Known blockers
+
+- None for Phase 1's own scope. Build and tests are green on this machine,
+  and runtime launch/single-instance/close-to-tray are verified (above).
+- WebView2 Evergreen Runtime is required at runtime (installed,
+  153.0.4234.48). Target PCs need the Evergreen Runtime (or Edge Stable),
+  .NET 8 Desktop Runtime, and the built output — see `docs/PLAN.md`.
+
+## Deviations from the brief
+
+- **File logging not implemented**: the brief says "if convenient, or just
+  `Trace`". No file sink was added under `%LOCALAPPDATA%\HadirDesktop\logs\`;
+  the app relies on `System.Diagnostics.Trace` conventions if wired up later.
+  Deliberate scope cut, not an oversight.
+- **`SettingsDialog` is a nested private class inside `MainForm.cs`**,
+  not a separate file — the brief's file list under `desktop/HadirDesktop/`
+  does not name a settings-dialog file, and the "Tetapan Tempatan" menu item
+  needed to do something real (toggle fixture vs. loopback status source)
+  rather than being a dead stub.
+- **Interactive/visual verification was performed after the initial automated
+  pass** (see "Runtime verification" above); the original pass was
+  `dotnet build`/`dotnet test` only. The state machine, navigation guard, and
+  status parsing remain unit-tested; the WinForms wiring in
+  `MainForm.cs`/`Program.cs`/`TrayHost.cs` is covered by the runtime check
+  above rather than by xUnit (WinForms UI is not practical to unit-test).
+
+## Multi-PC staged slice (device registry + leadership/fencing) (2026-09-22)
+
+Implements the C# desktop side + the admin web section of the staged
+"berbilang PC" (multi-PC) slice whose pure domain module
+(`hadir-pc/kontrak.mjs`), JSON schema, client validator, and Apps Script
+mirror already existed. Feature flag `HADIR_PELBAGAI_PC` stays OFF by
+default; nothing here is deployed and no production engine is controlled.
+
+New files:
+
+- `desktop/HadirDesktop/DeviceRegistryModels.cs` — tolerant `System.Text.Json`
+  DTOs for the shared contract shapes (`RekodPeranti`, `JawapanDegup`,
+  `JawapanKlaim`, `StatusAwam`, `KodDaftar`) plus array parsers for
+  `SenaraiPerantiAdmin` / `pcStatusAwam`, mirroring `EngineStatusModel`'s
+  tolerant style (missing/wrong-typed fields fall back to null/defaults,
+  never throw). No property ever carries the device secret/hash.
+- `desktop/HadirDesktop/DeviceCapability.cs` — `PerantiKemampuan` enum
+  (`TiadaSokongan` / `Dilumpuhkan` / `Tersedia`) + `PerantiKeadaanRangkaian`.
+- `desktop/HadirDesktop/DeviceRegistrationClient.cs` — RPC client for the
+  backend's multi-PC section (`pcDaftarPeranti`, `pcDegup`,
+  `pcKlaimKepimpinan`, `pcSenaraiPerantiAdmin`, `pcStatusAwam`), same wire
+  convention as `hadir-pc/klien-peranti.mjs` (`{mode:'hadir', kaedah,
+  argumen}`, browser User-Agent). `ProbeKeupayaanAsync()` is the only call
+  that is ever safe to invoke speculatively; every other method is a real
+  RPC and none are called automatically. A `!ok` response containing
+  "dilumpuhkan" throws a distinct `PerantiDilumpuhkanException`; unknown
+  method / network failure during the probe reports `TiadaSokongan` — never
+  fabricated success. No auto-retry on state-changing calls. The secret is
+  passed straight into the request body and never logged.
+- `desktop/HadirDesktop/DevicePanel.cs` — read-only "Pendaftaran PC" WinForms
+  panel wired into `MainForm.cs` (bottom of the status area). Shows exactly
+  one of "Tiada sokongan pelayan" / "Ciri dilumpuhkan" / "Tersedia", with a
+  DEMO label. The probe only runs when the admin clicks the button — no
+  automatic heartbeat/registration traffic. `MainForm.cs`'s backend URL
+  (`DemoLabel.HadirBackendApiUrl`) is intentionally an empty string in this
+  public repo (see root `CLAUDE.md` rule 2); the panel honestly reports
+  "tiada sokongan pelayan" until a real deployment URL is configured.
+- `desktop/HadirDesktop.Tests/DeviceRegistryModelsTests.cs` (17 tests) — valid
+  shapes, missing fields, wrong types, malformed/non-array JSON; asserts no
+  property on `RekodPeranti` ever exposes the secret hash.
+- `desktop/HadirDesktop.Tests/DeviceRegistrationClientTests.cs` (7 tests) — a
+  real in-process `FakeHadirBackend` (`HttpListener` on a loopback ephemeral
+  port, dispatches on `kaedah`), asserting `Tersedia` on `ok:true`,
+  `TiadaSokongan` on "Fungsi tidak dibenarkan." and on no server listening,
+  `PerantiDilumpuhkanException` on "Ciri berbilang PC dilumpuhkan." (for
+  `DegupAsync`/`KlaimKepimpinanAsync`), a generic exception for every other
+  failure reason, successful `DaftarAsync` parsing, and that the device
+  secret never appears in any recorded request path/query.
+- `app.js` / `index.html` — minimal admin-only "Peranti PC" section: calls
+  `pcStatusAwam` (public) always, and `pcSenaraiPerantiAdmin` per discovered
+  `akaun` only when an admin token is present; renders opaque device
+  ids/timestamps + a `kelaskanKeadaanPeranti`-style label
+  (`tidak_diketahui`/`luar_talian`/`luput`/`aktif`, ported inline from
+  `hadir-pc/kontrak.mjs`); shows "Peranti PC belum didayakan" when the
+  backend doesn't yet know the RPC. No serial/account/PII/secret rendered,
+  no "PC online" claim. Traffic only fires when the admin opens the pane
+  (`bukaPane('devicePcPane')` → `muatPerantiPc()`), never on page load.
+
+### Results (this machine, 2026-09-22, .NET SDK 8.0.407, Node 24.19.0)
+
+```
+dotnet test desktop/HadirDesktop.sln
+# Passed! Failed: 0, Passed: 71, Skipped: 0, Total: 71
+```
+
+(71 = the 47 pre-existing tests + 24 new: 17 in `DeviceRegistryModelsTests`,
+7 in `DeviceRegistrationClientTests`.)
+
+```
+node tests/hadir.test.cjs
+# all 23 structural/behavioural checks pass (includes prior sessions' multi-PC backend section checks)
+```
+
+```
+node --test hadir-pc/tests/*.test.mjs
+# tests 33, pass 33, fail 0
+```
+
+### Honest limits (unchanged from the domain module's own notes)
+
+- Apps Script cannot transactionally fence the physical portal browser: an
+  old, still-active browser session must notice lost leadership and stop new
+  writes on its own — the backend cannot force it to stop mid-request.
+- A write already in flight when a lease is lost is uncertain, not rolled
+  back — the reconciliation model is "read-first" (re-check the account
+  generasi/leader before trusting a write succeeded), not a distributed
+  transaction.
+- No network-partition guarantees are made or implied anywhere in this slice.
+- The desktop client's capability probe only proves "the backend answered
+  `pcStatusAwam` with `ok:true` at this moment" — it is not a guarantee the
+  feature stays enabled for any subsequent call.
+
+### What is DESIGN-ONLY vs IMPLEMENTED (this slice)
+
+IMPLEMENTED and test-covered (end-to-end, not probe-only):
+
+- Admin UI in `app.js`/`index.html` (`Peranti PC` pane): real **Terbit Kod
+  Daftar** (single-use, expiring) and **Nyahaktif** buttons, gated by
+  `state.token`.
+- Desktop enrollment + DPAPI + heartbeat: `DevicePanel`
+  (real enrollment UI), `DpapiDeviceSecretStore` (DPAPI CurrentUser, no
+  plaintext fallback), `HeartbeatLoop` (opt-in manual Start/Stop, serialized,
+  bounded backoff, terminal stop on revoke), `HadirEndpointValidator`
+  (Apps-Script-or-loopback only).
+- Backend VM tests: `tests/hadir-pc-vm.test.cjs` (29 cases) against the ACTUAL
+  `apps-script/HadirWeb.gs` in a Node VM (atomic single-use enrollment, lock
+  before reread+consume, sanitized heartbeat, generation fencing on concurrent
+  takeover, flag-OFF disables all writes, public status creates no sheets,
+  admin RPC auth).
+
+DESIGN-ONLY / not implemented (unchanged, honestly):
+
+- Production deployment of `HADIR_PELBAGAI_PC=1` and a real
+  `HadirBackendApiUrl` (both stay empty/OFF).
+- Any AUTO-start heartbeat — the loop is always manually started (opt-in) and
+  never auto-resumes across tray-hide or restart.
+- Any dispatch of real attendance/engine work gated on leadership — leadership
+  is REPORTED (Pemimpin/Sedia-standby), never acted upon, in this slice.
+- Physical portal partition guarantees — see "Honest limits" above.
+
+### Results (this machine, 2026-09-22, .NET SDK 8.0.407, Node 24.19.0)
+
+```text
+dotnet test HadirDesktop.Tests/HadirDesktop.Tests.csproj
+# Passed: 99  Failed: 0  Skipped: 0  Total: 99   (was 71; +28 new)
+
+node --test tests/hadir-pc-vm.test.cjs
+# tests 29, pass 29, fail 0
+
+node tests/hadir.test.cjs
+# all checks pass (incl. +8 structural assertions for the new admin UI)
+
+node --test hadir-pc/tests/*.test.mjs
+# tests 33, pass 33, fail 0   (baseline unchanged)
+
+# Debug exe:
+#   desktop/HadirDesktop/bin/Debug/net8.0-windows/HadirDesktop.exe
+```

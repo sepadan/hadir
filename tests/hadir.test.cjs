@@ -422,6 +422,54 @@ sah(loginPulih.peranan === 'admin' && loginPulih.token,
 sah(!stor.has('HADIR_LOGIN_GAGAL_ADMIN'), 'Login berjaya mesti mengosongkan status gagal');
 sah(!kunciDipegang, 'Kunci mesti dilepas selepas login berjaya');
 
+sah(backend.includes('hadirPcCiriDidayakan_') && backend.includes("HADIR_PELBAGAI_PC"),
+  'Suis ciri berbilang PC tiada');
+sah(backend.includes('function hadirPcKlaimKepimpinan_') && backend.includes('function hadirPcSahkanPenulis_'),
+  'Fungsi kepimpinan/fencing berbilang PC tiada');
+sah(backend.includes('pcTerbitKodDaftar: hadirPcTerbitKodDaftar_'),
+  'Penyenaraian dibenarkan tiada kaedah pcTerbitKodDaftar');
+sah(backend.includes('pcDaftarPeranti: hadirPcDaftarPeranti_') &&
+    backend.includes('pcNyahaktifPeranti: hadirPcNyahaktifPeranti_') &&
+    backend.includes('pcDegup: hadirPcDegup_') &&
+    backend.includes('pcKlaimKepimpinan: hadirPcKlaimKepimpinan_') &&
+    backend.includes('pcSahkanPenulis: hadirPcSahkanPenulis_') &&
+    backend.includes('pcSenaraiPerantiAdmin: hadirPcSenaraiPerantiAdmin_') &&
+    backend.includes('pcStatusAwam: hadirPcStatusAwam_'),
+  'Penyenaraian dibenarkan tiada kaedah berbilang PC lengkap');
+const blokPcKlaim = backend.match(/function hadirPcKlaimKepimpinan_\([\s\S]*?(?=\nfunction |$)/)[0];
+sah(blokPcKlaim.includes('LockService.getScriptLock()') && /finally[\s\S]*releaseLock\(\)/.test(blokPcKlaim),
+  'Klaim kepimpinan berbilang PC mesti atomik di bawah ScriptLock');
+const blokPcDaftar = backend.match(/function hadirPcDaftarPeranti_\([\s\S]*?(?=\nfunction |$)/)[0];
+sah(blokPcDaftar.includes('hadirHash_(rahsia)') && !blokPcDaftar.includes('RAHSIA_HASH, rahsia'),
+  'Pendaftaran peranti mesti menyimpan hash rahsia, bukan teks jelas');
+const blokPcStatusAwam = backend.match(/function hadirPcStatusAwam_\([\s\S]*?(?=\nfunction |$)/)[0];
+sah(!blokPcStatusAwam.includes('RAHSIA_HASH') && !blokPcStatusAwam.includes('HADIR_MOEIS_ENGINE_SECRET'),
+  'Status awam berbilang PC tidak boleh membocorkan rahsia/hash rahsia');
+
+// UI admin Peranti PC: terbit kod daftar + nyahaktif peranti, digated oleh state.token.
+sah(html.includes('id="devicePcAdmin"') && html.includes('id="devicePcIssueForm"') &&
+    html.includes('id="devicePcAkaunInput"') && html.includes('id="devicePcTtlInput"') &&
+    html.includes('id="devicePcIssueBtn"'),
+  'Borang terbit kod daftar peranti PC tiada');
+sah(html.includes('id="devicePcKodResult"') && html.includes('id="devicePcKodOutput"') &&
+    html.includes('id="devicePcSalinBtn"') && html.includes('id="devicePcKodLuput"'),
+  'Paparan kod daftar sekali guna peranti PC tiada');
+sah(app.includes("$('devicePcAdmin').hidden = !state.token"),
+  'Kawalan admin peranti PC (terbit/nyahaktif) mesti digated oleh state.token');
+sah(app.includes("$('devicePcIssueForm').addEventListener('submit', terbitKodDaftarPc_)") &&
+    app.includes("panggil('pcTerbitKodDaftar', [akaun, minit * 60000, state.token]"),
+  'Terbit kod daftar peranti PC tidak wired ke backend pcTerbitKodDaftar');
+sah(app.includes('function nyahaktifPerantiPc_') &&
+    app.includes("window.confirm('Nyahaktifkan peranti '") &&
+    app.includes("panggil('pcNyahaktifPeranti', [p.idPeranti, p.akaun, state.token]"),
+  'Nyahaktif peranti PC tidak wired ke backend pcNyahaktifPeranti atau tiada pengesahan');
+sah(app.includes("if (state.token && p.status === 'aktif')"),
+  'Butang Nyahaktif mesti hanya dipaparkan untuk peranti aktif ketika admin log masuk');
+sah(/function nyahaktifPerantiPc_\([^)]*\)\s*\{[\s\S]*?mulaButang\(btn/.test(app),
+  'Butang Nyahaktif mesti dilumpuhkan semasa permintaan berjalan (mulaButang)');
+sah(/function terbitKodDaftarPc_\([^)]*\)\s*\{[\s\S]*?mulaButang\(\$\('devicePcIssueBtn'\)/.test(app),
+  'Butang Terbit Kod Daftar mesti dilumpuhkan semasa permintaan berjalan (mulaButang)');
+
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
 sah(css.includes('@media (min-width: 901px)') && css.includes('transform: none'), 'Menu desktop belum kekal terbuka');

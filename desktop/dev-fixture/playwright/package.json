@@ -1,0 +1,13 @@
+{
+  "name": "hadir-webview2-drive",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dev/test-only harness proving a Node Playwright CDP adapter can drive the embedded WebView2 fixture (loopback, ephemeral profile, minimized). Never touches a real portal/profile or credentials.",
+  "scripts": {
+    "drive": "node drive-fixture.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

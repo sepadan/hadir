@@ -21,6 +21,7 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
 | `HADIR_AKSI_URL` | Pilihan; URL produksi sudah menjadi lalai |
 | `HADIR_SEMAK_URL` | Pilihan; URL produksi sudah menjadi lalai |
 | `SEPADAN_SYNC_SECRET` | Rahsia rawak sama dalam HADIR, AKSI dan SEMAK; jangan commit |
+| `HADIR_PELBAGAI_PC` | `'1'` = ON (ciri berbilang PC); ketiadaan/nilai lain = OFF |
 
 4. Deploy **New version** pada deployment sedia ada. Jangan cipta deployment
    kedua kerana URL webhook Telegram mesti kekal.
@@ -81,6 +82,29 @@ selepas lease luput, dan tugasan yatim tanpa `PEMILIK` & tanpa `LEASE_SELEPAS`.
 **Tanpa deploy semula** laluan ketiga (tugasan yatim) tiada; tugasan `sedang_dihantar`
 tanpa pemilik/lease kekal tidak boleh dipulihkan. Deploy **New version** pada
 deployment sedia ada supaya pemulihan penuh berfungsi.
+
+## Ciri berbilang PC (pendaftaran peranti + kepimpinan)
+
+Fungsi `pcTerbitKodDaftar`, `pcDaftarPeranti`, `pcDegup`, `pcKlaimKepimpinan`,
+`pcSahkanPenulis`, `pcNyahaktifPeranti`, `pcSenaraiPerantiAdmin` dan
+`pcStatusAwam` dalam `hadirDoPost_` menyokong lebih daripada satu instalasi
+desktop bagi satu `akaun` (label pengelompokan legap, bukan id sebenar), dengan
+tepat satu pemimpin pada satu masa (lease + pemagaran generasi monotonik).
+Seluruh ciri digated oleh Script Property `HADIR_PELBAGAI_PC`:
+
+- **OFF secara lalai** (ketiadaan/nilai selain `'1'`): SEMUA laluan tulis
+  (`pcTerbitKodDaftar`, `pcDaftarPeranti`, `pcDegup`, `pcKlaimKepimpinan`,
+  `pcSahkanPenulis`, `pcNyahaktifPeranti`, `pcSenaraiPerantiAdmin`) menolak
+  dengan "Ciri berbilang PC dilumpuhkan." Hanya `pcStatusAwam` (baca sahaja,
+  legap, awam) kekal aktif supaya klien dapat mengesan keupayaan tanpa menulis.
+- Untuk menghidupkan: tetapkan `HADIR_PELBAGAI_PC = '1'` dan deploy **New
+  version**. Tiada deploy kedua; URL `/exec` sedia ada mesti kekal.
+
+Rahsia peranti (`rahsia`) disimpan HANYA sebagai `sha256` (`hadirHash_`) dan
+tidak pernah dipulangkan oleh sebarang endpoint senarai/admin/awam. Kepimpinan
+dalam hiris ini hanya DILAPORKAN, belum mengawal penulis kehadiran sebenar.
+Lihat `BLUEPRINT.md` §5b dan `desktop/PLAN.md` untuk had jujur (tiada jaminan
+sekatan rangkaian / pemagaran pelayar portal fizikal).
 
 ## Relay tiga sistem
 

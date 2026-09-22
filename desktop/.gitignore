@@ -1,0 +1,14 @@
+# HADIR Desktop — build/test artifacts (never commit bin/obj or node_modules)
+**/bin/
+**/obj/
+**/node_modules/
+
+# Dev-only Playwright drive harness deps (lockfile IS tracked for reproducibility)
+dev-fixture/playwright/node_modules/
+
+# Dev-only verification harness build output
+dev-fixture/verify/bin/
+dev-fixture/verify/obj/
+
+# Local dev transport markers (never commit the CDP port)
+*.devtools-port.txt

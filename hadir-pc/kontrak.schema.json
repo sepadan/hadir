@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sepadan.github.io/hadir/hadir-pc/kontrak.schema.json",
+  "title": "Kontrak HADIR Multi-PC (pendaftaran peranti + kepimpinan + fencing)",
+  "$defs": {
+    "RekodPeranti": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "idPeranti",
+        "akaun",
+        "nama",
+        "status",
+        "generasi",
+        "diciptaMs",
+        "dilulusMs",
+        "lastSeenMs",
+        "nyahaktifMs"
+      ],
+      "properties": {
+        "idPeranti": { "type": "string", "minLength": 1 },
+        "akaun": { "type": "string", "minLength": 1 },
+        "nama": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["aktif", "nyahaktif"] },
+        "generasi": { "type": "integer", "minimum": 1 },
+        "diciptaMs": { "type": "integer", "minimum": 0 },
+        "dilulusMs": { "type": "integer", "minimum": 0 },
+        "lastSeenMs": { "type": ["integer", "null"], "minimum": 0 },
+        "nyahaktifMs": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "RekodKepimpinan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pemimpin", "leaseMs", "generasi"],
+      "properties": {
+        "pemimpin": { "type": ["string", "null"] },
+        "leaseMs": { "type": "integer", "minimum": 0 },
+        "generasi": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "JawapanDegup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "pemimpin", "generasi"],
+      "properties": {
+        "ok": { "const": true },
+        "pemimpin": { "type": "boolean" },
+        "generasi": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "KodDaftar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kodDaftar", "luputMs"],
+      "properties": {
+        "kodDaftar": { "type": "string", "minLength": 1 },
+        "luputMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "JawapanKlaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "pemimpin", "generasi", "leaseMs"],
+      "properties": {
+        "ok": { "const": true },
+        "pemimpin": { "type": "string", "minLength": 1 },
+        "generasi": { "type": "integer", "minimum": 1 },
+        "leaseMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "StatusAwam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["akaun", "pemimpin", "lastSeenMs", "leaseMs", "generasi"],
+      "properties": {
+        "akaun": { "type": "string", "minLength": 1 },
+        "pemimpin": { "type": ["string", "null"] },
+        "lastSeenMs": { "type": ["integer", "null"], "minimum": 0 },
+        "leaseMs": { "type": "integer", "minimum": 0 },
+        "generasi": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "SenaraiPerantiAdmin": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/RekodPeranti" }
+    }
+  }
+}

@@ -41,6 +41,7 @@
           <button class="menu-link" data-pane="studentsPane"><span>♙</span><div><strong>Data Murid</strong><small>Tambah dan kemas kini</small></div></button>
           <button class="menu-link" data-pane="moeisPane"><span>✉</span><div><strong>Hantar ke MOEIS</strong><small>Kategori, sebab dan giliran tugasan</small></div></button>
           <button class="menu-link" data-pane="syncPane"><span>↻</span><div><strong>Penyelarasan</strong><small>AKSI dan SEMAK</small></div></button>
+          <button class="menu-link" data-pane="devicePcPane"><span>🖥</span><div><strong>Peranti PC</strong><small>Ciri berbilang PC (pendaftaran &amp; kepimpinan)</small></div></button>
         </div>
       </nav>
       <div class="side-foot">
@@ -171,6 +172,35 @@
           <button id="syncAllBtn" class="primary wide">Selaras Semua Aplikasi</button>
           <div id="syncStatus" class="status" aria-live="polite"></div>
         </div>
+      </section>
+
+      <section id="devicePcPane" class="pane" hidden>
+        <div class="page-head">
+          <div><span class="eyebrow">ADMIN</span><h2>Peranti PC</h2>
+            <p>Ciri berbilang PC (pendaftaran peranti + kepimpinan berpagar generasi). Status pemimpin/peranti hanya dimuatkan apabila skrin ini dibuka — tiada permintaan automatik. Tiada serial, akaun, PII atau rahsia dipaparkan; tiada dakwaan "PC online" — hanya cap masa nampak kali terakhir dan keadaan lease.</p></div>
+        </div>
+
+        <div id="devicePcAdmin" class="companion-card" hidden>
+          <div class="page-head"><div><span class="eyebrow">ADMIN</span><h3>Terbit Kod Daftar Peranti</h3>
+            <p>Kod daftar adalah <b>sekali guna</b> dan luput selepas tempoh sah ditetapkan. Berikan kod ini terus kepada PC yang hendak didaftarkan — ia tidak boleh digunakan semula selepas satu pendaftaran berjaya atau selepas luput.</p></div></div>
+          <form id="devicePcIssueForm" class="form-grid">
+            <label>Akaun<input id="devicePcAkaunInput" required placeholder="cth. GURU1"></label>
+            <label>Tempoh sah (minit)<input id="devicePcTtlInput" type="number" min="1" value="15" required></label>
+            <button id="devicePcIssueBtn" type="submit" class="primary full">Terbit Kod Daftar</button>
+          </form>
+          <div id="devicePcIssueStatus" class="status" aria-live="polite"></div>
+          <div id="devicePcKodResult" class="admin-item" hidden>
+            <span>
+              <strong>Kod daftar</strong>
+              <input id="devicePcKodOutput" readonly>
+              <small id="devicePcKodLuput"></small>
+            </span>
+            <button id="devicePcSalinBtn" type="button" class="soft">Salin</button>
+          </div>
+        </div>
+
+        <div id="devicePcStatus" class="status" aria-live="polite"></div>
+        <div id="devicePcList" class="admin-list"></div>
       </section>
     </main>
   </div>

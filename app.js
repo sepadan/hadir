@@ -742,7 +742,7 @@
       return;
     }
     state.paneAktif = id;
-    ['attendancePane', 'reviewPane', 'studentSettingsPane', 'teacherSettingsPane', 'studentsPane', 'syncPane', 'moeisPane'].forEach(function (x) { $(x).hidden = x !== id; });
+    ['attendancePane', 'reviewPane', 'studentSettingsPane', 'teacherSettingsPane', 'studentsPane', 'syncPane', 'moeisPane', 'devicePcPane'].forEach(function (x) { $(x).hidden = x !== id; });
     document.querySelectorAll('.menu-link[data-pane]').forEach(function (b) {
       b.classList.toggle('active', b.dataset.pane === id);
     });
@@ -751,6 +751,7 @@
     if (id === 'studentSettingsPane') muatTetapanMurid();
     if (id === 'teacherSettingsPane') muatGuruAdmin();
     if (id === 'moeisPane') { muatMoeisAdmin(); companionKemaskiniPapar(); companionMuatStatus(); }
+    if (id === 'devicePcPane') muatPerantiPc();
     if (id === 'reviewPane') {
       state.versiSemakan++;
       state.reviewData = state.data;
@@ -1510,6 +1511,148 @@
     }).catch(function (e) { status($('moeisStatus'), e.message, 'err'); });
   }
 
+  // ---------------- Peranti PC (ciri berbilang PC — admin sahaja) ----------------
+  // Cermin idea kelaskanKeadaanPeranti() daripada hadir-pc/kontrak.mjs: keadaan
+  // ditentukan HANYA daripada cap masa nampak kali terakhir + lease berbanding
+  // sekarang — tiada dakwaan "PC online" yang direka-reka. Paparan status
+  // sentiasa baca sahaja; hanya terbit kod daftar dan nyahaktif peranti
+  // (kedua-duanya digated oleh state.token) menulis ke pelayan.
+  var PERANTI_PC_AMBANG_LUAR_TALIAN_MS = 90 * 1000;
+  var devicePcSedangTerbit_ = false;
+
+  function kelaskanKeadaanPeranti_(lastSeenMs, leaseMs, now, ambangMs) {
+    if (lastSeenMs === null || lastSeenMs === undefined) return 'tidak_diketahui';
+    if (typeof leaseMs === 'number' && leaseMs <= now) return 'luput';
+    if (now - lastSeenMs > ambangMs) return 'luar_talian';
+    return 'aktif';
+  }
+
+  function labelKeadaanPeranti_(kod) {
+    return {
+      tidak_diketahui: 'Tidak diketahui', luar_talian: 'Luar talian',
+      luput: 'Lease luput', aktif: 'Aktif'
+    }[kod] || kod;
+  }
+
+  function muatPerantiPc() {
+    $('devicePcAdmin').hidden = !state.token;
+    status($('devicePcIssueStatus'), '', '');
+    $('devicePcKodResult').hidden = true;
+    status($('devicePcStatus'), 'Memuatkan status peranti PC…', '');
+    $('devicePcList').textContent = '';
+    panggil('pcStatusAwam', []).then(function (senaraiAwam) {
+      senaraiAwam = senaraiAwam || [];
+      if (state.token && !$('devicePcAkaunInput').value) {
+        var akaunLalai = senaraiAwam.length ? senaraiAwam[0].akaun : '';
+        $('devicePcAkaunInput').value = akaunLalai;
+      }
+      if (!senaraiAwam.length) {
+        status($('devicePcStatus'), 'Peranti PC belum didayakan / tiada peranti.', '');
+        return;
+      }
+      if (!state.token) {
+        lukisPerantiPc_(senaraiAwam, null);
+        status($('devicePcStatus'), '', '');
+        return;
+      }
+      var akaunUnik = [];
+      senaraiAwam.forEach(function (a) { if (akaunUnik.indexOf(a.akaun) < 0) akaunUnik.push(a.akaun); });
+      Promise.all(akaunUnik.map(function (akaun) {
+        return panggil('pcSenaraiPerantiAdmin', [akaun, state.token]).catch(function () { return []; });
+      })).then(function (senaraiSetiapAkaun) {
+        var semuaPeranti = [].concat.apply([], senaraiSetiapAkaun);
+        lukisPerantiPc_(senaraiAwam, semuaPeranti);
+        status($('devicePcStatus'), '', '');
+      });
+    }).catch(function (e) {
+      // Ciri belum didayakan / backend lama tidak mengenali kaedah ini —
+      // paparkan keadaan "belum didayakan" yang jelas, bukan ralat teknikal.
+      status($('devicePcStatus'), 'Peranti PC belum didayakan.', '');
+    });
+  }
+
+  function lukisPerantiPc_(senaraiAwam, senaraiPerantiAdmin) {
+    var box = $('devicePcList');
+    box.textContent = '';
+    var now = Date.now();
+    senaraiAwam.forEach(function (a) {
+      var keadaan = kelaskanKeadaanPeranti_(a.lastSeenMs, a.leaseMs, now, PERANTI_PC_AMBANG_LUAR_TALIAN_MS);
+      var row = el('div', 'admin-item'), copy = el('span');
+      copy.appendChild(el('strong', '', a.pemimpin ? teks(a.pemimpin) : 'Tiada pemimpin semasa'));
+      copy.appendChild(el('small', '', 'Generasi ' + a.generasi + ' · ' + labelKeadaanPeranti_(keadaan) +
+        (a.lastSeenMs ? ' · nampak kali terakhir ' + new Date(a.lastSeenMs).toLocaleString('ms-MY') : '')));
+      row.appendChild(copy);
+      box.appendChild(row);
+    });
+    if (Array.isArray(senaraiPerantiAdmin) && senaraiPerantiAdmin.length) {
+      senaraiPerantiAdmin.forEach(function (p) {
+        var row = el('div', 'admin-item'), copy = el('span');
+        copy.appendChild(el('strong', '', teks(p.idPeranti)));
+        copy.appendChild(el('small', '', [p.status, 'generasi ' + p.generasi].filter(Boolean).join(' · ')));
+        row.appendChild(copy);
+        if (state.token && p.status === 'aktif') {
+          var btnNyahaktif = el('button', 'soft danger', 'Nyahaktif');
+          btnNyahaktif.type = 'button';
+          btnNyahaktif.addEventListener('click', function () { nyahaktifPerantiPc_(p, btnNyahaktif); });
+          row.appendChild(btnNyahaktif);
+        }
+        box.appendChild(row);
+      });
+    }
+  }
+
+  function terbitKodDaftarPc_(e) {
+    e.preventDefault();
+    if (devicePcSedangTerbit_) return;
+    var akaun = teks($('devicePcAkaunInput').value).trim();
+    var minit = Number($('devicePcTtlInput').value) || 15;
+    if (!akaun) { status($('devicePcIssueStatus'), 'Masukkan akaun peranti.', 'err'); return; }
+    devicePcSedangTerbit_ = true;
+    $('devicePcKodResult').hidden = true;
+    var siap = mulaButang($('devicePcIssueBtn'), 'Menerbitkan…');
+    status($('devicePcIssueStatus'), '', '');
+    panggil('pcTerbitKodDaftar', [akaun, minit * 60000, state.token]).then(function (r) {
+      $('devicePcKodOutput').value = r.kodDaftar;
+      $('devicePcKodLuput').textContent = 'Luput pada ' + new Date(r.luputMs).toLocaleString('ms-MY') +
+        ' · sekali guna sahaja — berikan terus kepada PC yang hendak didaftarkan.';
+      $('devicePcKodResult').hidden = false;
+      status($('devicePcIssueStatus'), 'Kod daftar diterbitkan.', 'ok');
+      return muatPerantiPc();
+    }).catch(function (err) {
+      status($('devicePcIssueStatus'), err.message, 'err');
+    }).finally(function () { devicePcSedangTerbit_ = false; siap(); });
+  }
+
+  function salinKodDaftarPc_() {
+    var input = $('devicePcKodOutput');
+    input.select();
+    input.setSelectionRange(0, input.value.length);
+    var disalin = false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(input.value).then(function () {
+        status($('devicePcIssueStatus'), 'Kod disalin ke papan keratan.', 'ok');
+      }).catch(function () {});
+      disalin = true;
+    }
+    if (!disalin) {
+      try { document.execCommand('copy'); status($('devicePcIssueStatus'), 'Kod disalin ke papan keratan.', 'ok'); }
+      catch (err) { /* Salinan manual (pilih + salin) masih berfungsi walaupun ini gagal. */ }
+    }
+  }
+
+  function nyahaktifPerantiPc_(p, btn) {
+    if (!window.confirm('Nyahaktifkan peranti ' + p.idPeranti + '? PC ini akan hilang akses serta-merta.')) return;
+    var siap = mulaButang(btn, 'Menyahaktifkan…');
+    status($('devicePcStatus'), '', '');
+    panggil('pcNyahaktifPeranti', [p.idPeranti, p.akaun, state.token]).then(function () {
+      status($('devicePcStatus'), 'Peranti dinyahaktifkan.', 'ok');
+      return muatPerantiPc();
+    }).catch(function (err) {
+      status($('devicePcStatus'), err.message, 'err');
+      siap();
+    });
+  }
+
   function hantarMoeis(namaKelas) {
     if (!window.confirm('Cipta tugasan penghantaran MOEIS bagi kelas ' + namaKelas + '?')) return;
     status($('moeisStatus'), 'Mencipta tugasan…', '');
@@ -1589,6 +1732,8 @@
   $('teacherCsvFile').addEventListener('change', bacaFailUploadGuru);
   $('teacherUploadForm').addEventListener('submit', uploadGuruCsv);
   $('syncAllBtn').addEventListener('click', syncSemua);
+  $('devicePcIssueForm').addEventListener('submit', terbitKodDaftarPc_);
+  $('devicePcSalinBtn').addEventListener('click', salinKodDaftarPc_);
   $('companionSambungBtn').addEventListener('click', function () {
     status($('companionPairStatus'), '', '');
     $('companionPairForm').reset();

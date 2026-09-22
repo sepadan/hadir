@@ -227,7 +227,11 @@ function hadirDoPost_(e) {
     moeisSenaraiKelas: hadirMoeisSenaraiKelas_, moeisSimpanSebab: hadirMoeisSimpanSebab_,
     moeisJobBuat: hadirMoeisJobBuat_, moeisJobSenarai: hadirMoeisJobSenarai_,
     moeisJobSelesai: hadirMoeisJobSelesai_, moeisJobKlaim: hadirMoeisJobKlaim_,
-    moeisJobLepas: hadirMoeisJobLepas_
+    moeisJobLepas: hadirMoeisJobLepas_,
+    pcTerbitKodDaftar: hadirPcTerbitKodDaftar_, pcDaftarPeranti: hadirPcDaftarPeranti_,
+    pcNyahaktifPeranti: hadirPcNyahaktifPeranti_, pcDegup: hadirPcDegup_,
+    pcKlaimKepimpinan: hadirPcKlaimKepimpinan_, pcSahkanPenulis: hadirPcSahkanPenulis_,
+    pcSenaraiPerantiAdmin: hadirPcSenaraiPerantiAdmin_, pcStatusAwam: hadirPcStatusAwam_
   };
   try {
     var fn = dibenarkan[String(p.kaedah || '')];
@@ -1671,4 +1675,347 @@ function hadirLog_(tindakan, peranan, kelas, butiran) {
 // Properties. Fungsi ini tidak menyimpan PIN dan tidak mencetaknya ke log.
 function hadirHashPinUntukTetapan(pin) {
   return hadirHash_(pin);
+}
+
+/* === Multi-PC: pendaftaran peranti + kepimpinan + fencing === */
+/* Peranti dan kepimpinan berbilang PC bagi satu akaun. Logik keadaan di sini
+   ADALAH SALINAN TANGAN (mirror) bagi hadir-pc/kontrak.mjs — Apps Script tidak
+   boleh mengimport modul ESM, jadi peraturan sekali-guna/lease/fencing
+   diulang secara sengaja di sini dan mesti kekal SEPADAN dengan kontrak.mjs
+   apabila salah satu dipinda.
+
+   HAD JUJUR (tidak boleh diberi jaminan lebih daripada ini):
+   - Apps Script TIDAK boleh memagar pelayar portal fizikal secara transaksi;
+     satu pelayar aktif lama mesti berhenti menulis SENDIRI apabila ia
+     kehilangan kepimpinan (semakan generasi pada penulisan seterusnya).
+   - Tulisan yang sedang berlaku semasa kehilangan kepimpinan berada dalam
+     keadaan tidak pasti — pemulihan mesti membaca dahulu (read-first
+     reconciliation), bukan mengandaikan kejayaan atau kegagalan.
+   - Tiada jaminan terhadap network partition yang tidak dapat dikesan oleh
+     lease/heartbeat; hanya cap masa lastSeenMs/leaseMs direkodkan — TIDAK
+     PERNAH memaparkan dakwaan pasti "PC online". */
+
+var HADIR_PELBAGAI_PC_TTL_KOD_MS = 15 * 60 * 1000;
+var HADIR_PELBAGAI_PC_LEASE_MS = 45 * 1000;
+
+function hadirPcCiriDidayakan_() {
+  return PropertiesService.getScriptProperties().getProperty('HADIR_PELBAGAI_PC') === '1';
+}
+
+function hadirPcPastikanDidayakan_() {
+  if (!hadirPcCiriDidayakan_()) throw new Error('Ciri berbilang PC dilumpuhkan.');
+}
+
+/* Migrasi lembut mengikut gaya hadirSheetMoeisJob_: cipta hanya jika tiada,
+   tambah tajuk lajur yang hilang jika helaian sedia ada lebih sempit. */
+function hadirSheetPeranti_() {
+  var lajur = ['ID', 'AKAUN', 'NAMA', 'RAHSIA_HASH', 'STATUS', 'GENERASI',
+    'DICIPTA_MS', 'DILULUS_MS', 'LAST_SEEN_MS', 'NYAHAKTIF_MS'];
+  var s = ss.getSheetByName('HADIR_PERANTI');
+  if (!s) {
+    s = ss.insertSheet('HADIR_PERANTI');
+    s.getRange(1, 1, 1, lajur.length).setValues([lajur]);
+    s.setFrozenRows(1);
+    return s;
+  }
+  if (s.getLastColumn() < lajur.length) {
+    s.getRange(1, s.getLastColumn() + 1, 1, lajur.length - s.getLastColumn())
+      .setValues([lajur.slice(s.getLastColumn())]);
+  }
+  return s;
+}
+
+function hadirSheetPerantiLead_() {
+  var lajur = ['AKAUN', 'PEMIMPIN', 'LEASE_MS', 'GENERASI'];
+  var s = ss.getSheetByName('HADIR_PERANTI_LEAD');
+  if (!s) {
+    s = ss.insertSheet('HADIR_PERANTI_LEAD');
+    s.getRange(1, 1, 1, lajur.length).setValues([lajur]);
+    s.setFrozenRows(1);
+    return s;
+  }
+  if (s.getLastColumn() < lajur.length) {
+    s.getRange(1, s.getLastColumn() + 1, 1, lajur.length - s.getLastColumn())
+      .setValues([lajur.slice(s.getLastColumn())]);
+  }
+  return s;
+}
+
+function hadirPcBacaPerantiBaris_() {
+  var s = hadirSheetPeranti_();
+  if (s.getLastRow() < 2) return [];
+  return s.getRange(2, 1, s.getLastRow() - 1, 10).getValues();
+}
+
+function hadirPcCariPerantiIndeks_(baris, idPeranti) {
+  for (var i = 0; i < baris.length; i++) {
+    if (String(baris[i][0]) === String(idPeranti)) return i;
+  }
+  return -1;
+}
+
+function hadirPcBacaLeadBaris_() {
+  var s = hadirSheetPerantiLead_();
+  if (s.getLastRow() < 2) return [];
+  return s.getRange(2, 1, s.getLastRow() - 1, 4).getValues();
+}
+
+function hadirPcCariLeadIndeks_(baris, akaun) {
+  for (var i = 0; i < baris.length; i++) {
+    if (String(baris[i][0]) === String(akaun)) return i;
+  }
+  return -1;
+}
+
+function hadirPcRekodLead_(baris, indeks) {
+  if (indeks < 0) return { pemimpin: null, leaseMs: 0, generasi: 0 };
+  var r = baris[indeks];
+  return { pemimpin: r[1] || null, leaseMs: Number(r[2]) || 0, generasi: Number(r[3]) || 0 };
+}
+
+function hadirPcTulisLead_(s, baris, indeks, akaun, rekod) {
+  var barisBaru = [akaun, rekod.pemimpin || '', rekod.leaseMs, rekod.generasi];
+  if (indeks >= 0) {
+    s.getRange(indeks + 2, 1, 1, 4).setValues([barisBaru]);
+  } else {
+    s.appendRow(barisBaru);
+  }
+}
+
+function hadirPcSanitisePeranti_(r) {
+  return {
+    idPeranti: r[0], akaun: r[1], nama: r[2], status: r[4], generasi: Number(r[5]) || 0,
+    diciptaMs: Number(r[6]) || 0, dilulusMs: Number(r[7]) || 0,
+    lastSeenMs: r[8] === '' || r[8] == null ? null : Number(r[8]),
+    nyahaktifMs: r[9] === '' || r[9] == null ? null : Number(r[9])
+  };
+}
+
+function hadirPcKodDaftarKunci_(hashKod) { return 'HADIR_KOD_DAFTAR_' + hashKod; }
+
+function hadirPcTerbitKodDaftar_(akaun, ttlMs, token) {
+  hadirSesi_(token, true);
+  hadirPcPastikanDidayakan_();
+  var props = PropertiesService.getScriptProperties();
+  var sekarang = Date.now();
+  var kodDaftar = Utilities.getUuid() + Utilities.getUuid();
+  var hashKod = hadirHash_(kodDaftar);
+  var luputMs = sekarang + (Number(ttlMs) || HADIR_PELBAGAI_PC_TTL_KOD_MS);
+  props.setProperty(hadirPcKodDaftarKunci_(hashKod), JSON.stringify({
+    akaun: akaun, luputMs: luputMs, digunakan: false, digunakanOleh: null
+  }));
+  return { kodDaftar: kodDaftar, luputMs: luputMs };
+}
+
+function hadirPcDaftarPeranti_(kodDaftar, idPeranti, akaun, nama, rahsia) {
+  hadirPcPastikanDidayakan_();
+  if (!rahsia) throw new Error('Rahsia peranti diperlukan.');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var hashKod = hadirHash_(kodDaftar);
+    var kunciKod = hadirPcKodDaftarKunci_(hashKod);
+    var mentah = props.getProperty(kunciKod);
+    if (!mentah) throw new Error('Kod daftar tidak sah.');
+    var kod;
+    try { kod = JSON.parse(mentah); } catch (e) { throw new Error('Kod daftar tidak sah.'); }
+    var sekarang = Date.now();
+    if (kod.digunakan) throw new Error('Kod daftar telah digunakan.');
+    if (Number(kod.luputMs) < sekarang) throw new Error('Kod daftar telah luput.');
+    if (String(kod.akaun) !== String(akaun)) throw new Error('Kod daftar tidak sah untuk akaun ini.');
+
+    var s = hadirSheetPeranti_();
+    var baris = hadirPcBacaPerantiBaris_();
+    if (hadirPcCariPerantiIndeks_(baris, idPeranti) >= 0) throw new Error('Peranti sudah didaftarkan.');
+
+    kod.digunakan = true;
+    kod.digunakanOleh = idPeranti;
+    props.setProperty(kunciKod, JSON.stringify(kod));
+
+    var namaBersih = String(nama || '').trim().slice(0, 80);
+    var rekod = [idPeranti, akaun, namaBersih, hadirHash_(rahsia), 'aktif', 1,
+      sekarang, sekarang, '', ''];
+    s.appendRow(rekod);
+    hadirLog_('PC_DAFTAR', 'admin', '', 'peranti didaftarkan untuk akaun ' + akaun);
+    return hadirPcSanitisePeranti_(rekod);
+  } finally { lock.releaseLock(); }
+}
+
+function hadirPcNyahaktifPeranti_(idPeranti, akaun, token) {
+  hadirSesi_(token, true);
+  hadirPcPastikanDidayakan_();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var s = hadirSheetPeranti_();
+    var baris = hadirPcBacaPerantiBaris_();
+    var indeks = hadirPcCariPerantiIndeks_(baris, idPeranti);
+    if (indeks < 0 || String(baris[indeks][1]) !== String(akaun)) throw new Error('Peranti tidak ditemui.');
+    var sekarang = Date.now();
+    var generasiPeranti = (Number(baris[indeks][5]) || 0) + 1;
+    s.getRange(indeks + 2, 5).setValue('nyahaktif');
+    s.getRange(indeks + 2, 6).setValue(generasiPeranti);
+    s.getRange(indeks + 2, 10).setValue(sekarang);
+
+    var sLead = hadirSheetPerantiLead_();
+    var leadBaris = hadirPcBacaLeadBaris_();
+    var leadIndeks = hadirPcCariLeadIndeks_(leadBaris, akaun);
+    var lead = hadirPcRekodLead_(leadBaris, leadIndeks);
+    if (lead.pemimpin === idPeranti) {
+      lead.pemimpin = null;
+      lead.leaseMs = 0;
+      lead.generasi += 1;
+      hadirPcTulisLead_(sLead, leadBaris, leadIndeks, akaun, lead);
+    }
+    var leadAkhir = hadirPcRekodLead_(leadBaris, leadIndeks);
+    leadAkhir = lead.pemimpin === null ? lead : leadAkhir;
+    hadirLog_('PC_NYAHAKTIF', 'admin', '', 'peranti dinyahaktifkan untuk akaun ' + akaun);
+    return { ok: true, generasi: leadAkhir.generasi };
+  } finally { lock.releaseLock(); }
+}
+
+function hadirPcSahkanPerantiAktif_(idPeranti, akaun, rahsia) {
+  var baris = hadirPcBacaPerantiBaris_();
+  var indeks = hadirPcCariPerantiIndeks_(baris, idPeranti);
+  if (indeks < 0 || String(baris[indeks][1]) !== String(akaun) ||
+    String(baris[indeks][3]) !== hadirHash_(rahsia)) {
+    throw new Error('Akses peranti ditolak.');
+  }
+  if (String(baris[indeks][4]) !== 'aktif') throw new Error('Peranti tidak diluluskan.');
+  return { indeks: indeks, baris: baris };
+}
+
+function hadirPcDegup_(idPeranti, akaun, rahsia) {
+  hadirPcPastikanDidayakan_();
+  var s = hadirSheetPeranti_();
+  var sah = hadirPcSahkanPerantiAktif_(idPeranti, akaun, rahsia);
+  var sekarang = Date.now();
+  s.getRange(sah.indeks + 2, 9).setValue(sekarang);
+
+  var sLead = hadirSheetPerantiLead_();
+  var leadBaris = hadirPcBacaLeadBaris_();
+  var leadIndeks = hadirPcCariLeadIndeks_(leadBaris, akaun);
+  var lead = hadirPcRekodLead_(leadBaris, leadIndeks);
+  var adalahPemimpin = lead.pemimpin === idPeranti;
+  if (adalahPemimpin) {
+    lead.leaseMs = sekarang + HADIR_PELBAGAI_PC_LEASE_MS;
+    hadirPcTulisLead_(sLead, leadBaris, leadIndeks, akaun, lead);
+  }
+  return { ok: true, pemimpin: adalahPemimpin, generasi: lead.generasi };
+}
+
+/* Kawalan pertindihan pengambilalihan: baca baris HADIR_MOEIS_JOB berstatus
+   'sedang_dihantar' ATAU 'tersimpan' yang lajur PEMILIK (indeks 11) sepadan
+   dengan pemimpin lama. Jika wujud, pengambilalihan ditolak — tugasan aktif
+   itu mungkin masih ditulis oleh pelayar lama. */
+function hadirPcTugasAktifDipegangOleh_(pemilikLama) {
+  var baris = hadirBacaJobBaris_();
+  for (var i = 0; i < baris.length; i++) {
+    var status = String(baris[i][3] || '');
+    var pemilik = String(baris[i][11] || '');
+    if ((status === 'sedang_dihantar' || status === 'tersimpan') && pemilik === pemilikLama) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hadirPcKlaimKepimpinan_(idPeranti, akaun, rahsia) {
+  hadirPcPastikanDidayakan_();
+  hadirPcSahkanPerantiAktif_(idPeranti, akaun, rahsia);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    // Sah semula di dalam kunci — status peranti mungkin berubah semasa menunggu giliran.
+    hadirPcSahkanPerantiAktif_(idPeranti, akaun, rahsia);
+    var sekarang = Date.now();
+    var sLead = hadirSheetPerantiLead_();
+    var leadBaris = hadirPcBacaLeadBaris_();
+    var leadIndeks = hadirPcCariLeadIndeks_(leadBaris, akaun);
+    var lead = hadirPcRekodLead_(leadBaris, leadIndeks);
+
+    if (!lead.pemimpin) {
+      var baharu = { pemimpin: idPeranti, leaseMs: sekarang + HADIR_PELBAGAI_PC_LEASE_MS, generasi: lead.generasi + 1 };
+      hadirPcTulisLead_(sLead, leadBaris, leadIndeks, akaun, baharu);
+      hadirLog_('PC_KLAIM', 'sistem', '', 'kepimpinan baharu untuk akaun ' + akaun);
+      return { ok: true, pemimpin: idPeranti, generasi: baharu.generasi, leaseMs: baharu.leaseMs };
+    }
+
+    if (lead.pemimpin === idPeranti) {
+      var diperbaharui = { pemimpin: idPeranti, leaseMs: sekarang + HADIR_PELBAGAI_PC_LEASE_MS, generasi: lead.generasi + 1 };
+      hadirPcTulisLead_(sLead, leadBaris, leadIndeks, akaun, diperbaharui);
+      return { ok: true, pemimpin: idPeranti, generasi: diperbaharui.generasi, leaseMs: diperbaharui.leaseMs };
+    }
+
+    if (lead.leaseMs > sekarang) {
+      throw new Error('Pemimpin aktif lain memegang lease.');
+    }
+
+    var pemimpinLama = lead.pemimpin;
+    if (hadirPcTugasAktifDipegangOleh_(pemimpinLama)) {
+      throw new Error('Tugasan aktif masih dipegang pemimpin sedia ada — ambil alih ditolak.');
+    }
+
+    var ambilAlih = { pemimpin: idPeranti, leaseMs: sekarang + HADIR_PELBAGAI_PC_LEASE_MS, generasi: lead.generasi + 1 };
+    hadirPcTulisLead_(sLead, leadBaris, leadIndeks, akaun, ambilAlih);
+    hadirLog_('PC_KLAIM', 'sistem', '', 'pengambilalihan kepimpinan untuk akaun ' + akaun);
+    return { ok: true, pemimpin: idPeranti, generasi: ambilAlih.generasi, leaseMs: ambilAlih.leaseMs };
+  } finally { lock.releaseLock(); }
+}
+
+function hadirPcSahkanPenulis_(idPeranti, akaun, rahsia, generasi) {
+  hadirPcPastikanDidayakan_();
+  hadirPcSahkanPerantiAktif_(idPeranti, akaun, rahsia);
+  var leadBaris = hadirPcBacaLeadBaris_();
+  var leadIndeks = hadirPcCariLeadIndeks_(leadBaris, akaun);
+  var lead = hadirPcRekodLead_(leadBaris, leadIndeks);
+  if (lead.pemimpin !== idPeranti) throw new Error('Peranti bukan pemimpin semasa.');
+  if (lead.generasi !== Number(generasi)) throw new Error('Generasi lapuk — penulis telah dipagar.');
+  return { ok: true };
+}
+
+function hadirPcSenaraiPerantiAdmin_(akaun, token) {
+  hadirSesi_(token, true);
+  hadirPcPastikanDidayakan_();
+  var baris = hadirPcBacaPerantiBaris_();
+  var hasil = [];
+  for (var i = 0; i < baris.length; i++) {
+    if (String(baris[i][1]) === String(akaun)) hasil.push(hadirPcSanitisePeranti_(baris[i]));
+  }
+  return hasil;
+}
+
+/* Tiada gate ciri/pentadbir di sini secara sengaja: ini status AWAM. Apabila
+   ciri dilumpuhkan, tiada helaian HADIR_PERANTI_LEAD wujud secara praktikal
+   (daftarPeranti/klaimKepimpinan menolak dahulu), jadi ia secara semula jadi
+   memulangkan senarai kosong. TIDAK PERNAH mendedahkan RAHSIA_HASH / serial /
+   nama / PII — hanya id peranti legap + cap masa.
+   Laluan ini BACA SAHAJA: ia TIDAK mencipta helaian (tiada kesan tulis tanpa
+   pengesahan) — jika helaian belum wujud ia terus memulangkan senarai kosong. */
+function hadirPcStatusAwam_() {
+  var leadSheet = ss.getSheetByName('HADIR_PERANTI_LEAD');
+  var perantiSheet = ss.getSheetByName('HADIR_PERANTI');
+  var leadBaris = (!leadSheet || leadSheet.getLastRow() < 2) ? [] :
+    leadSheet.getRange(2, 1, leadSheet.getLastRow() - 1, 4).getValues();
+  var perantiBaris = (!perantiSheet || perantiSheet.getLastRow() < 2) ? [] :
+    perantiSheet.getRange(2, 1, perantiSheet.getLastRow() - 1, 10).getValues();
+  var hasil = [];
+  for (var i = 0; i < leadBaris.length; i++) {
+    var akaun = String(leadBaris[i][0]);
+    var lead = hadirPcRekodLead_(leadBaris, i);
+    var lastSeenMs = null;
+    if (lead.pemimpin) {
+      var pIndeks = hadirPcCariPerantiIndeks_(perantiBaris, lead.pemimpin);
+      if (pIndeks >= 0) {
+        var v = perantiBaris[pIndeks][8];
+        lastSeenMs = v === '' || v == null ? null : Number(v);
+      }
+    }
+    hasil.push({
+      akaun: akaun, pemimpin: lead.pemimpin, lastSeenMs: lastSeenMs,
+      leaseMs: lead.leaseMs, generasi: lead.generasi
+    });
+  }
+  return hasil;
 }
