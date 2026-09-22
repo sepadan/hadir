@@ -2,6 +2,7 @@
 **/bin/
 **/obj/
 **/node_modules/
+dist/
 
 # Dev-only Playwright drive harness deps (lockfile IS tracked for reproducibility)
 dev-fixture/playwright/node_modules/

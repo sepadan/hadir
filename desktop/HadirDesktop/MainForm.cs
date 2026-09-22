@@ -164,7 +164,7 @@ public sealed class MainForm : Form
         Height = 750;
         StartPosition = FormStartPosition.CenterScreen;
 
-        _tray = new TrayHost(SystemIcons.Application);
+        _tray = new TrayHost(SystemIcons.Application, new AutostartManager(new RegistryRunKey()));
         _tray.ShowRequested += (_, _) => ShowFromTray();
         _tray.OpenSettingsRequested += (_, _) => OpenEngineSettings();
         _tray.IdMeSettingsRequested += (_, _) => OpenIdMeSettings();

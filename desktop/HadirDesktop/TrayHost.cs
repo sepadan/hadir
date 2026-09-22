@@ -20,7 +20,7 @@ public sealed class TrayHost : IDisposable
     public event EventHandler? CubaLagiRequested;
     public event EventHandler? ExitRequested;
 
-    public TrayHost(Icon icon)
+    public TrayHost(Icon icon, IAutostartManager? autostart = null)
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add(DemoLabel.TrayShow, null, (_, _) => ShowRequested?.Invoke(this, EventArgs.Empty));
@@ -39,6 +39,26 @@ public sealed class TrayHost : IDisposable
         };
         menu.Items.Add(_stateItem);
         menu.Items.Add(new ToolStripSeparator());
+
+        // Auto-start toggle. CheckOnClick flips Checked before CheckedChanged
+        // fires, so reading Checked here always yields the NEW state. Absent a
+        // manager (tests) the item is simply not shown.
+        if (autostart != null)
+        {
+            var itemAutostart = new ToolStripMenuItem(DemoLabel.TrayAutostart)
+            {
+                CheckOnClick = true,
+                Checked = autostart.Ada(),
+            };
+            itemAutostart.CheckedChanged += (_, _) =>
+            {
+                if (itemAutostart.Checked) autostart.Daftar();
+                else autostart.Buang();
+            };
+            menu.Items.Add(itemAutostart);
+            menu.Items.Add(new ToolStripSeparator());
+        }
+
         menu.Items.Add(DemoLabel.TrayExit, null, (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty));
 
         _notifyIcon = new NotifyIcon

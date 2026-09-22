@@ -21,6 +21,11 @@ internal static class Program
 
         ApplicationConfiguration.Initialize();
 
+        // Warn (but never crash) when the Evergreen WebView2 runtime is missing:
+        // the embedded portal cannot render, yet the tray/status/demand loop keep
+        // running. Runs on the STA UI thread, so the MessageBox is safe.
+        new WebView2RuntimeGuard(new WebView2RuntimeCheck()).AmaranJikaTiada();
+
         var mainForm = new MainForm();
 
         // Listen for a second-launch signal on a background thread and marshal to the UI thread.
