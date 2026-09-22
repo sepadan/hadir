@@ -53,8 +53,54 @@ const LALUAN_LOKAL_API = new Set([
   '/api/lokal/autostart', '/api/lokal/keluar', '/api/lokal/tetapan',
   '/api/lokal/status', '/api/lokal/uji-login',
   '/api/lokal/kredensial', '/api/lokal/kredensial-padam',
-  '/api/lokal/had-kadar-tetapkan-semula', '/api/lokal/kerja-hari-ini'
+  '/api/lokal/had-kadar-tetapkan-semula', '/api/lokal/kerja-hari-ini',
+  '/api/lokal/kerja-penuh'
 ]);
+
+// Senarai putih medan bagi /api/lokal/kerja-penuh. Payload PENUH diperlukan oleh
+// aplikasi desktop tempatan untuk MEMBINA tugasan penghantaran (kelas + tarikh +
+// murid tidak hadir); `ic` dan sebarang medan lain TIDAK PERNAH dilalukan —
+// penapisan berlaku dengan membina objek baharu, bukan dengan membuang kunci
+// daripada objek asal (kunci baharu pada masa depan akan gagal-tertutup).
+const MEDAN_KERJA_PENUH = ['id', 'kelas', 'tarikhIso', 'status', 'mesej', 'diciptaEpochMs', 'kelasMoeisId'];
+
+function teksSelamat(nilai) {
+  if (typeof nilai === 'string') return nilai;
+  if (nilai === null || nilai === undefined) return '';
+  return String(nilai);
+}
+
+// Fungsi TULEN: menukar senarai penuh enjin kepada bentuk yang selamat dihantar
+// kepada proses tempatan melalui loopback (nonce sahaja).
+//   - `ic`/`kunci` dan apa-apa medan lain dibuang secara struktur;
+//   - murid kekal {id, nama, kategori, sebab}: `nama` ialah kunci padanan yang
+//     digunakan oleh enjin sendiri (lihat src/moeis/payload.mjs buangIc) — IC
+//     tidak pernah diperlukan dan tidak pernah dihantar.
+export function kerjaPenuhSelamat(senarai) {
+  const sumber = Array.isArray(senarai) ? senarai : [];
+  return sumber
+    .filter((j) => j && typeof j === 'object')
+    .map((j) => {
+      const rekod = {};
+      for (const medan of MEDAN_KERJA_PENUH) {
+        if (medan === 'diciptaEpochMs') {
+          rekod.diciptaEpochMs = typeof j.diciptaEpochMs === 'number' && isFinite(j.diciptaEpochMs)
+            ? j.diciptaEpochMs : null;
+          continue;
+        }
+        rekod[medan] = teksSelamat(j[medan]);
+      }
+      rekod.murid = (Array.isArray(j.murid) ? j.murid : [])
+        .filter((m) => m && typeof m === 'object')
+        .map((m) => ({
+          id: teksSelamat(m.id),
+          nama: teksSelamat(m.nama),
+          kategori: teksSelamat(m.kategori),
+          sebab: teksSelamat(m.sebab)
+        }));
+      return rekod;
+    });
+}
 
 function bacaBadan(req) {
   return new Promise((selesai, gagal) => {
@@ -384,6 +430,25 @@ async function pengendali(req, res) {
         }
         const senaraiHariIni = await konteks.kerjaSenaraiDisensor();
         hantarJson(res, 200, { ok: true, senarai: senaraiHariIni });
+        return;
+      }
+      if (laluan === '/api/lokal/kerja-penuh') {
+        // Baca-sahaja, nonce sahaja: senarai tugasan PENUH (kelas + tarikh +
+        // murid tidak hadir {id, nama, kategori, sebab}) untuk proses tempatan
+        // yang dipercayai — aplikasi desktop memerlukannya untuk MEMBINA
+        // tugasan penghantaran, bukan sekadar mengira deman seperti
+        // /api/lokal/kerja-hari-ini (senarai disensor). IC dan rahsia enjin
+        // TIDAK PERNAH dihantar: kerjaPenuhSelamat() membina objek baharu
+        // daripada senarai putih medan sahaja. Tiada mutasi.
+        if (req.method !== 'GET') { res.writeHead(405); res.end(); return; }
+        if (!simpanan.adaRahsiaEnjin()) {
+          hantarJson(res, 200, { ok: true, senarai: [], nota: 'Rahsia enjin belum ditetapkan pada PC ini.' });
+          return;
+        }
+        const mentah = typeof konteks.kerjaSenaraiPenuh === 'function'
+          ? await konteks.kerjaSenaraiPenuh()
+          : [];
+        hantarJson(res, 200, { ok: true, senarai: kerjaPenuhSelamat(mentah) });
         return;
       }
       if (laluan === '/api/lokal/had-kadar-tetapkan-semula') {

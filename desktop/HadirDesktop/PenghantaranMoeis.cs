@@ -13,7 +13,91 @@ namespace HadirDesktop;
 /// either is rejected BEFORE the portal is touched (same rule as the companion's
 /// <c>push.mjs</c>: "kategori/sebab wajib ... SEBELUM membuka pelayar").
 /// </summary>
-public sealed record MuridTidakHadir(string Id, string Kategori, string Sebab);
+public sealed record MuridTidakHadir(string Id, string Kategori, string Sebab)
+{
+    /// <summary>
+    /// Optional HADIR-side name. Carried so a later slice can resolve the
+    /// MOEIS page row the SAME way the companion engine does (name matching
+    /// against <c>data-namapelajar</c>/<c>data-idpelajar</c>) when the task
+    /// record does not carry a page id. It is never sent to MOEIS by itself and
+    /// is never part of a selector.
+    /// </summary>
+    public string Nama { get; init; } = "";
+}
+
+/// <summary>
+/// Outcome of building a submission task from a full HADIR record.
+/// <see cref="Tugasan"/> null with a reason = submit NOTHING (fail closed):
+/// the desktop never invents a student, never invents a category/reason, and
+/// never submits an empty or unidentifiable absence list.
+/// </summary>
+public sealed record PembinaanTugasan(TugasanPenghantaran? Tugasan, string Sebab)
+{
+    public bool Boleh => Tugasan is not null;
+}
+
+/// <summary>
+/// PURE bridge from a full HADIR task record (<see cref="KerjaPenuh"/>, read
+/// through the engine's allowlisted <c>/api/lokal/kerja-penuh</c> route) to a
+/// <see cref="TugasanPenghantaran"/>. Every refusal is explicit; nothing is
+/// guessed and nothing is filled in on the portal's behalf.
+/// </summary>
+public static class PembinaTugasanPenghantaran
+{
+    public static PembinaanTugasan DaripadaKerja(KerjaPenuh kerja, bool sahkan = false)
+    {
+        if (kerja is null) return new(null, "Tiada rekod kerja; tiada penghantaran.");
+
+        var kelas = (kerja.Kelas ?? "").Trim();
+        if (kelas.Length == 0) return new(null, "Rekod kerja tiada kelas; tiada penghantaran.");
+
+        var tarikh = (kerja.TarikhIso ?? "").Trim();
+
+        var murid = kerja.Murid ?? Array.Empty<MuridKerjaPenuh>();
+        if (murid.Count == 0)
+        {
+            // An empty absence list is NEVER a submission: it would tell MOEIS
+            // "everyone present" — a fact the task does not assert.
+            return new(null, "Tugasan " + kelas + " tiada murid tidak hadir; tiada penghantaran (kehadiran TIDAK direka).");
+        }
+
+        var senarai = new List<MuridTidakHadir>(murid.Count);
+        foreach (var m in murid)
+        {
+            var nama = (m.Nama ?? "").Trim();
+            var id = (m.Id ?? "").Trim();
+            if (id.Length == 0)
+            {
+                // HADIR's task record carries only the student's NAME (the
+                // engine matches on it and reads data-idpelajar from the page).
+                // Without a page id the flow would have to GUESS a selector, so
+                // it refuses instead — name-based resolution is the next slice.
+                return new(null,
+                    "Tugasan " + kelas + ": id murid MOEIS tidak disertakan oleh enjin HADIR" +
+                    (nama.Length > 0 ? " (murid: " + nama + ")" : "") +
+                    "; padanan mengikut nama belum dilaksanakan — tiada penghantaran.");
+            }
+
+            var kategori = (m.Kategori ?? "").Trim();
+            var sebab = (m.Sebab ?? "").Trim();
+            if (kategori.Length == 0 || sebab.Length == 0)
+            {
+                return new(null, "Tugasan " + kelas + ": murid " + id + " tiada kategori/sebab wajib MOEIS; tiada penghantaran.");
+            }
+
+            senarai.Add(new MuridTidakHadir(id, kategori, sebab) { Nama = nama });
+        }
+
+        return new(new TugasanPenghantaran
+        {
+            Kelas = kelas,
+            Tahun = null,
+            TarikhIso = tarikh.Length == 0 ? null : tarikh,
+            TidakHadir = senarai,
+            Sahkan = sahkan,
+        }, "Tugasan " + kelas + " (" + senarai.Count + " murid tidak hadir) sedia untuk dihantar.");
+    }
+}
 
 /// <summary>
 /// A single submission task: ONE class, ONE date, and the students HADIR says

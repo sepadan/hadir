@@ -101,6 +101,7 @@ public sealed class PortalLifecycle
     private readonly Func<CancellationToken, Task> _bukaPortal;
     private readonly Func<CancellationToken, Task<HasilLoginAuto>> _cubaLogin;
     private readonly Func<bool>? _diblok;
+    private readonly Func<CancellationToken, Task<string?>>? _selepasLoginSah;
     private readonly Action<KeadaanPortal, string>? _lapor;
 
     private Task<KeadaanPortal>? _dalamPenerbangan;
@@ -114,6 +115,7 @@ public sealed class PortalLifecycle
         Func<CancellationToken, Task> bukaPortal,
         Func<CancellationToken, Task<HasilLoginAuto>> cubaLogin,
         Func<bool>? diblok = null,
+        Func<CancellationToken, Task<string?>>? selepasLoginSah = null,
         Action<KeadaanPortal, string>? lapor = null)
     {
         _sumber = sumber;
@@ -121,6 +123,7 @@ public sealed class PortalLifecycle
         _bukaPortal = bukaPortal;
         _cubaLogin = cubaLogin;
         _diblok = diblok;
+        _selepasLoginSah = selepasLoginSah;
         _lapor = lapor;
     }
 
@@ -282,8 +285,15 @@ public sealed class PortalLifecycle
 
         if (hasil.SesiSah || hasil.Status == "sesi-sah")
         {
+            // A VALID session is the ONLY trigger for the submission pass: the
+            // pass reads HADIR's full task list and builds/calls the MOEIS
+            // adapter. It is opt-in and default OFF inside the pass itself, so a
+            // successful login with the pass disabled changes nothing.
+            var notaHantar = await SelepasLoginSahAsync(ct).ConfigureAwait(false);
             Set(KeadaanPortal.AdaKerja,
-                "Sesi idMe sah. Tugasan belum siap masih menunggu penghantaran.", kerja.BilanganKerja);
+                "Sesi idMe sah. Tugasan belum siap masih menunggu penghantaran."
+                + (string.IsNullOrWhiteSpace(notaHantar) ? "" : " " + notaHantar),
+                kerja.BilanganKerja);
         }
         else if (hasil.PerluManusia)
         {
@@ -303,6 +313,26 @@ public sealed class PortalLifecycle
         }
 
         return Keadaan;
+    }
+
+    private async Task<string> SelepasLoginSahAsync(CancellationToken ct)
+    {
+        if (_selepasLoginSah == null) return "";
+        try
+        {
+            var nota = await _selepasLoginSah(ct).ConfigureAwait(false);
+            return string.IsNullOrWhiteSpace(nota) ? "" : nota;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // The submission pass is best-effort after a valid session; a
+            // failure there must never flip the already-valid session state.
+            return "(penghantaran: ralat)";
+        }
     }
 
     private void Set(KeadaanPortal keadaan, string sebab, int bilanganKerja)

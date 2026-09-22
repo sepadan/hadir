@@ -23,4 +23,13 @@ public static class EngineEndpoints
     /// GET only — never mutates, never returns the engine secret.
     /// </summary>
     public const string KerjaPath = "/api/lokal/kerja-hari-ini";
+
+    /// <summary>
+    /// Read-only FULL task list (class + date + the absent students'
+    /// id/name/category/reason), nonce-only, GET only. The censored
+    /// <see cref="KerjaPath"/> answers "is there work?"; this one carries what a
+    /// submission task must be BUILT from. Same authorisation (X-HADIR-Lokal
+    /// nonce HEADER, no Origin), no engine secret, no mutation.
+    /// </summary>
+    public const string KerjaPenuhPath = "/api/lokal/kerja-penuh";
 }

@@ -742,6 +742,21 @@ async function main() {
       } catch {
         return [];
       }
+    },
+    // Senarai PENUH (murid + kategori + sebab) untuk proses tempatan yang
+    // dipercayai melalui /api/lokal/kerja-penuh (nonce sahaja, loopback).
+    // buangIc() dikenakan DI SINI juga — sama seperti laluan proses anak enjin —
+    // supaya IC tidak pernah meninggalkan proses companion; pelayan
+    // (kerjaPenuhSelamat dalam src/server.mjs) menapis sekali lagi melalui
+    // senarai putih medannya sendiri (pertahanan berlapis).
+    kerjaSenaraiPenuh: async () => {
+      try {
+        const klien = buatKlienDaripadaTetapan(tetapanApi, simpananApi);
+        const senarai = await klien.senarai();
+        return (senarai || []).map((j) => buangIc(j));
+      } catch {
+        return [];
+      }
     }
   };
 
