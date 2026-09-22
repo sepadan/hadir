@@ -188,6 +188,26 @@ test('pemulihan: log masuk BERJAYA (sesi-sah, perluManusia:false) TIDAK menghent
   assert.equal(p.berjalan(), true, 'gelung kekal berjalan — log masuk berjaya bukan sebab berhenti');
 });
 
+test('pemulihan: log masuk TRANSIENT (gagal/ralat-teknikal, perluManusia:false) TIDAK menghentikan gelung — cubaAutoMula diteruskan', async () => {
+  let bilLogin = 0;
+  let bilAutoMula = 0;
+  const p = pasangPemulihanAutoMula({
+    bacaTetapan: () => ({ autoMulaGiliran: true }),
+    giliranAktif: () => false,
+    cubaLoginAutoKerja: async () => {
+      bilLogin++;
+      return { diminta: true, cuba: true, hasil: { status: 'gagal', perluManusia: false, sebab: 'Ralat rangkaian sementara (ujian).' } };
+    },
+    cubaAutoMula: async () => { bilAutoMula++; return { bermula: false, sebab: 'Sesi belum disahkan (ujian).' }; },
+    tulisLog: () => {}
+  });
+  p.mula();
+  await p._kitar();
+  assert.equal(bilLogin, 1);
+  assert.equal(bilAutoMula, 1, 'cubaAutoMula mesti dipanggil selepas ralat sementara (tiada perluManusia)');
+  assert.equal(p.berjalan(), true, 'gelung kekal berjalan — ralat sementara bukan sebab berhenti');
+});
+
 test('pemulihan: HARI DAHULU — bolehHariIni:false menghentikan gelung TANPA menyentuh log masuk automatik langsung', async () => {
   let bilHari = 0;
   let bilLogin = 0;
@@ -270,5 +290,76 @@ test('pemulihan: TIADA PERTINDIHAN — kitaran kedua yang dicetuskan semasa kita
   selesaikanKitaranPertama();
   await kitaranPertama;
   assert.equal(bilAutoMulaDipanggil, 1, 'kitaran pertama selesai tanpa kitaran kedua pernah memanggil cubaAutoMula');
+});
+
+// ---------------- v1.11.22 Gap 3: had kadar sejam/harian ialah tunggu sementara, BUKAN sekatan kekal ----------------
+
+test('pemulihan: log masuk had-kadar (tunggu tetingkap sejam, perluManusia:false) TIDAK menghentikan gelung — cubaAutoMula diteruskan', async () => {
+  let bilLogin = 0;
+  let bilAutoMula = 0;
+  const p = pasangPemulihanAutoMula({
+    bacaTetapan: () => ({ autoMulaGiliran: true }),
+    giliranAktif: () => false,
+    cubaLoginAutoKerja: async () => {
+      bilLogin++;
+      return {
+        diminta: true, cuba: true,
+        hasil: { status: 'had-kadar', perluManusia: false, kelas: 'transient', cubaSemula: { jenis: 'tetingkap-jam', selepasMs: 123 }, sebab: 'Had 6 percubaan/jam dicapai (ujian).' }
+      };
+    },
+    cubaAutoMula: async () => { bilAutoMula++; return { bermula: false, sebab: 'Sesi belum disahkan (ujian).' }; },
+    tulisLog: () => {}
+  });
+  p.mula();
+  await p._kitar();
+  assert.equal(bilLogin, 1);
+  assert.equal(bilAutoMula, 1, 'cubaAutoMula mesti dipanggil selepas had-kadar sejam (tiada perluManusia)');
+  assert.equal(p.berjalan(), true, 'gelung kekal berjalan — had-kadar sejam bukan sebab berhenti');
+});
+
+test('pemulihan: log masuk had-harian (tunggu siling harian, perluManusia:false) TIDAK menghentikan gelung — cubaAutoMula diteruskan', async () => {
+  let bilLogin = 0;
+  let bilAutoMula = 0;
+  const p = pasangPemulihanAutoMula({
+    bacaTetapan: () => ({ autoMulaGiliran: true }),
+    giliranAktif: () => false,
+    cubaLoginAutoKerja: async () => {
+      bilLogin++;
+      return {
+        diminta: true, cuba: true,
+        hasil: { status: 'had-harian', perluManusia: false, kelas: 'transient', cubaSemula: { jenis: 'hari-baharu', hariIso: '2026-09-22' }, sebab: 'Siling 24/hari dicapai (ujian).' }
+      };
+    },
+    cubaAutoMula: async () => { bilAutoMula++; return { bermula: false, sebab: 'Sesi belum disahkan (ujian).' }; },
+    tulisLog: () => {}
+  });
+  p.mula();
+  await p._kitar();
+  assert.equal(bilLogin, 1);
+  assert.equal(bilAutoMula, 1, 'cubaAutoMula mesti dipanggil selepas had-harian (tiada perluManusia)');
+  assert.equal(p.berjalan(), true, 'gelung kekal berjalan — had-harian bukan sebab berhenti');
+});
+
+test('pemulihan: log masuk had-kegagalan-berturut (sekatan 3-strike, perluManusia:true) MENGHENTIKAN gelung TANPA memanggil cubaAutoMula', async () => {
+  let bilLogin = 0;
+  let bilAutoMula = 0;
+  const p = pasangPemulihanAutoMula({
+    bacaTetapan: () => ({ autoMulaGiliran: true }),
+    giliranAktif: () => false,
+    cubaLoginAutoKerja: async () => {
+      bilLogin++;
+      return {
+        diminta: true, cuba: true,
+        hasil: { status: 'had-kegagalan-berturut', perluManusia: true, kelas: 'perlu-manusia', sebab: '3 kegagalan berturut-turut (ujian).' }
+      };
+    },
+    cubaAutoMula: async () => { bilAutoMula++; return { bermula: false }; },
+    tulisLog: () => {}
+  });
+  p.mula();
+  await p._kitar();
+  assert.equal(bilLogin, 1);
+  assert.equal(bilAutoMula, 0, 'cubaAutoMula TIDAK PERNAH dipanggil selepas sekatan 3-strike (persistent, bukan tunggu sementara)');
+  assert.equal(p.berjalan(), false, 'gelung berhenti serta-merta pada sekatan kekal 3-strike');
 });
 

@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   jalankanLoginAuto, buatPengurusLoginAuto, cubaLoginAutoStartup, cubaLoginAutoKerja,
-  buatStatusLoginAuto, snapshotLoginAutoStatus, ayatLoginAuto
+  buatStatusLoginAuto, snapshotLoginAutoStatus, ayatLoginAuto, klasifikasiHasilLogin
 } from '../src/moeis/login-auto.mjs';
 import { buatHadKadarLogin } from '../src/moeis/had-login.mjs';
+import { buatProbeSesiLangsung } from '../src/moeis/probe-sesi.mjs';
 import { buatHalamanLoginPalsu, KREDENSIAL_PALSU } from './fixtures/halamanPalsuLogin.mjs';
 
 const KRED = { ...KREDENSIAL_PALSU };
@@ -73,19 +74,23 @@ test('dashboard idMe selepas hantar (hos idme, borang hilang) -> sesi-sah, BUKAN
   assert.equal(adapter._panggilan.includes('sahkanSesiSelepasLogin'), true);
 });
 
-test('borang log masuk idMe masih dipaparkan selepas hantar -> perlu-manusia dengan sebab menamakan penemuan', async () => {
+test('borang log masuk idMe masih dipaparkan selepas hantar -> sesi-tidak-dapat-disahkan (TRANSIENT, bukan penolakan kredensial), sebab menamakan penemuan', async () => {
+  // v1.11.22: sesi tidak dapat disahkan selepas hantar TIDAK bermakna
+  // kredensial ditolak (Gap 1) — cuma bukti idMe tidak memaparkan penolakan
+  // EKSPLISIT mahupun kejayaan. perluManusia mesti FALSE supaya pemulihan/
+  // cubaan semula bersempadan diteruskan, bukan berhenti kekal.
   const adapter = buatHalamanLoginPalsu({ sesiSah: false, borangKekal: true });
   const hasil = await jalankanLoginAuto(adapter, KRED);
-  assert.equal(hasil.status, 'perlu-manusia');
-  assert.equal(hasil.perluManusia, true);
+  assert.equal(hasil.status, 'sesi-tidak-dapat-disahkan');
+  assert.equal(hasil.perluManusia, false);
   assert.match(hasil.sebab, /borang log masuk idMe \(#check_log\/#password\) masih dipaparkan/);
 });
 
-test('hos idme selepas hantar tanpa borang mahupun papan pemuka -> perlu-manusia, sebab menamakan hos', async () => {
+test('hos idme selepas hantar tanpa borang mahupun papan pemuka -> sesi-tidak-dapat-disahkan (transient), sebab menamakan hos', async () => {
   const adapter = buatHalamanLoginPalsu({ sesiSah: false, dashboardIdMe: false, borangKekal: false });
   const hasil = await jalankanLoginAuto(adapter, KRED);
-  assert.equal(hasil.status, 'perlu-manusia');
-  assert.equal(hasil.perluManusia, true);
+  assert.equal(hasil.status, 'sesi-tidak-dapat-disahkan');
+  assert.equal(hasil.perluManusia, false);
   assert.match(hasil.sebab, /hos ialah idme\.moe\.gov\.my/);
 });
 
@@ -342,7 +347,9 @@ test('pengurus + hadKadar: 3 kegagalan berturut-turut disekat sebagai had-kegaga
   let panggil = 0;
   const pengurus = buatPengurusLoginAuto({
     adaKredensial: () => true,
-    jalankan: async () => { panggil++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'gagal (ujian)' }; },
+    // Penolakan kredensial SEBENAR (bukti kredensial-ditolak) — inilah satu-satunya
+    // jenis kegagalan yang mesti dikira sebagai strike (lihat klasifikasiHasilLogin).
+    jalankan: async () => { panggil++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'kredensial ditolak (ujian)', bukti: ['kredensial-ditolak'] }; },
     jedaMs: 0,
     hadKadar
   });
@@ -375,21 +382,26 @@ test('pengurus + hadKadar: had 6/jam disekat sebagai had-kadar apabila tiada keg
   const hasil = await pengurus.cubaAuto();
   assert.equal(panggil, 0, 'jalankan tidak boleh dipanggil apabila had jam sudah dicapai');
   assert.equal(hasil.status, 'had-kadar');
-  assert.equal(hasil.perluManusia, true);
+  // v1.11.22 Gap 3: had SEJAM ialah tunggu SEMENTARA (bukan sekatan kekal) —
+  // perluManusia:false supaya pemulihan/cubaan semula automatik diteruskan
+  // selepas tetingkap gelongsor, bukan berhenti menunggu manusia.
+  assert.equal(hasil.perluManusia, false);
+  assert.equal(hasil.kelas, 'transient');
+  assert.equal(hasil.cubaSemula.jenis, 'tetingkap-jam');
 });
 
 test('pengurus + hadKadar: siling kadar KEKAL merentas restart (dua pengurus kongsi storan)', async () => {
   const storan = storanKadarPalsu();
   const buat = () => buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
 
-  const proses1 = buatPengurusLoginAuto({ adaKredensial: () => true, jalankan: async () => ({ status: 'perlu-manusia', perluManusia: true, sebab: 'gagal' }), jedaMs: 0, hadKadar: buat() });
+  const proses1 = buatPengurusLoginAuto({ adaKredensial: () => true, jalankan: async () => ({ status: 'perlu-manusia', perluManusia: true, sebab: 'kredensial ditolak (ujian)', bukti: ['kredensial-ditolak'] }), jedaMs: 0, hadKadar: buat() });
   await proses1.cubaAuto();
   await proses1.cubaAuto();
   await proses1.cubaAuto(); // 3 kegagalan berturut-turut -> disekat
 
   // "Restart" — pengurus baharu membaca storan kadar yang sama.
   let panggil2 = 0;
-  const proses2 = buatPengurusLoginAuto({ adaKredensial: () => true, jalankan: async () => { panggil2++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'gagal' }; }, jedaMs: 0, hadKadar: buat() });
+  const proses2 = buatPengurusLoginAuto({ adaKredensial: () => true, jalankan: async () => { panggil2++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'kredensial ditolak (ujian)', bukti: ['kredensial-ditolak'] }; }, jedaMs: 0, hadKadar: buat() });
   const hasil = await proses2.cubaAuto();
   assert.equal(panggil2, 0, 'restart tidak boleh menetapkan semula siling kadar');
   assert.equal(hasil.status, 'had-kegagalan-berturut');
@@ -652,4 +664,423 @@ test('cubaLoginAutoKerja paksa: had cubaan dikongsi dengan startup (satu kaunter
   assert.equal(pertama.hasil.status, 'perlu-manusia');
   assert.equal(kedua.hasil.status, 'perlu-manusia');
   assert.equal(ketiga.hasil.status, 'had-cubaan');
+});
+
+// ---------------- klasifikasiHasilLogin + single-flight (pembetulan Astra) ----------------
+
+test('klasifikasiHasilLogin: mengelaskan hasil dengan betul (berjaya/penolakan-kredensial/perlu-manusia/transient)', () => {
+  // v1.11.22 Gap 1: 'sesi-tamat'/bukti sesi-tidak-sah ialah sesi TIDAK DAPAT
+  // DISAHKAN, bukan bukti kredensial ditolak — kini transient/perlu-manusia
+  // mengikut status, TIDAK PERNAH lagi disalah anggap sebagai strike kredensial.
+  assert.equal(klasifikasiHasilLogin({ status: 'sesi-tamat' }), 'transient');
+  assert.equal(klasifikasiHasilLogin({ status: 'sesi-tidak-dapat-disahkan', bukti: ['sesi-tidak-dapat-disahkan'] }), 'transient');
+  // status keras 'perlu-manusia' MENANG di atas bukti sesi-tidak-sah (bukan lagi
+  // dianggap penolakan kredensial hanya kerana sesi tidak disahkan).
+  assert.equal(klasifikasiHasilLogin({ status: 'perlu-manusia', bukti: ['sesi-tidak-sah'] }), 'perlu-manusia');
+  assert.equal(klasifikasiHasilLogin({ status: 'gagal', bukti: ['ralat-teknikal'] }), 'transient');
+  assert.equal(klasifikasiHasilLogin({ status: 'langkau' }), 'transient');
+  assert.equal(klasifikasiHasilLogin({ status: 'perlu-manusia', perluManusia: true, bukti: ['otp-selepas-hantar'] }), 'perlu-manusia');
+  assert.equal(klasifikasiHasilLogin({ status: 'kunci-tidak-padan', perluManusia: true, bukti: ['kunci-tidak-padan'] }), 'perlu-manusia');
+  // isyarat penolakan kredensial EKSPLISIT sahaja dikira strike.
+  assert.equal(klasifikasiHasilLogin({ status: 'kredensial-ditolak' }), 'penolakan-kredensial');
+  assert.equal(klasifikasiHasilLogin({ status: 'perlu-manusia', bukti: ['kredensial-ditolak'] }), 'penolakan-kredensial');
+  // Bendera perlu-manusia keras MESTI mendahului transient umum walaupun status
+  // longgar (cth 'gagal') — bukti campuran tidak boleh diturunkan taraf.
+  assert.equal(klasifikasiHasilLogin({ status: 'gagal', bukti: ['otp-selepas-hantar'] }), 'perlu-manusia');
+  assert.equal(klasifikasiHasilLogin({ status: 'sesi-sah' }), 'berjaya');
+  assert.equal(klasifikasiHasilLogin(null), 'transient');
+  assert.equal(klasifikasiHasilLogin(undefined), 'transient');
+});
+
+test('pengurus + hadKadar: kegagalan TRANSIENT berulang TIDAK melatch had-kegagalan-berturut', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => ({ status: 'gagal', perluManusia: true, sebab: 'ralat teknikal (ujian)', bukti: ['ralat-teknikal'] }),
+    jedaMs: 0,
+    hadKadar
+  });
+  for (let i = 0; i < 5; i++) await pengurus.cubaAuto();
+  assert.equal(hadKadar.statusRingkas().kegagalanBerturut, 0, 'ralat sementara tidak boleh menambah kegagalan berturut-turut');
+  assert.equal(hadKadar.bolehCuba(), true, 'tiada latch kekal selepas ralat sementara berulang');
+});
+
+test('pengurus + hadKadar: HANYA penolakan kredensial dikira strike — 3 kali disekat, 3-strike tidak boleh jadi 4', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  let panggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggil++; return { status: 'perlu-manusia', perluManusia: true, sebab: 'kredensial ditolak (ujian)', bukti: ['kredensial-ditolak'] }; },
+    jedaMs: 0,
+    hadKadar
+  });
+  await pengurus.cubaAuto();
+  await pengurus.cubaAuto();
+  await pengurus.cubaAuto();
+  const keempat = await pengurus.cubaAuto();
+  assert.equal(panggil, 3, 'jalankan mesti dipanggil tepat 3 kali');
+  assert.equal(keempat.status, 'had-kegagalan-berturut');
+  assert.equal(hadKadar.statusRingkas().kegagalanBerturut, 3, '3-strike tidak boleh menjadi 4');
+});
+
+test('pengurus: single-flight — dua panggilan cubaAuto() serentak berkongsi SATU pelaksanaan jalankan', async () => {
+  let panggilJalankan = 0;
+  let lepaskan;
+  const gerbang = new Promise((selesai) => { lepaskan = selesai; });
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggilJalankan++; await gerbang; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0
+  });
+  const p1 = pengurus.cubaAuto();
+  const p2 = pengurus.cubaAuto();
+  lepaskan();
+  const [h1, h2] = await Promise.all([p1, p2]);
+  assert.equal(panggilJalankan, 1, 'jalankan mesti dipanggil tepat sekali walaupun dua panggilan serentak');
+  assert.equal(h1.status, 'sesi-sah');
+  assert.equal(h2.status, 'sesi-sah');
+});
+
+test('cubaLoginAutoKerja: sesi SAH (cache) -> tiada cubaan log masuk kredensial walaupun hadKadar disekat 3-strike', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  assert.equal(hadKadar.bolehCuba(), false, 'pra-syarat: hadKadar mesti disekat 3-strike');
+
+  let cubaSekaliDipanggil = 0;
+  const hasil = await cubaLoginAutoKerja({
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => true,
+    sesiDisahkan: async () => ({ ada: true }),
+    cubaSekaliLogin: async () => { cubaSekaliDipanggil++; return {}; },
+    tulisLog: () => {}
+  });
+  assert.equal(hasil.cuba, false, 'sesi sudah sah -> tiada cubaan log masuk kredensial');
+  assert.equal(cubaSekaliDipanggil, 0, 'cubaSekaliLogin tidak boleh dipanggil apabila sesi cache sudah sah');
+});
+
+test('WIRING: buatHadKadarLogin sebenar + buatPengurusLoginAuto sebenar + cubaLoginAutoKerja sebenar — sesi tamat pulih bersih', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  const adapter = buatHalamanLoginPalsu();
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: () => jalankanLoginAuto(adapter, KRED),
+    jedaMs: 0,
+    hadKadar
+  });
+  const hasil = await cubaLoginAutoKerja({
+    bacaTetapan: () => ({ loginAuto: true }),
+    adaKredensial: () => true,
+    sesiDisahkan: async () => ({ ada: false }),
+    cubaSekaliLogin: () => pengurus.cubaAuto(),
+    tulisLog: () => {}
+  });
+  assert.equal(hasil.cuba, true);
+  assert.equal(hasil.hasil.status, 'sesi-sah');
+  assert.equal(hadKadar.statusRingkas().kegagalanBerturut, 0);
+});
+
+test('pengurus: hasil transient TIDAK ditanda perluManusia (pemulihan auto-mula TIDAK berhenti pada ralat sementara)', async () => {
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => ({ status: 'gagal', perluManusia: true, sebab: 'ralat teknikal (ujian)', bukti: ['ralat-teknikal'] }),
+    jedaMs: 0
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(hasil.kelas, 'transient');
+  assert.equal(hasil.perluManusia, false, 'ralat sementara mesti dilihat tidak-perlu-manusia supaya pemulihan diteruskan');
+});
+
+test('pengurus: hasil penolakan kredensial KEKAL perluManusia:true (berhenti untuk manusia)', async () => {
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => ({ status: 'perlu-manusia', perluManusia: true, sebab: 'kredensial ditolak (ujian)', bukti: ['kredensial-ditolak'] }),
+    jedaMs: 0
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(hasil.kelas, 'penolakan-kredensial');
+  assert.equal(hasil.perluManusia, true, 'penolakan kredensial mesti kekal perlu-manusia');
+});
+
+// ---------------- v1.11.22 Gap 2: hasil malformed/null daripada jalankan() ----------------
+
+test('pengurus: jalankan() memulangkan null -> tidak melontar, dilayan sebagai transient', async () => {
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => null,
+    jedaMs: 0
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(hasil.kelas, 'transient');
+  assert.equal(hasil.perluManusia, false);
+  assert.equal(hasil.status, 'gagal');
+});
+
+test('pengurus: jalankan() memulangkan rentetan (bukan objek) -> tidak melontar, dilayan sebagai transient', async () => {
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => 'ralat-mentah-bukan-objek',
+    jedaMs: 0
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(hasil.kelas, 'transient');
+  assert.equal(hasil.perluManusia, false);
+});
+
+// ---------------- v1.11.22 Gap 3: had kadar sejam/harian ialah TRANSIENT (retry-after), bukan sekatan kekal ----------------
+
+test('pengurus + hadKadar: had TETINGKAP SEJAM disekat -> had-kadar, perluManusia:false, cubaSemula.tetingkap-jam', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  for (let i = 0; i < 6; i++) hadKadar.catatPercubaan();
+  assert.equal(hadKadar.bolehCuba(), false, 'pra-syarat: tetingkap sejam mesti penuh');
+
+  let panggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggil++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(panggil, 0);
+  assert.equal(hasil.status, 'had-kadar');
+  assert.equal(hasil.perluManusia, false, 'had jam ialah tunggu sementara, BUKAN sekatan kekal — pemulihan mesti diteruskan');
+  assert.equal(hasil.kelas, 'transient');
+  assert.equal(hasil.cubaSemula.jenis, 'tetingkap-jam');
+  assert.equal(typeof hasil.cubaSemula.selepasMs, 'number');
+});
+
+test('pengurus + hadKadar: siling HARIAN disekat -> had-harian, perluManusia:false, cubaSemula.hari-baharu, bilHariIni TIDAK dilupakan', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  for (let pusingan = 0; pusingan < 24; pusingan++) { hadKadar.catatPercubaan(); hadKadar.catatKejayaan(); }
+  assert.equal(hadKadar.bolehCuba(), false, 'pra-syarat: siling harian mesti penuh');
+
+  let panggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggil++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(panggil, 0);
+  assert.equal(hasil.status, 'had-harian');
+  assert.equal(hasil.perluManusia, false, 'siling harian ialah tunggu sementara, BUKAN sekatan kekal');
+  assert.equal(hasil.kelas, 'transient');
+  assert.equal(hasil.cubaSemula.jenis, 'hari-baharu');
+  assert.match(hasil.cubaSemula.hariIso, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(hadKadar.statusRingkas().bilHariIni, 24, 'siling harian tidak boleh dilupakan/dikosongkan oleh laluan sekatan');
+});
+
+test('pengurus + hadKadar: 3-strike kegagalan berturut-turut KEKAL had-kegagalan-berturut, perluManusia:true (sekatan kekal, bukan retry-after)', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => ({ status: 'sesi-sah', sesiSah: true }),
+    jedaMs: 0,
+    hadKadar
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(hasil.status, 'had-kegagalan-berturut');
+  assert.equal(hasil.perluManusia, true, '3-strike ialah sekatan keselamatan kekal — mesti berhenti untuk manusia');
+  assert.equal(hasil.kelas, 'perlu-manusia');
+  assert.equal(hasil.cubaSemula, undefined, 'sekatan kekal tidak membawa isyarat cubaSemula');
+});
+
+test('pengurus + hadKadar: keadaan ROSAK disekat sebagai had-kadar perluManusia:true (gagal tertutup kekal)', async () => {
+  const hadKadar = buatHadKadarLogin({ baca: () => { throw new Error('rosak'); }, tulis: () => {}, sekarangMs: () => Date.now() });
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => ({ status: 'sesi-sah', sesiSah: true }),
+    jedaMs: 0,
+    hadKadar
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(hasil.status, 'had-kadar');
+  assert.equal(hasil.perluManusia, true, 'fail rosak mesti kekal gagal tertutup — bukan retry-after');
+});
+
+// ---------------- v1.11.22 Gap 4: probe sesi langsung mendahului gerbang had kadar ----------------
+
+test('pengurus + hadKadar: sesiSah() probe {ada:true} memintas gerbang had kadar walaupun disekat 3-strike, TIADA belanjawan digunakan', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  assert.equal(hadKadar.bolehCuba(), false, 'pra-syarat: disekat 3-strike');
+  const bilPercubaanSebelum = hadKadar.bilPercubaan();
+
+  let panggilJalankan = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggilJalankan++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar,
+    sesiSah: async () => ({ ada: true })
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(hasil.status, 'sesi-sah');
+  assert.equal(hasil.perluManusia, false);
+  assert.equal(panggilJalankan, 0, 'jalankan (log masuk kredensial) tidak boleh dipanggil apabila probe sesi mengesahkan sesi sudah sah');
+  assert.equal(hadKadar.bilPercubaan(), bilPercubaanSebelum, 'probe TIDAK boleh menggunakan belanjawan (catatPercubaan)');
+});
+
+test('pengurus + hadKadar: sesiSah() probe {ada:false} -> gerbang had kadar dinilai seperti biasa', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  let panggilJalankan = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggilJalankan++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar,
+    sesiSah: async () => ({ ada: false })
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(panggilJalankan, 1, 'sesi tidak sah -> log masuk sebenar mesti dicuba seperti biasa');
+  assert.equal(hasil.status, 'sesi-sah');
+});
+
+test('pengurus TANPA hadKadar: sesiSah disuntik tetapi diabaikan (probe hanya bermakna apabila hadKadar hadir)', async () => {
+  let panggilSesiSah = 0;
+  let panggilJalankan = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggilJalankan++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    sesiSah: async () => { panggilSesiSah++; return { ada: true }; }
+  });
+  await pengurus.cubaAuto();
+  assert.equal(panggilSesiSah, 0, 'tanpa hadKadar, probe sesiSah tidak dirujuk (had asal 2 cubaan/proses kekal tidak berubah)');
+  assert.equal(panggilJalankan, 1);
+});
+
+// ---------------- v1.11.22 Gap 5: pemulihan tetapkanSemulaLatch (pemilik tempatan) ----------------
+
+test('WIRING: selepas hadKadar.tetapkanSemulaLatch(), pengurus.cubaAuto() meneruskan aliran normal bersempadan (tiada belanjawan tambahan)', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  hadKadar.catatPercubaan(); hadKadar.catatKegagalan();
+  assert.equal(hadKadar.bolehCuba(), false, 'pra-syarat: latch 3-strike aktif');
+
+  hadKadar.tetapkanSemulaLatch();
+  assert.equal(hadKadar.bolehCuba(), true, 'latch mesti dikosongkan oleh tindakan pemilik eksplisit');
+
+  let panggil = 0;
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggil++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(panggil, 1, 'aliran normal diteruskan selepas tetapan semula latch');
+  assert.equal(hasil.status, 'sesi-sah');
+  // Tiada belanjawan TAMBAHAN diberikan — bilHariIni sedia ada (3, daripada 3
+  // catatPercubaan sebelum latch) dikekalkan dan bertambah SATU sahaja untuk
+  // cubaan baharu ini (4) — tetapkanSemulaLatch bukan reset penuh siling harian.
+  assert.equal(hadKadar.statusRingkas().bilHariIni, 4, 'siling harian sedia ada (3) + satu cubaan baharu = 4, BUKAN direset ke 0/1');
+});
+
+// ---------------- v1.11.23: probe-sesi.mjs (cache-less) berwayar hujung-ke-hujung dengan pengurus ----------------
+// Menggantikan wiring cache-dahulu lama (sesiSahProbeLangsung, v1.11.22 Gap 4)
+// yang tersilap mempercayai cache STALE selepas tugasan mendedahkan
+// sesi-tamat. Ujian ini menyambungkan buatProbeSesiLangsung SEBENAR (bukan
+// double `sesiSah` generik seperti ujian di atas) kepada buatPengurusLoginAuto
+// + buatHadKadarLogin SEBENAR untuk mengesahkan kontrak belanjawan.
+
+test('v1.11.23: sesi LIVE sah -> {ada:true}, log masuk sebenar TIDAK dipanggil, SIFAR belanjawan digunakan', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  const bilPercubaanSebelum = hadKadar.bilPercubaan();
+  let panggilProbeLangsung = 0;
+  let panggilJalankan = 0;
+  const probeSesiLangsung = buatProbeSesiLangsung({
+    probeLangsung: async () => { panggilProbeLangsung++; return { status: 'sesi-sah' }; }
+  });
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggilJalankan++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar,
+    sesiSah: probeSesiLangsung
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(panggilProbeLangsung, 1, 'probe langsung mesti benar-benar dijalankan');
+  assert.equal(panggilJalankan, 0, 'sesi sudah sah -> log masuk kredensial sebenar tidak boleh dipanggil');
+  assert.equal(hasil.status, 'sesi-sah');
+  assert.equal(hasil.perluManusia, false);
+  assert.equal(hadKadar.bilPercubaan(), bilPercubaanSebelum, 'SIFAR belanjawan digunakan apabila probe langsung mengesahkan sesi sudah sah');
+});
+
+test('v1.11.23: probe langsung profil-sibuk/ralat (unknown/busy) -> tangguh, SIFAR belanjawan, log masuk sebenar TIDAK dipanggil', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  const bilPercubaanSebelum = hadKadar.bilPercubaan();
+  let panggilJalankan = 0;
+  const probeSesiLangsung = buatProbeSesiLangsung({
+    probeLangsung: async () => { const e = new Error('Profil Edge sedang digunakan.'); e.langkau = true; throw e; }
+  });
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggilJalankan++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar,
+    sesiSah: probeSesiLangsung
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(panggilJalankan, 0, 'profil sibuk/tidak diketahui -> log masuk kredensial sebenar TIDAK PERNAH dicuba pada kitaran ini');
+  assert.equal(hasil.status, 'langkau');
+  assert.equal(hasil.kelas, 'transient');
+  assert.equal(hasil.perluManusia, false, 'tangguhan bukan strike, bukan berhenti-untuk-manusia');
+  assert.equal(hadKadar.bilPercubaan(), bilPercubaanSebelum, 'SIFAR belanjawan digunakan semasa tangguh (catatPercubaan tidak boleh dipanggil)');
+});
+
+test('v1.11.23: stale-positive dielakkan — cache luar mendakwa sesi-sah tetapi probe LANGSUNG (live) melapor sesi-tamat -> gerbang had kadar dinilai SEBENAR (belanjawan digunakan, log masuk sebenar dicuba)', async () => {
+  const storan = storanKadarPalsu();
+  const hadKadar = buatHadKadarLogin({ baca: storan.baca, tulis: storan.tulis, sekarangMs: () => Date.now() });
+  const bilHariIniSebelum = hadKadar.statusRingkas().bilHariIni;
+  // Cache luar (mis. status-sesi.json v1.11.22 lama) mendakwa sesi sah — probe
+  // BAHARU tidak menerima/merujuk cache ini langsung sama sekali (tiada
+  // parameter cache dalam buatProbeSesiLangsung); satu-satunya kebenaran ialah
+  // probeLangsung (siasatan LIVE).
+  const cacheLuarStalePositif = { sesiAda: true };
+  let panggilJalankan = 0;
+  const probeSesiLangsung = buatProbeSesiLangsung({
+    probeLangsung: async () => {
+      // Siasatan LIVE sebenar mendedahkan sesi SUDAH tamat walaupun cache luar
+      // (tidak disuntik/tidak dirujuk di sini) masih mendakwa sesi-sah.
+      assert.equal(cacheLuarStalePositif.sesiAda, true, 'cache luar kekal stale-positive sepanjang ujian ini — bukti ia tidak pernah "diperbetulkan" oleh probe');
+      return { status: 'sesi-tamat', sebab: 'Borang log masuk masih ada.' };
+    }
+  });
+  const pengurus = buatPengurusLoginAuto({
+    adaKredensial: () => true,
+    jalankan: async () => { panggilJalankan++; return { status: 'sesi-sah', sesiSah: true }; },
+    jedaMs: 0,
+    hadKadar,
+    sesiSah: probeSesiLangsung
+  });
+  const hasil = await pengurus.cubaAuto();
+  assert.equal(panggilJalankan, 1, 'sesi sebenarnya tamat -> log masuk kredensial sebenar MESTI dicuba (bukan disekat oleh cache stale)');
+  assert.equal(hasil.status, 'sesi-sah');
+  // bilPercubaan() (tetingkap SEJAM) kembali 0 selepas kejayaan kerana
+  // catatKejayaan() mengosongkan tetingkap sejam — bukti belanjawan
+  // sebenarnya DIGUNAKAN ialah siling HARIAN (bilHariIni), yang TIDAK
+  // dikosongkan oleh kejayaan (lihat ujian WIRING tetapkanSemulaLatch di atas).
+  assert.equal(hadKadar.statusRingkas().bilHariIni, bilHariIniSebelum + 1, 'sesi tamat SEBENAR memang layak membelanjakan SATU cubaan belanjawan (siling harian bertambah)');
 });

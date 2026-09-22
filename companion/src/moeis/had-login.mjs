@@ -157,7 +157,7 @@ export function buatHadKadarLogin({
     if (typeof tulis === 'function') {
       tulis({
         percubaan: dalamTetingkapJam(keadaanAsas.percubaan, s.sekarang),
-        kegagalanBerturut: (s.rosak ? 0 : keadaanAsas.kegagalanBerturut) + 1,
+        kegagalanBerturut: Math.min((s.rosak ? 0 : keadaanAsas.kegagalanBerturut) + 1, hadKegagalanBerturut),
         hariIso: s.hariSemasa,
         bilHariIni: s.rosak ? 0 : s.bilHariIniEfektif
       });
@@ -166,6 +166,12 @@ export function buatHadKadarLogin({
 
   // Petikan status ringkas untuk UI/status endpoints — tiada nilai kredensial,
   // hanya pembilang dan sebab generik jika diblok.
+  //
+  // `jenisSekat` (v1.11.22 Gap 3) membezakan sekatan SEMENTARA (had sejam/hari
+  // — belanjawan akan pulih dengan sendirinya, jangan pernah dilaporkan sebagai
+  // "perlu manusia") daripada sekatan KEKAL (3-kegagalan-berturut atau gagal
+  // tertutup — memerlukan tindakan pemilik/manusia). `cubaSemulaSelepasMs`/
+  // `cubaSemulaHariIso` ialah petunjuk retry-after untuk kes sementara sahaja.
   function statusRingkas() {
     const s = snapshot();
     // Angka SEBENAR yang tersimpan sahaja. Apabila keadaan tidak boleh dibaca
@@ -178,19 +184,59 @@ export function buatHadKadarLogin({
     const kegagalanBerturut = bolehBaca ? s.keadaan.kegagalanBerturut : null;
     const diblok = !bolehCuba();
     let sebab = null;
-    if (s.rosak) sebab = 'Keadaan had kadar log masuk rosak/tidak boleh dibaca; log masuk automatik diblok sehingga log masuk manual berjaya.';
-    else if (s.gulungBalik) sebab = 'Jam sistem nampak digulung ke belakang merentas sempadan hari; log masuk automatik diblok (gagal tertutup).';
-    else if (kegagalanBerturut >= hadKegagalanBerturut) sebab = `${hadKegagalanBerturut} kegagalan log masuk automatik berturut-turut; berhenti serta-merta sehingga log masuk manual berjaya.`;
-    else if (bilHariIni >= silingHarian) sebab = `Siling harian ${silingHarian} percubaan dicapai; cuba lagi esok atau log masuk manual.`;
-    else if (diblok) sebab = `Had ${hadJam} percubaan/jam dicapai; cuba lagi selepas tetingkap sejam gelongsor.`;
+    let jenisSekat = null;
+    let cubaSemulaSelepasMs = null;
+    let cubaSemulaHariIso = null;
+    if (s.rosak) {
+      sebab = 'Keadaan had kadar log masuk rosak/tidak boleh dibaca; log masuk automatik diblok sehingga log masuk manual berjaya.';
+      jenisSekat = 'rosak';
+    } else if (s.gulungBalik) {
+      sebab = 'Jam sistem nampak digulung ke belakang merentas sempadan hari; log masuk automatik diblok (gagal tertutup).';
+      jenisSekat = 'gulung-balik';
+    } else if (kegagalanBerturut >= hadKegagalanBerturut) {
+      sebab = `${hadKegagalanBerturut} kegagalan log masuk automatik berturut-turut; berhenti serta-merta sehingga log masuk manual berjaya.`;
+      jenisSekat = 'kegagalan-berturut';
+    } else if (bilHariIni >= silingHarian) {
+      sebab = `Siling harian ${silingHarian} percubaan dicapai; cuba lagi esok atau log masuk manual.`;
+      jenisSekat = 'siling-harian';
+      cubaSemulaHariIso = hariIsoDaripadaMs(s.sekarang + 24 * 60 * 60 * 1000);
+    } else if (diblok) {
+      sebab = `Had ${hadJam} percubaan/jam dicapai; cuba lagi selepas tetingkap sejam gelongsor.`;
+      jenisSekat = 'tetingkap-jam';
+      const aktifJam = dalamTetingkapJam(s.keadaan.percubaan, s.sekarang);
+      const tertua = aktifJam.length ? Math.min(...aktifJam) : s.sekarang;
+      cubaSemulaSelepasMs = tertua + tetingkapJamMs + 1;
+    }
     return {
       bilJam, hadJam,
       bilHariIni, silingHarian,
       kegagalanBerturut, hadKegagalanBerturut,
       diblok, sebab,
-      hariIso: bolehBaca ? s.hariSemasa : null
+      hariIso: bolehBaca ? s.hariSemasa : null,
+      jenisSekat, cubaSemulaSelepasMs, cubaSemulaHariIso
     };
   }
 
-  return { bolehCuba, catatPercubaan, catatKejayaan, catatKegagalan, bilPercubaan, statusRingkas };
+  // Tindakan pemilik TEMPATAN eksplisit (v1.11.22 Gap 5) — mengosongkan HANYA
+  // pembilang kegagalan-berturut-turut (latch 3-strike); tetingkap sejam DAN
+  // bilHariIni DIKEKALKAN (berbeza daripada catatKejayaan(), yang mengosongkan
+  // tetingkap sejam kerana ia mewakili kejayaan log masuk sebenar). TIADA
+  // migrasi/tetapan-semula automatik pada bila-bila baca — nilai legasi >had
+  // kekal dilaporkan jujur oleh statusRingkas() sehingga fungsi ini dipanggil
+  // SECARA EKSPLISIT (endpoint /api/lokal/had-kadar-tetapkan-semula, pengesahan
+  // wajib). Tindakan ini TIDAK memberi sebarang belanjawan tambahan.
+  function tetapkanSemulaLatch() {
+    const s = snapshot();
+    const keadaanAsas = s.rosak ? KEADAAN_KOSONG : s.keadaan;
+    if (typeof tulis === 'function') {
+      tulis({
+        percubaan: dalamTetingkapJam(keadaanAsas.percubaan, s.sekarang),
+        kegagalanBerturut: 0,
+        hariIso: s.hariSemasa,
+        bilHariIni: s.rosak ? 0 : s.bilHariIniEfektif
+      });
+    }
+  }
+
+  return { bolehCuba, catatPercubaan, catatKejayaan, catatKegagalan, tetapkanSemulaLatch, bilPercubaan, statusRingkas };
 }

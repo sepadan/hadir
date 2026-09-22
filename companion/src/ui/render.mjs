@@ -115,6 +115,8 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 <label><input id="hadKadarLogin" type="checkbox" style="width:auto;display:inline" /> Had kadar login auto berterusan — pulihkan sesi idMe sepanjang hari tanpa restart (opt-in, lalai MATI)</label>
 <div class="amaran">AMARAN: Apabila dihidupkan, had 2 cubaan per proses DIGANTIKAN oleh siling kadar BERTERUSAN merentas restart dan merentas hari: 6 cubaan/jam gelongsor, siling harian 24 (TIDAK dikosongkan oleh kejayaan), berhenti serta-merta selepas 3 kegagalan berturut-turut. OTP/CAPTCHA/2FA kekal berhenti untuk manusia, tidak pernah dipintas. Anda boleh mematikannya semula bila-bila masa.</div>
 <div id="hadKadarLoginStatus" class="status" style="margin-top:2px"></div>
+<button id="btnTetapkanSemulaLatch" style="display:none">Tetapkan semula sekatan kegagalan berturut-turut</button>
+<div class="status">Tindakan ini HANYA mengosongkan pembilang kegagalan berturut-turut (sekatan 3-strike). Siling sejam/harian sedia ada dan kredensial TIDAK disentuh; tiada belanjawan tambahan diberikan.</div>
 <label for="tarikhBaru">Tambah tarikh sekolah (YYYY-MM-DD) — allowlist auto-mula giliran</label>
 <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
   <input id="tarikhBaru" type="text" autocomplete="off" placeholder="2026-12-05" style="flex:1" />
@@ -227,6 +229,12 @@ export function halamanLokalJs() {
            (had.diblok ? (' — DIBLOK: ' + (had.sebab || '')) : ''))
         : 'MATI (lalai) — had 2 cubaan per proses digunakan';
       papar('hadKadarLoginStatus', hadTeks);
+      // Tindakan pemulihan pemilik tempatan (v1.11.22 Gap 5): hanya dipaparkan
+      // apabila sekatan 3-strike KEKAL sedang aktif — had sejam/harian ialah
+      // tunggu sementara sahaja dan pulih dengan sendirinya, jadi butang tidak
+      // perlu/tidak dipaparkan untuk kes itu.
+      var btnResetLatch = document.getElementById('btnTetapkanSemulaLatch');
+      btnResetLatch.style.display = (tetapan.hadKadarLogin === true && had.jenisSekat === 'kegagalan-berturut') ? '' : 'none';
       kalendarSemasa = (tetapan.kalendarSekolah || []).slice();
       renderKalendar();
       var kal = r.kalendar || {};
@@ -334,6 +342,14 @@ export function halamanLokalJs() {
   document.getElementById('hadKadarLogin').addEventListener('change', function () {
     panggil('/api/lokal/tetapan', 'POST', { hadKadarLogin: document.getElementById('hadKadarLogin').checked }).then(function (r) {
       papar('statusTetapan', r.ok ? 'Suis had kadar login auto berterusan disimpan.' : (r.ralat || 'Ralat.'));
+      muatStatus();
+    });
+  });
+  document.getElementById('btnTetapkanSemulaLatch').addEventListener('click', function () {
+    var ok = confirm('Tetapkan semula sekatan kegagalan berturut-turut log masuk automatik? Siling sejam/harian sedia ada TIDAK disentuh; tiada belanjawan tambahan diberikan.');
+    if (!ok) return;
+    panggil('/api/lokal/had-kadar-tetapkan-semula', 'POST', { sah: true }).then(function (r) {
+      papar('hadKadarLoginStatus', r.ok ? 'Sekatan kegagalan berturut-turut ditetapkan semula.' : (r.ralat || 'Ralat.'));
       muatStatus();
     });
   });

@@ -5,7 +5,7 @@
 // kaedah "klik"/"isi").
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sahkanHos, jalankanUjiLogin, adaSesiMoeis, tentukanStatusSelepasHantar } from '../src/moeis/sesi.mjs';
+import { sahkanHos, jalankanUjiLogin, adaSesiMoeis, tentukanStatusSelepasHantar, SUMBER_REGEX_PENOLAKAN_KREDENSIAL } from '../src/moeis/sesi.mjs';
 import { buatHalamanPalsu, MURID_MOEIS_CONTOH } from './fixtures/halamanPalsu.mjs';
 
 // ---------------- sahkanHos ----------------
@@ -205,4 +205,60 @@ test('tentukanStatusSelepasHantar: hos bukan idMe/moeispel (cth portal captive) 
   const r = tentukanStatusSelepasHantar({ hos: 'captive.evil.example', borangLogin: false, dashboardIdMe: true });
   assert.equal(r.status, 'sesi-tamat');
   assert.match(r.sebab, /hos ialah captive\.evil\.example/);
+});
+
+// ---------------- kredensialDitolak (penolakan kredensial EKSPLISIT, v1.11.22) ----------------
+// Isyarat positif berasingan daripada "sesi tidak dapat disahkan" (yang boleh
+// bermakna apa sahaja daripada ralat rangkaian ke halaman separuh dimuatkan).
+// kredensialDitolak:true bermakna idMe SENDIRI memaparkan penolakan kredensial
+// eksplisit (kata laluan/IC salah) — SATU-SATUNYA isyarat yang boleh mengira
+// strike terhadap had 3-kegagalan-berturut (lihat klasifikasiHasilLogin).
+
+test('tentukanStatusSelepasHantar: kredensialDitolak:true -> status kredensial-ditolak (penolakan eksplisit)', () => {
+  const r = tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: true, kredensialDitolak: true });
+  assert.equal(r.status, 'kredensial-ditolak');
+  assert.match(r.sebab, /penolakan kredensial/);
+});
+
+test('tentukanStatusSelepasHantar: MOEIS sesi-sah MENANG walaupun kredensialDitolak:true tersilap dihantar', () => {
+  // Susunan diperlukan: (1) MOEIS sesi-sah menang dahulu — mustahil dari segi
+  // logik untuk mencapai MOEIS DAN mempunyai kredensial ditolak serentak, tetapi
+  // susunan ini mengelakkan sebarang kekeliruan input tidak konsisten daripada
+  // menjatuhkan sesi yang jelas sudah sah.
+  const r = tentukanStatusSelepasHantar({ hos: 'moeispel.moe.gov.my', adaKehadiran: true, kredensialDitolak: true });
+  assert.equal(r.status, 'sesi-sah');
+});
+
+test('tentukanStatusSelepasHantar: kredensialDitolak lalai MATI (false) -> tiada regresi kepada laluan sesi-tamat sedia ada', () => {
+  const r1 = tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: true, dashboardIdMe: true });
+  assert.equal(r1.status, 'sesi-tamat');
+  const r2 = tentukanStatusSelepasHantar({ hos: 'idme.moe.gov.my', borangLogin: false, dashboardIdMe: true });
+  assert.equal(r2.status, 'sesi-sah');
+});
+
+// ---------------- SUMBER_REGEX_PENOLAKAN_KREDENSIAL (v1.11.23 — pembetulan pusingan semakan induk) ----------------
+// Set ini mesti kekal KETAT: hanya frasa yang secara literal menamakan kata
+// laluan/IC sebagai salah/tidak betul boleh mengira strike terhadap had
+// 3-kegagalan-berturut. Frasa GENERIK (log masuk gagal/tidak sah, invalid
+// login) turut muncul bagi sesi tamat/ralat rangkaian — mengiranya sebagai
+// strike akan mengunci akaun kerana kegagalan yang bukan salah kredensial.
+
+test('REGEX_PENOLAKAN_KREDENSIAL: frasa EKSPLISIT kata laluan/IC salah dipadankan', () => {
+  const r = new RegExp(SUMBER_REGEX_PENOLAKAN_KREDENSIAL, 'i');
+  assert.equal(r.test('Kata laluan tidak betul.'), true);
+  assert.equal(r.test('Kata laluan salah, sila cuba lagi.'), true);
+  assert.equal(r.test('No. Kad Pengenalan yang dimasukkan salah.'), true);
+  assert.equal(r.test('Incorrect password.'), true);
+  assert.equal(r.test('Invalid password entered.'), true);
+});
+
+test('REGEX_PENOLAKAN_KREDENSIAL: frasa GENERIK "log masuk gagal"/"invalid login" TIDAK dipadankan (bukan strike)', () => {
+  const r = new RegExp(SUMBER_REGEX_PENOLAKAN_KREDENSIAL, 'i');
+  assert.equal(r.test('Log masuk gagal.'), false);
+  assert.equal(r.test('Log masuk tidak sah.'), false);
+  assert.equal(r.test('Maklumat log masuk tidak sah.'), false);
+  assert.equal(r.test('Invalid login.'), false);
+  assert.equal(r.test('Invalid credentials.'), false);
+  assert.equal(r.test('Sesi anda telah tamat.'), false);
+  assert.equal(r.test('Ralat rangkaian, sila cuba lagi.'), false);
 });

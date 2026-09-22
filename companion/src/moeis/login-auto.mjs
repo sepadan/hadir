@@ -58,6 +58,41 @@ import { sahkanHos } from './sesi.mjs';
 
 export const HAD_CUBAAN_MAKS = 2;
 
+// Bukti yang membawa maksud "perlu manusia" (OTP/CAPTCHA/frasa/hos/kotak/
+// medan tiada) — DIPERIKSA SEBELUM fallback transient supaya bukti bercampur
+// (cth status longgar 'gagal' + bukti 'otp-selepas-hantar') tidak diturunkan
+// taraf secara silap kepada transient (v1.11.22 Gap 1).
+const BUKTI_PERLU_MANUSIA = new Set([
+  'captcha-otp-sebelum-menaip', 'otp-selepas-hantar', 'hos-tidak-sah', 'kunci-tidak-padan',
+  'kunci-tiada', 'kotak-pengesahan-gagal', 'medan-ic-tiada', 'medan-kata-laluan-tiada',
+  'butang-hantar-tiada', 'lanjut-pengesahan-gagal', 'kredensial-tidak-lengkap'
+]);
+
+// Klasifikasi hasil log masuk automatik — untuk keputusan had kadar, supaya
+// "setiap kegagalan = kredensial salah" TIDAK berlaku (keperluan semakan Astra):
+//   - 'berjaya'              : sesi sah -> catatKejayaan
+//   - 'penolakan-kredensial' : idMe menolak kredensial SECARA EKSPLISIT
+//                              (status/bukti 'kredensial-ditolak') -> catatKegagalan (strike)
+//   - 'perlu-manusia'        : OTP/CAPTCHA/frasa/hos/kotak -> berhenti manusia, BUKAN strike
+//   - 'transient'            : ralat teknikal/langkau/rangkaian/sesi TIDAK DAPAT
+//                              DISAHKAN (bukan bukti kredensial salah) -> cuba semula, BUKAN strike
+//
+// v1.11.22 Gap 1 (semakan induk): status/bukti 'sesi-tamat'/'sesi-tidak-sah'
+// SAHAJA tidak lagi dikira penolakan kredensial — ia hanya bermakna sesi tidak
+// dapat disahkan selepas hantar (boleh disebabkan ralat rangkaian/halaman
+// separuh dimuatkan), BUKAN bukti bahawa kata laluan/IC yang ditaip salah.
+// Hanya isyarat EKSPLISIT 'kredensial-ditolak' (daripada tentukanStatusSelepasHantar
+// via heuristik teks halaman idMe, lihat adaptorPlaywright.mjs) mengira strike.
+export function klasifikasiHasilLogin(hasil) {
+  if (!hasil || typeof hasil !== 'object') return 'transient';
+  const status = hasil.status;
+  if (status === 'sesi-sah' || hasil.sesiSah === true || status === 'kunci-tiada-dibenarkan') return 'berjaya';
+  const bukti = Array.isArray(hasil.bukti) ? hasil.bukti : [];
+  if (status === 'kredensial-ditolak' || bukti.includes('kredensial-ditolak')) return 'penolakan-kredensial';
+  if (status === 'perlu-manusia' || bukti.some((b) => BUKTI_PERLU_MANUSIA.has(b))) return 'perlu-manusia';
+  return 'transient';
+}
+
 // Aliran tulen terhadap satu `adapter` (lihat adaptorPlaywright.mjs untuk
 // pelaksanaan sebenar; ujian menyuntik adapter palsu). `kredensial` ialah
 // objek { pengguna, kataLaluan, kunciKeselamatan } daripada vault DPAPI.
@@ -243,7 +278,14 @@ async function jalankanLoginAutoTeras(adapter, kredensial, opsyen) {
     };
   }
 
-  // 12. Sahkan sesi terhasil.
+  // 12. Sahkan sesi terhasil — TIGA keputusan jujur berasingan (v1.11.22 Gap 1):
+  //     (a) sesi-sah -> kejayaan; (b) penolakan kredensial EKSPLISIT (idMe
+  //     sendiri memaparkan "kata laluan/IC salah") -> SATU-SATUNYA laluan yang
+  //     mengira strike terhadap had 3-kegagalan-berturut; (c) sebaliknya, sesi
+  //     tidak dapat disahkan (ralat rangkaian/halaman separuh dimuatkan/tidak
+  //     diketahui) -> perluManusia:FALSE, BUKAN bukti kredensial salah, cuba
+  //     semula secara bersempadan pada kitaran seterusnya (bukan strike, bukan
+  //     berhenti-untuk-manusia).
   const sesi = await adapter.sahkanSesiSelepasLogin();
   if (sesi && sesi.status === 'sesi-sah') {
     if (modTanpaFrasa) {
@@ -255,11 +297,49 @@ async function jalankanLoginAutoTeras(adapter, kredensial, opsyen) {
     }
     return { status: 'sesi-sah', perluManusia: false, sebab: 'Log masuk idMe automatik berjaya.', bukti: ['sesi-sah'] };
   }
+  if (sesi && sesi.status === 'kredensial-ditolak') {
+    return {
+      status: 'kredensial-ditolak', perluManusia: true,
+      sebab: sesi.sebab || 'idMe menolak kredensial yang ditaip selepas hantar.',
+      bukti: ['kredensial-ditolak']
+    };
+  }
   return {
-    status: 'perlu-manusia', perluManusia: true,
-    sebab: (sesi && sesi.sebab) || 'Sesi tidak dapat disahkan selepas hantar; semakan manual diperlukan.',
-    bukti: ['sesi-tidak-sah']
+    status: 'sesi-tidak-dapat-disahkan', perluManusia: false,
+    sebab: (sesi && sesi.sebab) ||
+      'Sesi tidak dapat disahkan selepas hantar; bukan bukti kredensial ditolak; cuba semula secara bersempadan.',
+    bukti: ['sesi-tidak-dapat-disahkan']
   };
+}
+
+// Bentuk hasil sekatan had kadar mengikut `jenisSekat` (statusRingkas(),
+// had-login.mjs) — v1.11.22 Gap 3: had SEJAM/HARIAN ialah tunggu SEMENTARA
+// (perluManusia:false, kelas 'transient', + isyarat cubaSemula retry-after) —
+// TIDAK PERNAH menghentikan pemulihan/cubaan-semula kekal. HANYA 3-kegagalan-
+// berturut-turut (strike keselamatan) DAN keadaan gagal-tertutup (fail rosak/
+// jam digulung ke belakang) ialah sekatan KEKAL (perluManusia:true) — belanjawan
+// 6/jam dan 24/hari itu SENDIRI tidak pernah berubah, hanya cara ia dilaporkan.
+function hasilSekatanHadKadar(ringkas) {
+  const jenis = ringkas && ringkas.jenisSekat;
+  const sebab = (ringkas && ringkas.sebab) || 'Had kadar log masuk automatik dicapai; log masuk manusia diperlukan.';
+  if (jenis === 'kegagalan-berturut') {
+    return { status: 'had-kegagalan-berturut', perluManusia: true, kelas: 'perlu-manusia', sebab, bukti: ['had-kadar'] };
+  }
+  if (jenis === 'siling-harian') {
+    return {
+      status: 'had-harian', perluManusia: false, kelas: 'transient', sebab, bukti: ['had-kadar'],
+      cubaSemula: { jenis: 'hari-baharu', hariIso: ringkas && ringkas.cubaSemulaHariIso }
+    };
+  }
+  if (jenis === 'tetingkap-jam') {
+    return {
+      status: 'had-kadar', perluManusia: false, kelas: 'transient', sebab, bukti: ['had-kadar'],
+      cubaSemula: { jenis: 'tetingkap-jam', selepasMs: ringkas && ringkas.cubaSemulaSelepasMs }
+    };
+  }
+  // 'rosak' | 'gulung-balik' | tidak diketahui (statusRingkas tiada) -> gagal
+  // tertutup KEKAL, sama seperti sebelum ini — TIADA isyarat cubaSemula.
+  return { status: 'had-kadar', perluManusia: true, kelas: 'perlu-manusia', sebab, bukti: ['had-kadar'] };
 }
 
 // Pengurus cubaan: menguatkuasakan had log masuk automatik. Lalai pengeluaran
@@ -270,11 +350,44 @@ async function jalankanLoginAutoTeras(adapter, kredensial, opsyen) {
 // tetapan `hadKadarLogin`, bin/hadir-companion.mjs) — kelulusan pemilik
 // 2026-09-21. `adaKredensial` memulangkan boolean (tanpa menyahsulit nilai),
 // `jalankan` ialah tindakan log masuk sebenar (proses anak yang membaca vault
-// sendiri dan menaip — nilai tidak pernah melalui proses ini).
-export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaMs = 5000, hadKadar }) {
+// sendiri dan menaip — nilai tidak pernah melalui proses ini). `sesiSah`
+// (opsyenal, v1.11.22 Gap 4) ialah probe LANGSUNG `() => Promise<{ada}>` yang
+// disemak SEBELUM gerbang had kadar — permintaan baharu (cth Hantar semasa
+// tugasan) boleh guna-semula sesi yang sudah sah tanpa disekat oleh belanjawan
+// yang habis, TANPA menggunakan sebarang belanjawan (tiada catatPercubaan).
+export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaMs = 5000, hadKadar, sesiSah }) {
   let cubaan = 0;
+  let dalamPenerbangan = null;
 
-  async function cubaAuto() {
+  async function laksana() {
+    if (hadKadar && typeof sesiSah === 'function') {
+      let probe = null;
+      try { probe = await sesiSah(); } catch { probe = null; }
+      if (probe && probe.ada === true) {
+        const hasilSedia = {
+          status: 'sesi-sah', perluManusia: false,
+          sebab: 'Sesi idMe sudah sah (probe langsung); tiada log masuk diperlukan.',
+          bukti: ['sesi-sah'], kelas: 'berjaya'
+        };
+        if (tulisLog) tulisLog('LOGIN_AUTO', hasilSedia.status, hasilSedia.sebab);
+        return hasilSedia;
+      }
+      // v1.11.23 (pembetulan sempit): probe TIDAK dapat dijalankan (profil
+      // sibuk/ralat tidak diketahui) -> TANGGUH secara sementara SEBELUM gerbang
+      // had kadar. JANGAN merizab percubaan (catatPercubaan) untuk ini — siasatan
+      // tidak membuktikan sesi tamat, jadi ia bukan "tamat" palsu yang layak
+      // membelanjakan belanjawan; ia hanya dilangkau dan dicuba semula pada
+      // kitaran seterusnya (kelas transient, perluManusia:false).
+      if (probe && probe.tangguh === true) {
+        const hasilTangguh = {
+          status: 'langkau', perluManusia: false, kelas: 'transient',
+          sebab: (probe && probe.sebab) || 'Probe langsung sesi ditangguh (profil sibuk); cuba semula pada kitaran seterusnya.',
+          bukti: ['langkau']
+        };
+        if (tulisLog) tulisLog('LOGIN_AUTO', hasilTangguh.status, hasilTangguh.sebab);
+        return hasilTangguh;
+      }
+    }
     // Silau kadar PERSISTEN (jika disuntik) diambil dahulu; slot DIREZAB sebelum
     // menjalankan log masuk (catatPercubaan) supaya percubaan terhempas di
     // tengah jalan masih dikira. Tanpa hadKadar, kelakuan asal: had 2 cubaan
@@ -282,18 +395,13 @@ export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaM
     if (hadKadar) {
       if (!hadKadar.bolehCuba()) {
         const ringkas = typeof hadKadar.statusRingkas === 'function' ? hadKadar.statusRingkas() : null;
-        const kegagalanBerturut = ringkas && ringkas.kegagalanBerturut >= ringkas.hadKegagalanBerturut;
-        return {
-          status: kegagalanBerturut ? 'had-kegagalan-berturut' : 'had-kadar', perluManusia: true,
-          sebab: (ringkas && ringkas.sebab) || 'Had kadar log masuk automatik dicapai; log masuk manusia diperlukan.',
-          bukti: ['had-kadar']
-        };
+        return hasilSekatanHadKadar(ringkas);
       }
     } else if (cubaan >= HAD_CUBAAN_MAKS) {
       return {
         status: 'had-cubaan', perluManusia: true,
         sebab: `Had ${HAD_CUBAAN_MAKS} cubaan log masuk automatik per proses dicapai; log masuk manusia diperlukan.`,
-        bukti: ['had-cubaan']
+        bukti: ['had-cubaan'], kelas: 'perlu-manusia'
       };
     }
     let ada = false;
@@ -302,7 +410,7 @@ export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaM
       return {
         status: 'tiada-kredensial', perluManusia: true,
         sebab: 'Kredensial idMe belum disimpan pada PC ini.',
-        bukti: ['tiada-kredensial']
+        bukti: ['tiada-kredensial'], kelas: 'perlu-manusia'
       };
     }
     if (hadKadar) hadKadar.catatPercubaan();
@@ -310,17 +418,61 @@ export function buatPengurusLoginAuto({ adaKredensial, jalankan, tulisLog, jedaM
     if (cubaan > 1 && jedaMs > 0) {
       await new Promise((selesai) => setTimeout(selesai, jedaMs * (cubaan - 1)));
     }
-    const hasil = await jalankan();
-    // Berjaya bermakna akaun TIDAK dikunci — kosongkan pembilang kadar.
-    // Kegagalan (apa-apa hasil lain) menambah kegagalanBerturut — 3
-    // berturut-turut berhenti serta-merta sehingga kejayaan memulihkannya.
-    const berjaya = !!(hasil && (hasil.status === 'sesi-sah' || hasil.sesiSah === true || hasil.status === 'kunci-tiada-dibenarkan'));
-    if (hadKadar) {
-      if (berjaya) hadKadar.catatKejayaan();
-      else hadKadar.catatKegagalan();
+    let hasil;
+    try {
+      hasil = await jalankan();
+    } catch (ralat) {
+      hasil = {
+        status: (ralat && ralat.langkau) ? 'langkau' : 'gagal',
+        perluManusia: false,
+        sebab: (ralat && ralat.message) ? String(ralat.message) : 'Ralat teknikal semasa log masuk automatik.',
+        bukti: [(ralat && ralat.langkau) ? 'langkau' : 'ralat-teknikal']
+      };
     }
+    // Gap 2 (v1.11.22): `jalankan()` boleh memulangkan null/undefined/nilai
+    // bukan-objek tanpa melontar (mis. proses anak pulang kod tidak dijangka).
+    // Klasifikasi sudah gagal-selamat kepada 'transient' untuk input begini,
+    // tetapi pengurus SENDIRI melontar apabila cuba menulis `.kelas` ke atas
+    // nilai bukan-objek — tutup lubang itu di sini SEBELUM klasifikasi.
+    if (!hasil || typeof hasil !== 'object') {
+      hasil = {
+        status: 'gagal', perluManusia: false, bukti: ['ralat-teknikal'],
+        sebab: 'Hasil log masuk automatik tiada/malformed.'
+      };
+    }
+    // Klasifikasi hasil menentukan sama ada kegagalan ini dikira sebagai
+    // strike kredensial (had-kegagalan-berturut, 3-strike) — ralat sementara
+    // (rangkaian/teknikal/profil-sibuk) dan sekatan "perlu-manusia" (OTP/
+    // CAPTCHA/frasa/kotak) TIDAK dikira strike; hanya penolakan kredensial
+    // eksplisit dikira.
+    const kelas = klasifikasiHasilLogin(hasil);
+    if (hadKadar) {
+      if (kelas === 'berjaya') hadKadar.catatKejayaan();
+      else if (kelas === 'penolakan-kredensial') hadKadar.catatKegagalan();
+      // 'transient' dan 'perlu-manusia' TIDAK menambah kegagalan berturut-turut.
+    }
+    hasil.kelas = kelas;
+    // Normalkan `perluManusia` mengikut kelas supaya pemulihan auto-mula dan
+    // cubaan-semula tugasan TIDAK berhenti kekal hanya kerana ralat sementara:
+    // 'transient' dan 'berjaya' = TIDAK perlu manusia (cuba semula); 'perlu-manusia'
+    // dan 'penolakan-kredensial' = perlu manusia (berhenti untuk manusia).
+    if (kelas === 'transient' || kelas === 'berjaya') hasil.perluManusia = false;
+    else if (kelas === 'penolakan-kredensial' || kelas === 'perlu-manusia') hasil.perluManusia = true;
     if (tulisLog) tulisLog('LOGIN_AUTO', String(hasil && hasil.status), String((hasil && hasil.sebab) || ''));
     return hasil;
+  }
+
+  // Pengurus tunggal-penerbangan (single-flight): dua panggilan `cubaAuto()`
+  // serentak (mis. kitaran giliran yang lambat bertindih dengan setInterval
+  // seterusnya) berkongsi SATU pelaksanaan `laksana()` — tanpa ini, kedua-dua
+  // panggilan boleh lulus `bolehCuba()` pada nilai kegagalanBerturut yang
+  // sama dan menulis dua kegagalan berturut-turut secara bebas, menolak
+  // pembilang melebihi had 3-strike (pepijat sebenar diperhatikan: 4>3).
+  function cubaAuto() {
+    if (!dalamPenerbangan) {
+      dalamPenerbangan = laksana().finally(() => { dalamPenerbangan = null; });
+    }
+    return dalamPenerbangan;
   }
 
   // Bilangan percubaan yang DILAPORKAN: apabila had kadar persisten aktif,
@@ -422,14 +574,19 @@ export function ayatLoginAuto(st) {
   if (st.sesiSah === true) return 'Diminta tetapi sesi idMe sudah sah — tiada log masuk automatik diperlukan.';
   if (st.hasilTerakhir === 'sesi-sah') return 'Berjaya — log masuk idMe automatik berjaya, sesi kini sah.';
   if (st.hasilTerakhir === 'had-cubaan') return 'Had cubaan dicapai — log masuk manusia diperlukan.';
-  if (st.hasilTerakhir === 'had-kadar') return 'Had kadar log masuk automatik dicapai — tunggu tetingkap sejam/hari gelongsor atau log masuk manusia. ' + (st.sebab || '');
+  if (st.hasilTerakhir === 'had-kadar') return 'Had kadar log masuk automatik dicapai (sejam) — tunggu tetingkap gelongsor, akan cuba semula automatik. ' + (st.sebab || '');
+  if (st.hasilTerakhir === 'had-harian') return 'Siling harian log masuk automatik dicapai — tunggu hari baharu (waktu Malaysia), akan cuba semula automatik. ' + (st.sebab || '');
   if (st.hasilTerakhir === 'had-kegagalan-berturut') return 'Berhenti serta-merta — kegagalan log masuk automatik berturut-turut dicapai; log masuk manusia diperlukan. ' + (st.sebab || '');
+  if (st.hasilTerakhir === 'kredensial-ditolak') return 'Perlu manusia: idMe menolak kredensial secara eksplisit selepas hantar — semak kata laluan/IC tersimpan. ' + (st.sebab || '');
+  if (st.hasilTerakhir === 'sesi-tidak-dapat-disahkan') return 'Sesi tidak dapat disahkan selepas hantar (bukan bukti kredensial salah); akan cuba semula automatik. ' + (st.sebab || '');
   if (st.hasilTerakhir === 'perlu-manusia') return 'Perlu manusia: ' + (st.sebab || 'langkah kedua (OTP/CAPTCHA/2FA) atau semakan manual.');
   if (st.hasilTerakhir === 'kunci-tidak-padan') return 'Perlu manusia: frasa keselamatan tidak padan — tiada kredensial ditaip.';
   if (st.hasilTerakhir === 'kunci-tiada') return 'Perlu manusia: frasa keselamatan tidak dapat dibaca (mungkin imej) — log masuk manual diperlukan.';
   if (st.hasilTerakhir === 'kunci-tiada-dibenarkan') return 'Berjaya — frasa tidak dapat dibaca (imej) tetapi suis benarkanTerusTanpaFrasa HIDUP; log masuk diteruskan selepas semakan HTTPS+hos dan kotak semak pengesahan.';
   if (st.hasilTerakhir === 'kotak-pengesahan-gagal') return 'Perlu manusia: kotak semak pengesahan tidak dapat ditanda atau medan kata laluan tidak didedahkan — log masuk manual diperlukan.';
   if (st.hasilTerakhir === 'hos-tidak-sah') return 'Perlu manusia: hos idMe tidak sah — tiada kredensial ditaip.';
+  if (st.hasilTerakhir === 'langkau') return 'Profil Edge sedang digunakan; log masuk automatik dilangkau (akan cuba semula pada kitaran seterusnya).';
+  if (st.hasilTerakhir === 'gagal') return 'Ralat sementara semasa log masuk automatik; akan cuba semula pada kitaran seterusnya (bukan kegagalan kredensial).';
   return st.sebab || 'Belum dinilai.';
 }
 

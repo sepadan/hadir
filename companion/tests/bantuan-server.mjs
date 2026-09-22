@@ -72,7 +72,20 @@ export function konteksAsas(port, override) {
     jagaSesi: () => ({
       berjalan: false, didayakan: false, hasilPokeTerakhir: 'belum', sihatTerakhir: false,
       bilPoke: 0, bilLangkau: 0, masaPokeTerakhir: 0, jedaEfektif: 300000, sedangPoke: false
-    })
+    }),
+    hadKadarLoginStatus: () => ({
+      bilJam: 0, hadJam: 6, bilHariIni: 0, silingHarian: 24, kegagalanBerturut: 0, hadKegagalanBerturut: 3,
+      diblok: false, sebab: null, hariIso: null, jenisSekat: null, cubaSemulaSelepasMs: null, cubaSemulaHariIso: null,
+      didayakan: false
+    }),
+    // v1.11.22 Gap 5: tindakan pemilik tempatan — mengosongkan HANYA latch
+    // kegagalanBerturut. Fixture ujian merekod panggilan supaya ujian boleh
+    // menegaskan endpoint benar-benar menyeru tindakan ini (bukan no-op).
+    _tetapkanSemulaLatchPanggilan: 0,
+    tetapkanSemulaLatchKegagalan() {
+      this._tetapkanSemulaLatchPanggilan++;
+      return { bilJam: 0, hadJam: 6, bilHariIni: 3, silingHarian: 24, kegagalanBerturut: 0, hadKegagalanBerturut: 3, diblok: false, sebab: null, hariIso: '2026-09-22', jenisSekat: null, cubaSemulaSelepasMs: null, cubaSemulaHariIso: null };
+    }
   };
   return Object.assign(asas, override);
 }

@@ -7,6 +7,27 @@
 const HOS_IDME_SAH = 'idme.moe.gov.my';
 const HOS_MOEIS_SAH = 'moeispel.moe.gov.my';
 
+// Sumber TUNGGAL (rentetan, bukan RegExp) bagi pengesanan penolakan
+// kredensial EKSPLISIT idMe — dikongsi oleh adaptorPlaywright.mjs (dihantar
+// sebagai hujah page.evaluate() kerana konteks DOM tidak boleh mengimport
+// modul Node) supaya satu sahaja tempat perlu dikemas kini dan boleh diuji
+// TULEN di sini tanpa pelayar (v1.11.23 — pembetulan pusingan semakan induk
+// atas 1.11.22 Gap 1). Set ini SENGAJA ketat: hanya frasa yang secara literal
+// menamakan kata laluan ATAU no. Kad Pengenalan sebagai SALAH/TIDAK BETUL.
+// JANGAN tambah frasa GENERIK seperti "log masuk gagal"/"log masuk tidak
+// sah"/"invalid login"/"maklumat log masuk tidak sah" — frasa sedemikian
+// turut muncul bagi sesi tamat, ralat rangkaian atau halaman separuh
+// dimuatkan, dan akan mengira STRIKE PALSU terhadap had 3-kegagalan-berturut
+// (akaun boleh dikunci berdasarkan kegagalan yang bukan salah kredensial).
+// Heuristik ini BELUM disahkan terhadap idMe hidup — jika kata-kata sebenar
+// berbeza, kegagalan sebenar hanya jatuh ke 'sesi-tidak-dapat-disahkan'
+// (masih BUKAN strike) — fail selamat, bukan fail merbahaya.
+export const SUMBER_REGEX_PENOLAKAN_KREDENSIAL =
+  '(kata laluan (tidak betul|salah)' +
+  '|no\\.?\\s*kad pengenalan[^.\\n]{0,40}(salah|tidak betul)' +
+  '|(password|no\\.? kp) (tidak betul|salah|is incorrect|does not match)' +
+  '|incorrect password|wrong password|invalid password)';
+
 // Pengesahan hos anti-pancing: HTTPS wajib, hos TEPAT (tiada subdomain
 // penipu seperti "idme.moe.gov.my.evil.com"), tiada userinfo
 // ("https://user:pass@idme.moe.gov.my/..." — corak biasa URL pancingan),
@@ -116,19 +137,27 @@ export function adalahHosIdMe(url) {
 }
 
 // Klasifikasi TULEN sesi selepas borang log masuk dihantar (auto-login).
-// `amatan` = { hos, borangLogin, dashboardIdMe, adaKehadiran } dibaca oleh
-// adapter daripada DOM sebenar SELEPAS klik "Daftar Masuk". Pulangkan
-// { status, hos, sebab? }:
-//   - 'sesi-sah'   : log masuk berjaya, sama ada (a) MOEIS dicapai terus
-//                    (hos MOEIS + #kehadiran) ATAU (b) papan pemuka idMe
-//                    dikesan (borang log masuk hilang + penanda navigasi/
-//                    Aplikasi/Laporan/breadcrumb) — WALAUPUN hos masih
-//                    idme.moe.gov.my (MOEIS dicapai kemudian melalui pautan
-//                    Aplikasi/SSO, disahkan oleh semakan sesi berasingan).
-//   - 'sesi-tamat' : tiada dashboard mahupun MOEIS dikesan; `sebab` menamakan
-//                    apa yang SEBENARNYA ditemui.
+// `amatan` = { hos, borangLogin, dashboardIdMe, adaKehadiran, kredensialDitolak }
+// dibaca oleh adapter daripada DOM sebenar SELEPAS klik "Daftar Masuk".
+// Pulangkan { status, hos, sebab? }:
+//   - 'sesi-sah'          : log masuk berjaya, sama ada (a) MOEIS dicapai
+//                    terus (hos MOEIS + #kehadiran) ATAU (b) papan pemuka
+//                    idMe dikesan (borang log masuk hilang + penanda
+//                    navigasi/Aplikasi/Laporan/breadcrumb) — WALAUPUN hos
+//                    masih idme.moe.gov.my (MOEIS dicapai kemudian melalui
+//                    pautan Aplikasi/SSO, disahkan oleh semakan sesi
+//                    berasingan).
+//   - 'kredensial-ditolak': idMe SENDIRI memaparkan penolakan kredensial
+//                    EKSPLISIT (kata laluan/IC salah) selepas hantar — SATU-
+//                    SATUNYA isyarat yang boleh mengira strike terhadap had
+//                    3-kegagalan-berturut (v1.11.22 Gap 1). Berasingan
+//                    daripada 'sesi-tamat' supaya sesi yang sekadar tidak
+//                    dapat disahkan (rangkaian/halaman separuh dimuatkan)
+//                    TIDAK disalah anggap sebagai kredensial salah.
+//   - 'sesi-tamat'        : tiada dashboard, MOEIS mahupun penolakan eksplisit
+//                    dikesan; `sebab` menamakan apa yang SEBENARNYA ditemui.
 export function tentukanStatusSelepasHantar({
-  hos = '', borangLogin = false, dashboardIdMe = false, adaKehadiran = false
+  hos = '', borangLogin = false, dashboardIdMe = false, adaKehadiran = false, kredensialDitolak = false
 } = {}) {
   // 1) Hos MOEIS dikendalikan secara EKSKLUSIF: #kehadiran ialah satu-satunya
   //    isyarat di sini (elak padanan teks longgar seperti "Laporan" pada
@@ -138,14 +167,25 @@ export function tentukanStatusSelepasHantar({
     return { status: 'sesi-tamat', hos, sebab: 'Hos MOEIS dicapai tetapi elemen #kehadiran tiada.' };
   }
 
-  // 2) Papan pemuka idMe: hos MESTI idme.moe.gov.my, borang log masuk hilang
+  // 2) Penolakan kredensial EKSPLISIT (heuristik teks halaman idMe — lihat
+  //    adaptorPlaywright.mjs; BELUM disahkan terhadap idMe hidup). Diperiksa
+  //    SEBELUM papan pemuka/borang supaya penolakan nyata tidak pernah
+  //    disalah anggap sebagai sekadar sesi tidak dapat disahkan.
+  if (kredensialDitolak) {
+    return {
+      status: 'kredensial-ditolak', hos,
+      sebab: 'idMe memaparkan penolakan kredensial eksplisit (kata laluan/IC salah) selepas hantar.'
+    };
+  }
+
+  // 3) Papan pemuka idMe: hos MESTI idme.moe.gov.my, borang log masuk hilang
   //    (#check_log/#password/IC tiada) + penanda dashboard wujud -> log masuk
   //    selesai. JANGAN akui mana-mana hos bukan-MOEIS sewenang (cth portal
   //    captive/laman ralat) sebagai kejayaan — hos idMe tepat ialah syarat
   //    wajib di sini.
   if (hos === HOS_IDME_SAH && !borangLogin && dashboardIdMe) return { status: 'sesi-sah', hos };
 
-  // 3) Perlu-manusia: sebab menamakan penemuan sebenar.
+  // 4) Tidak dapat disahkan: sebab menamakan penemuan sebenar.
   if (borangLogin) {
     return {
       status: 'sesi-tamat', hos,

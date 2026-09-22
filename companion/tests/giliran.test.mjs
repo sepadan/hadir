@@ -633,3 +633,75 @@ test('langkau automatik TANPA jaminan eksplisit launcher (pastiTiadaSpawn tiada)
     g.hentikan();
   }
 });
+
+// ---------------- Option 2: kumpulan pelayar ditutup SEBELUM log masuk paksa ----------------
+
+test('sesi tamat: kumpulan pelayar ditutup SEBELUM log masuk automatik paksa (elak deadlock kunci reentrant)', async () => {
+  const klien = klienPalsuLengkap({ id: 'jkunci1', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-21', murid: [] });
+  const urutan = [];
+  const tutupKumpulanPelayar = async () => { urutan.push('tutup-kumpulan'); };
+  const cubaLoginAutoKerjaFake = async () => {
+    urutan.push('login');
+    return { diminta: true, cuba: true, hasil: { status: 'sesi-sah', perluManusia: false } };
+  };
+  let panggilan = 0;
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    panggilan++;
+    if (panggilan === 1) {
+      assert.equal(opsyen.mod, 'verifikasi');
+      return { stdout: '', stderr: '', hasil: { status: 'gagal', kod: 11, punca: 'sesi-tamat', perluManusia: true, sebab: 'Sesi idMe tamat.' } };
+    }
+    return { stdout: '', stderr: '', hasil: { status: 'disahkan', sebab: 'ok', bilHadir: 5, kod: 0 } };
+  };
+  const g = buatGiliran({
+    klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak,
+    cubaLoginAutoKerja: cubaLoginAutoKerjaFake, tutupKumpulanPelayar
+  });
+  await g.jalankanTugasan('jkunci1', { benarkanCubaSemula: true });
+  // `urutan` boleh membawa satu lagi 'tutup-kumpulan' di hujung (penutupan
+  // sempadan kitaran biasa, bersihkanSelepasKitaran) — itu bukan pepijat.
+  // Yang mesti disahkan ialah dua elemen PERTAMA: tutup dahulu, log masuk kemudian.
+  assert.deepEqual(urutan.slice(0, 2), ['tutup-kumpulan', 'login'], 'kumpulan pelayar mesti ditutup SEBELUM log masuk paksa dipanggil');
+});
+
+// v1.11.23: pembetulan pusingan semakan induk — probe/log masuk paksa yang
+// dipanggil di sini (cubaLoginAutoKerja) berjalan SEMASA state.sedangProses
+// giliran masih benar (ia hanya kembali palsu di hujung SELURUH kitaran,
+// bersihkanSelepasKitaran). Wiring produksi (bin/hadir-companion.mjs) tidak
+// boleh menggunakan giliran.status().sedangProses sebagai gerbang "profil
+// Edge bebas" untuk laluan pemulihan ini — isyarat itu kekal benar sepanjang
+// tempoh ini WALAUPUN kumpulan pelayar (kunci sebenar) sudah dilepaskan.
+// Ujian ini mengesahkan KEDUA-DUA bahagian kontrak yang membolehkan
+// pembetulan itu selamat: (a) tutupKumpulan() BENAR-BENAR di-`await` sehingga
+// SELESAI sebelum cubaLoginAutoKerja dipanggil (bukan tembak-dan-lupa — kunci
+// sebenar dijamin bebas, bukan sekadar "sedang dilepaskan"), dan (b) ini
+// berlaku walaupun sedangProses() giliran melaporkan benar sepanjang masa itu.
+test('sesi tamat: log masuk paksa menunggu tutupKumpulanPelayar SELESAI sepenuhnya (bukan tembak-dan-lupa), walaupun sedangProses() giliran kekal benar', async () => {
+  const klien = klienPalsuLengkap({ id: 'jkunci2', status: 'menunggu', kelas: '1 BIJAK', tarikhIso: '2026-09-21', murid: [] });
+  let tutupSelesai = false;
+  let sedangProsesSemasaLogin = null;
+  const tutupKumpulanPelayar = () => new Promise((selesai) => {
+    setTimeout(() => { tutupSelesai = true; selesai(); }, 20);
+  });
+  const cubaLoginAutoKerjaFake = async () => {
+    // Pada titik ini, tutupKumpulanPelayar() MESTI sudah selesai (kunci
+    // sebenar bebas) — walaupun giliran sendiri masih "sedangProses".
+    assert.equal(tutupSelesai, true, 'cubaLoginAutoKerja tidak boleh dipanggil sebelum tutupKumpulanPelayar selesai sepenuhnya');
+    sedangProsesSemasaLogin = g.status().sedangProses;
+    return { diminta: true, cuba: true, hasil: { status: 'sesi-sah', perluManusia: false } };
+  };
+  let panggilan = 0;
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    panggilan++;
+    if (panggilan === 1) {
+      return { stdout: '', stderr: '', hasil: { status: 'gagal', kod: 11, punca: 'sesi-tamat', perluManusia: true, sebab: 'Sesi idMe tamat.' } };
+    }
+    return { stdout: '', stderr: '', hasil: { status: 'disahkan', sebab: 'ok', bilHadir: 5, kod: 0 } };
+  };
+  const g = buatGiliran({
+    klien, pemilik: 'runner-1', log: logPalsu(), jalankanTugasanAnak,
+    cubaLoginAutoKerja: cubaLoginAutoKerjaFake, tutupKumpulanPelayar
+  });
+  await g.jalankanTugasan('jkunci2', { benarkanCubaSemula: true });
+  assert.equal(sedangProsesSemasaLogin, true, 'pra-syarat ujian: sedangProses() giliran memang KEKAL benar semasa log masuk paksa dipanggil — membuktikan wiring produksi TIDAK BOLEH bergantung pada isyarat itu untuk gerbang "profil bebas"');
+});

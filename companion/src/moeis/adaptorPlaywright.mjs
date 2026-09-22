@@ -7,7 +7,7 @@
 // (rujukan baca sahaja, projek itu tidak disentuh).
 import fs from 'node:fs';
 import path from 'node:path';
-import { adalahHosIdMe, tentukanStatusSelepasHantar } from './sesi.mjs';
+import { adalahHosIdMe, tentukanStatusSelepasHantar, SUMBER_REGEX_PENOLAKAN_KREDENSIAL } from './sesi.mjs';
 import { URL_APLIKASI_IDME, pilihPautanAplikasiMoeis, HOS_MOEIS } from './aplikasi.mjs';
 import { sensor } from '../log.mjs';
 
@@ -521,7 +521,11 @@ export function buatAdaptorPlaywright(page, opsyen = {}) {
       // Laporan/breadcrumb) juga bermaksud log masuk sudah selesai. Klasifikasi
       // dipusatkan dalam fungsi tulen `tentukanStatusSelepasHantar` (sesi.mjs)
       // supaya boleh diuji tanpa pelayar.
-      const amatan = await page.evaluate(() => {
+      // Sumber regex dihantar sebagai HUJAH (rentetan) — konteks DOM
+      // page.evaluate() tidak boleh mengimport modul Node, jadi sesi.mjs
+      // kekal SATU-SATUNYA tempat set frasa didefinisikan (boleh diuji tulen
+      // dalam tests/sesi.test.mjs tanpa pelayar).
+      const amatan = await page.evaluate((sumberRegexPenolakan) => {
         const borangLogin = !!(
           document.querySelector('#check_log') ||
           document.querySelector('#password') ||
@@ -533,15 +537,23 @@ export function buatAdaptorPlaywright(page, opsyen = {}) {
           document.querySelector('.breadcrumb, [class*="breadcrumb"]') ||
           /\b(Aplikasi|Laporan|Dashboard|Pengurusan)\b/i.test(teksBadan)
         );
-        return { borangLogin, dashboardIdMe };
-      }).catch(() => ({ borangLogin: false, dashboardIdMe: false }));
+        // Penolakan kredensial idMe EKSPLISIT SAHAJA — lihat
+        // SUMBER_REGEX_PENOLAKAN_KREDENSIAL (sesi.mjs) untuk niat penuh. JANGAN
+        // padankan frasa longgar seperti "sesi tamat"/"log masuk gagal"/
+        // "invalid login" di sini — itu ialah sesi tidak dapat disahkan
+        // (transient), BUKAN bukti kredensial ditolak.
+        const REGEX_PENOLAKAN_KREDENSIAL = new RegExp(sumberRegexPenolakan, 'i');
+        const kredensialDitolak = borangLogin && REGEX_PENOLAKAN_KREDENSIAL.test(teksBadan);
+        return { borangLogin, dashboardIdMe, kredensialDitolak };
+      }, SUMBER_REGEX_PENOLAKAN_KREDENSIAL).catch(() => ({ borangLogin: false, dashboardIdMe: false, kredensialDitolak: false }));
       const adaKehadiran = await page.evaluate(() => !!document.querySelector('#kehadiran')).catch(() => false);
 
       return tentukanStatusSelepasHantar({
         hos,
         borangLogin: amatan.borangLogin,
         dashboardIdMe: amatan.dashboardIdMe,
-        adaKehadiran
+        adaKehadiran,
+        kredensialDitolak: amatan.kredensialDitolak
       });
     },
     async bacaBilanganMurid() {

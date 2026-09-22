@@ -301,3 +301,133 @@ test('had-login: siling harian menggunakan hari kalendar MALAYSIA (tengah malam 
   h.catatPercubaan();
   assert.equal(h.statusRingkas().bilHariIni, 1);
 });
+
+// ---- Pembetulan Astra: kegagalanBerturut TIDAK PERNAH melebihi had --------
+test('had-login: catatKegagalan dipanggil terus 10 kali (memintas bolehCuba) -> kegagalanBerturut dikunci pada had (tidak boleh jadi 4)', () => {
+  const s = storanPalsu();
+  const masa = buatMasa(MULA_HARI);
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  for (let i = 0; i < 10; i++) h.catatKegagalan();
+  assert.equal(h.statusRingkas().kegagalanBerturut, HAD_KEGAGALAN_BERTURUT, 'pembilang mesti dikunci pada had, tidak boleh melebihinya');
+});
+
+test('had-login: keadaan legasi tersimpan kegagalanBerturut:4 (>had) dikekalkan, blok, dan pulih bersih melalui catatKejayaan (kekalkan bilHariIni)', () => {
+  const s = storanPalsu({ percubaan: [], kegagalanBerturut: 4, hariIso: '2026-01-01', bilHariIni: 7 });
+  const masa = buatMasa(Date.parse('2026-01-01T01:00:00.000Z'));
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  assert.equal(h.statusRingkas().kegagalanBerturut, 4, 'nilai legasi tersimpan mesti dikekalkan, bukan dipadam/dilabel semula');
+  assert.equal(h.bolehCuba(), false);
+  assert.equal(h.statusRingkas().bilHariIni, 7);
+
+  h.catatKejayaan();
+  assert.equal(h.bolehCuba(), true, 'log masuk manual berjaya mesti memulihkan');
+  assert.equal(h.statusRingkas().bilHariIni, 7, 'bilHariIni mesti KEKAL (siling harian tidak dikosongkan oleh kejayaan)');
+});
+
+// ---- v1.11.22 Gap 5: tetapkanSemulaLatch (pemulihan tindakan pemilik tempatan) ----
+test('had-login: tetapkanSemulaLatch mengosongkan HANYA kegagalanBerturut, KEKALKAN tetingkap sejam DAN bilHariIni', () => {
+  const s = storanPalsu();
+  const masa = buatMasa(MULA_HARI);
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+
+  h.catatPercubaan(); h.catatKegagalan();
+  h.catatPercubaan(); h.catatKegagalan();
+  h.catatPercubaan(); h.catatKegagalan();
+  assert.equal(h.bolehCuba(), false, 'pra-syarat: latch 3-strike aktif');
+  assert.equal(h.bilPercubaan(), 3);
+  assert.equal(h.statusRingkas().bilHariIni, 3);
+
+  h.tetapkanSemulaLatch();
+  const ringkas = h.statusRingkas();
+  assert.equal(ringkas.kegagalanBerturut, 0, 'kegagalanBerturut mesti dikosongkan');
+  assert.equal(h.bolehCuba(), true, 'bolehCuba mesti pulih selepas latch dikosongkan');
+  assert.equal(h.bilPercubaan(), 3, 'tetingkap sejam SEDIA ADA mesti DIKEKALKAN (bukan reset penuh seperti catatKejayaan)');
+  assert.equal(ringkas.bilHariIni, 3, 'siling harian mesti DIKEKALKAN (tindakan ini tidak menambah belanjawan)');
+});
+
+test('had-login: tetapkanSemulaLatch pada keadaan legasi kegagalanBerturut:4 (>had) -> pulih, bilHariIni kekal', () => {
+  const s = storanPalsu({ percubaan: [], kegagalanBerturut: 4, hariIso: '2026-01-01', bilHariIni: 7 });
+  const masa = buatMasa(Date.parse('2026-01-01T01:00:00.000Z'));
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  assert.equal(h.bolehCuba(), false);
+
+  h.tetapkanSemulaLatch();
+  assert.equal(h.bolehCuba(), true);
+  assert.equal(h.statusRingkas().kegagalanBerturut, 0);
+  assert.equal(h.statusRingkas().bilHariIni, 7, 'tetapkanSemulaLatch TIDAK PERNAH mengubah bilHariIni');
+});
+
+test('had-login: tiada migrasi senyap — nilai legasi >had kekal dilaporkan JUJUR sehingga tetapkanSemulaLatch dipanggil secara eksplisit', () => {
+  const s = storanPalsu({ percubaan: [], kegagalanBerturut: 5, hariIso: '2026-01-01', bilHariIni: 1 });
+  const masa = buatMasa(Date.parse('2026-01-01T01:00:00.000Z'));
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  // Membaca statusRingkas()/bolehCuba() berulang kali TIDAK PERNAH mengubah keadaan.
+  h.statusRingkas(); h.bolehCuba(); h.statusRingkas();
+  assert.equal(h.statusRingkas().kegagalanBerturut, 5, 'baca berulang tidak boleh mengubah nilai legasi secara senyap');
+  assert.equal(h.bolehCuba(), false);
+});
+
+// ---- v1.11.22 Gap 3: jenisSekat + cubaSemulaSelepasMs/cubaSemulaHariIso ----
+test('had-login: statusRingkas jenisSekat null apabila tidak diblok', () => {
+  const s = storanPalsu();
+  const masa = buatMasa(MULA_HARI);
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  const r = h.statusRingkas();
+  assert.equal(r.jenisSekat, null);
+  assert.equal(r.cubaSemulaSelepasMs, null);
+  assert.equal(r.cubaSemulaHariIso, null);
+});
+
+test('had-login: jenisSekat "tetingkap-jam" apabila had 6/jam disekat, cubaSemulaSelepasMs ialah tamat tempoh cap masa TERTUA + 1ms', () => {
+  const s = storanPalsu();
+  const masa = buatMasa(MULA_HARI);
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  for (let i = 0; i < HAD_LOGIN_JAM; i++) { h.catatPercubaan(); masa.maju(1000); }
+  const r = h.statusRingkas();
+  assert.equal(r.jenisSekat, 'tetingkap-jam');
+  assert.equal(r.cubaSemulaHariIso, null);
+  // Cap masa TERTUA ialah percubaan pertama (MULA_HARI); tamat tempoh ialah
+  // MULA_HARI + TETINGKAP_LOGIN_JAM_MS + 1.
+  assert.equal(r.cubaSemulaSelepasMs, MULA_HARI + TETINGKAP_LOGIN_JAM_MS + 1);
+});
+
+test('had-login: jenisSekat "siling-harian" apabila siling 24/hari disekat, cubaSemulaHariIso ialah hari MYT SETERUSNYA', () => {
+  const s = storanPalsu();
+  const masa = buatMasa(MULA_HARI);
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  for (let pusingan = 0; pusingan < SILING_LOGIN_HARIAN; pusingan++) { h.catatPercubaan(); h.catatKejayaan(); }
+  const r = h.statusRingkas();
+  assert.equal(r.jenisSekat, 'siling-harian');
+  assert.equal(r.cubaSemulaSelepasMs, null);
+  assert.match(r.cubaSemulaHariIso, /^\d{4}-\d{2}-\d{2}$/);
+  assert.notEqual(r.cubaSemulaHariIso, r.hariIso, 'cubaSemulaHariIso mesti hari SETERUSNYA, bukan hari semasa');
+});
+
+test('had-login: jenisSekat "kegagalan-berturut" apabila 3-strike, TIADA cubaSemulaSelepasMs/cubaSemulaHariIso (sekatan kekal)', () => {
+  const s = storanPalsu();
+  const masa = buatMasa(MULA_HARI);
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  for (let i = 0; i < HAD_KEGAGALAN_BERTURUT; i++) { h.catatPercubaan(); h.catatKegagalan(); }
+  const r = h.statusRingkas();
+  assert.equal(r.jenisSekat, 'kegagalan-berturut');
+  assert.equal(r.cubaSemulaSelepasMs, null);
+  assert.equal(r.cubaSemulaHariIso, null);
+});
+
+test('had-login: jenisSekat "rosak"/"gulung-balik" apabila gagal tertutup, TIADA cubaSemula (sekatan kekal)', () => {
+  const masa = buatMasa(MULA_HARI);
+  const rosak = buatHadKadarLogin({ baca: () => { throw new Error('rosak'); }, tulis: () => {}, sekarangMs: masa.sekarangMs });
+  const rRosak = rosak.statusRingkas();
+  assert.equal(rRosak.jenisSekat, 'rosak');
+  assert.equal(rRosak.cubaSemulaSelepasMs, null);
+  assert.equal(rRosak.cubaSemulaHariIso, null);
+
+  const s = storanPalsu();
+  const h = buatHadKadarLogin({ baca: s.baca, tulis: s.tulis, sekarangMs: masa.sekarangMs });
+  h.catatPercubaan(); h.catatKejayaan();
+  masa.maju(-2 * 24 * 60 * 60 * 1000);
+  const rGulung = h.statusRingkas();
+  assert.equal(rGulung.jenisSekat, 'gulung-balik');
+  assert.equal(rGulung.cubaSemulaSelepasMs, null);
+  assert.equal(rGulung.cubaSemulaHariIso, null);
+});

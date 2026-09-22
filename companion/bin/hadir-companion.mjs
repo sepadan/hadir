@@ -21,6 +21,7 @@ import {
   cubaLoginAutoKerja as cubaLoginAutoKerjaTerpandu, snapshotLoginAutoStatus
 } from '../src/moeis/login-auto.mjs';
 import { buatHadKadarLogin } from '../src/moeis/had-login.mjs';
+import { buatProbeSesiLangsung } from '../src/moeis/probe-sesi.mjs';
 import { buatDispatcherKumpulan } from '../src/moeis/dispatcher-kumpulan.mjs';
 import { buatPengurusKumpulanPelayar } from '../src/moeis/kumpulan-pelayar.mjs';
 import { buatPengurusPasangan } from '../src/pasangan.mjs';
@@ -462,6 +463,33 @@ async function main() {
     tulisStatusSesi(hasil);
     return hasil;
   }
+
+  // Varian TANPA pastikanProfilBebas() — laluan pemulihan PAKSA sahaja
+  // (probeSesiLangsung di bawah, disuntik sebagai `sesiSah` ke
+  // buatPengurusLoginAuto). `giliran.cubaLoginAutoPaksa()` (giliran.mjs)
+  // menutup kumpulan pelayar (tutupKumpulanPelayar, melepaskan kunciPelayar
+  // label 'kumpulan') SEBELUM memanggil cubaLoginAutoKerja({paksa:true}) —
+  // profil Edge SEBENARNYA bebas pada titik ini, tetapi
+  // `giliran.status().sedangProses` (dibaca oleh pastikanProfilBebas melalui
+  // penutupan) kekal BENAR sepanjang tempoh penutupan itu SENGAJA (elak race
+  // tugasan baharu — lihat bersihkanSelepasKitaran di giliran.mjs). Menyemak
+  // isyarat generik itu di sini akan menyekat pemulihan tepat pada masa ia
+  // paling diperlukan. Gerbang KESELAMATAN sebenar (TOCTOU-selamat) ialah
+  // `kunciPelayar.cubaKunci` di dalam jalankanAnakSkrip itu sendiri — jika
+  // profil BENAR-BENAR sibuk atas sebab lain, panggilan ini masih ditolak
+  // dengan betul (ralat.langkau) dan probe-sesi.mjs memetakannya kepada
+  // {ada:false, tangguh:true} (tangguh sementara, TIADA belanjawan
+  // dibelanjakan). Endpoint manusia (uji-login manual, log-masuk-manual)
+  // KEKAL menggunakan jalankanUjiLoginSebenar (pengawal sedia ada dikekalkan).
+  async function jalankanUjiLoginIntern() {
+    const hasil = await jalankanAnakSkrip(
+      'uji-login.mjs',
+      ['--data-dir', dirData, '--kunci-dijangka', tetapanApi.baca().kunciKeselamatanDijangka || ''],
+      5 * 60 * 1000
+    );
+    tulisStatusSesi(hasil);
+    return hasil;
+  }
   async function jalankanLogMasukManualSebenar() {
     pastikanProfilBebas();
     const hasil = await jalankanAnakSkrip('log-masuk-manual.mjs', ['--data-dir', dirData], 21 * 60 * 1000);
@@ -521,6 +549,17 @@ async function main() {
     baca: () => bacaJsonKetat(dirData, 'had-login.json'),
     tulis: (s) => tulisJsonAtomik(dirData, 'had-login.json', s)
   });
+  // v1.11.23 (pembetulan sempit — regresi cache lapuk selesai): probe LANGSUNG
+  // sesi untuk gerbang had kadar TIDAK PERNAH membaca cache — lihat
+  // src/moeis/probe-sesi.mjs untuk niat penuh. Wiring SEBELUM ini (v1.11.22
+  // Gap 4, `sesiSahProbeLangsung` cache-dahulu) membaca cache STALE yang SAMA
+  // yang `cubaLoginAutoKerja` (paksa:true, dipanggil selepas tugasan
+  // mendedahkan sesi-tamat) sudah tolak — probe itu tidak pernah membetulkan
+  // sesi yang sebenarnya masih sah hidup. `probeLangsung` disuntik sebagai
+  // `jalankanUjiLoginIntern` (bukan `jalankanUjiLoginSebenar`) — lihat
+  // komennya di atas untuk sebab ia mengabaikan `pastikanProfilBebas()`.
+  const probeSesiLangsung = buatProbeSesiLangsung({ probeLangsung: jalankanUjiLoginIntern });
+
   const pengurusLoginAutoTanpaHad = buatPengurusLoginAuto({
     adaKredensial: () => storeKredensial.ada(),
     jalankan: jalankanLoginAutoSebenar,
@@ -532,10 +571,30 @@ async function main() {
     jalankan: jalankanLoginAutoSebenar,
     tulisLog: (jenis, status, sebab) => log.tulis(`${jenis}: ${status}: ${sebab}`),
     jedaMs: 5000,
-    hadKadar: hadKadarLoginInstance
+    hadKadar: hadKadarLoginInstance,
+    // v1.11.23: probe sesi LANGSUNG (probeSesiLangsung — TIDAK PERNAH membaca
+    // cache, lihat src/moeis/probe-sesi.mjs) disemak SEBELUM gerbang had
+    // kadar — sebuah permintaan log masuk paksa (cth Hantar semasa isyarat
+    // sesi-tamat) yang tiba selepas sesi sebenarnya sudah pulih (mis. melalui
+    // proses lain/penjaga sesi) boleh guna-semula sesi itu walaupun
+    // belanjawan had kadar habis, TANPA menggunakan sebarang belanjawan.
+    // Sesi yang benar-benar tamat (bukan cache stale) MEMANG layak
+    // membelanjakan belanjawan untuk log masuk sebenar.
+    sesiSah: probeSesiLangsung
   });
   function pengurusLoginAutoAktif() {
     return tetapanApi.baca().hadKadarLogin === true ? pengurusLoginAutoDenganHad : pengurusLoginAutoTanpaHad;
+  }
+
+  // v1.11.22 Gap 5: tindakan pemulihan pemilik TEMPATAN eksplisit (endpoint
+  // /api/lokal/had-kadar-tetapkan-semula, pengesahan wajib) — mengosongkan
+  // HANYA latch kegagalanBerturut (3-strike); tetingkap sejam DAN siling
+  // harian sedia ada DIKEKALKAN oleh hadKadarLoginInstance.tetapkanSemulaLatch()
+  // sendiri (lihat had-login.mjs). Tiada belanjawan tambahan, tiada kredensial
+  // disentuh.
+  function tetapkanSemulaLatchKegagalanSebenar() {
+    hadKadarLoginInstance.tetapkanSemulaLatch();
+    return hadKadarLoginInstance.statusRingkas();
   }
 
   async function sesiStartupDisahkan() {
@@ -633,6 +692,7 @@ async function main() {
     }),
     jagaSesi: () => ({ ...penjagaSesi.status(), didayakan: tetapanApi.baca().jagaSesi === true }),
     hadKadarLoginStatus: () => ({ ...hadKadarLoginInstance.statusRingkas(), didayakan: tetapanApi.baca().hadKadarLogin === true }),
+    tetapkanSemulaLatchKegagalan: tetapkanSemulaLatchKegagalanSebenar,
     // `segarkan: true` hanya daripada tindakan eksplisit manusia; status
     // rutin menggunakan cache (tiada panggilan keluar, tiada pelayar).
     klaimDisokong: async (opsyen) => {

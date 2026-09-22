@@ -52,7 +52,8 @@ const LALUAN_LOKAL_API = new Set([
   '/api/lokal/rahsia', '/api/lokal/kod-pasangan', '/api/lokal/log-masuk-manual',
   '/api/lokal/autostart', '/api/lokal/keluar', '/api/lokal/tetapan',
   '/api/lokal/status', '/api/lokal/uji-login',
-  '/api/lokal/kredensial', '/api/lokal/kredensial-padam'
+  '/api/lokal/kredensial', '/api/lokal/kredensial-padam',
+  '/api/lokal/had-kadar-tetapkan-semula'
 ]);
 
 function bacaBadan(req) {
@@ -367,6 +368,23 @@ async function pengendali(req, res) {
           jagaSesi: (typeof konteks.jagaSesi === 'function' ? konteks.jagaSesi() : null),
           hadKadarLoginStatus: (typeof konteks.hadKadarLoginStatus === 'function' ? konteks.hadKadarLoginStatus() : null)
         });
+        return;
+      }
+      if (laluan === '/api/lokal/had-kadar-tetapkan-semula') {
+        // v1.11.22 Gap 5: tindakan pemilik TEMPATAN eksplisit — mengosongkan
+        // HANYA latch kegagalanBerturut (3-strike). Tetingkap sejam DAN siling
+        // harian sedia ada DIKEKALKAN (tiada belanjawan tambahan diberikan);
+        // tiada kredensial disentuh. POST sahaja, pengesahan eksplisit wajib
+        // (payload.sah === true) — tiada tindakan senyap.
+        if (req.method !== 'POST') { res.writeHead(405); res.end(); return; }
+        if (payload.sah !== true) {
+          hantarJson(res, 400, { ok: false, ralat: 'Pengesahan diperlukan (sah:true) untuk menetapkan semula latch kegagalan berturut-turut.' });
+          return;
+        }
+        const status = typeof konteks.tetapkanSemulaLatchKegagalan === 'function'
+          ? konteks.tetapkanSemulaLatchKegagalan()
+          : null;
+        hantarJson(res, 200, { ok: true, status });
         return;
       }
       if (laluan === '/api/lokal/autostart') {
