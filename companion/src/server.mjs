@@ -53,7 +53,7 @@ const LALUAN_LOKAL_API = new Set([
   '/api/lokal/autostart', '/api/lokal/keluar', '/api/lokal/tetapan',
   '/api/lokal/status', '/api/lokal/uji-login',
   '/api/lokal/kredensial', '/api/lokal/kredensial-padam',
-  '/api/lokal/had-kadar-tetapkan-semula'
+  '/api/lokal/had-kadar-tetapkan-semula', '/api/lokal/kerja-hari-ini'
 ]);
 
 function bacaBadan(req) {
@@ -368,6 +368,22 @@ async function pengendali(req, res) {
           jagaSesi: (typeof konteks.jagaSesi === 'function' ? konteks.jagaSesi() : null),
           hadKadarLoginStatus: (typeof konteks.hadKadarLoginStatus === 'function' ? konteks.hadKadarLoginStatus() : null)
         });
+        return;
+      }
+      if (laluan === '/api/lokal/kerja-hari-ini') {
+        // Baca-sahaja, nonce sahaja: senarai tugasan DISENSOR untuk kegunaan
+        // proses tempatan yang dipercayai (aplikasi desktop) untuk mengetahui
+        // sama ada ada tugasan MOEIS belum siap HARI INI. /api/kerja (Bearer)
+        // kekal untuk klien berpasangan; laluan ini menyediakan data yang sama
+        // (sudah disensor) kepada pemanggil tempatan tanpa memerlukan token
+        // pasangan. Tiada mutasi, tiada rahsia enjin dihantar.
+        if (req.method !== 'GET') { res.writeHead(405); res.end(); return; }
+        if (!simpanan.adaRahsiaEnjin()) {
+          hantarJson(res, 200, { ok: true, senarai: [], nota: 'Rahsia enjin belum ditetapkan pada PC ini.' });
+          return;
+        }
+        const senaraiHariIni = await konteks.kerjaSenaraiDisensor();
+        hantarJson(res, 200, { ok: true, senarai: senaraiHariIni });
         return;
       }
       if (laluan === '/api/lokal/had-kadar-tetapkan-semula') {

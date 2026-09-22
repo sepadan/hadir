@@ -119,6 +119,17 @@ above reflect them:
   login path has never been run end to end — `LoginAuto` stays OFF by default,
   so a normal run performs zero portal activity.
 
+### Live test caught a real bug — demand seam auth was wrong (2026-09-22)
+
+A live read-only probe against the REAL engine showed `/api/kerja` returns
+**401 "Token tidak sah"** without a Bearer token — that route sits behind the
+companion's Bearer-admin gate, not the nonce gate. The demand seam as first
+committed would therefore never see work. Fixed: the companion now serves a
+nonce-only read-only route `/api/lokal/kerja-hari-ini` (returns the same
+`kerjaSenaraiDisensor` list, no engine secret), and the desktop source calls
+it. Live-verified: `GET /api/lokal/kerja-hari-ini` → 200 with a sanitized
+20-item list. Companion +4 tests (`kerja-hari-ini-lokal.test.mjs`).
+
 ## Shared idMe credential + demand-only auto-login in embedded WebView2 (2026-09-22, default OFF)
 
 Owner goal: fully automatic — app stores the idMe password locally (DPAPI),

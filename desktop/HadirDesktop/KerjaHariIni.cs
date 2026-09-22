@@ -47,16 +47,13 @@ public interface IKerjaHariIniSource
 ///      Location header WITHOUT following the redirect, through the SAME
 ///      redirect allowlist (<see cref="LoopbackEngineStatusSource.TryGetNonceFromRedirect"/>);
 ///      it is never logged and never surfaced in any returned string.
-///   2. GET {base}/api/kerja with header <c>X-HADIR-Lokal: &lt;nonce&gt;</c>.
+///   2. GET {base}/api/lokal/kerja-hari-ini with header
+///      <c>X-HADIR-Lokal: &lt;nonce&gt;</c> (a nonce-only /api/lokal/* route the
+///      companion serves to trusted local processes; no Bearer token, no Origin).
 ///
-/// `/api/kerja` is NOT one of the companion's `/api/lokal/*` routes, so the
-/// loopback UI Origin is not an allowed Origin for it; the request therefore
-/// carries the nonce header and NO Origin header (companion/src/server.mjs:
-/// a request without Origin but with a matching X-HADIR-Lokal is accepted).
-///
-/// The endpoint only ever LISTED jobs (`kerjaSenaraiDisensor`) and needs no
-/// engine secret FROM US: this client never reads, writes or touches the engine
-/// secret, never pairs, and never mutates anything.
+/// The endpoint only ever LISTED jobs (`kerjaSenaraiDisensor`, already
+/// redacted) and needs no engine secret FROM US: this client never reads,
+/// writes or touches the engine secret, never pairs, and never mutates anything.
 ///
 /// Every failure is classified and returned as a reason — this method never
 /// throws to the caller (cancellation aside) and NEVER guesses "ada kerja".

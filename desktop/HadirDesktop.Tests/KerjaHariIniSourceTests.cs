@@ -16,7 +16,7 @@ namespace HadirDesktop.Tests;
 ///     — today's jobs in status menunggu/sedang_dihantar/tersimpan, nothing else;
 ///   * real HTTP integration against a minimal in-process companion stand-in
 ///     (HttpListener on a loopback ephemeral port): the SAME nonce handshake as
-///     the status source, then `GET /api/kerja` with the nonce HEADER and NO
+///     the status source, then `GET /api/lokal/kerja-hari-ini` with the nonce HEADER and NO
 ///     Origin header, plus every failure classification — never a guess.
 /// </summary>
 public class KerjaHariIniSourceTests
@@ -140,13 +140,12 @@ public class KerjaHariIniSourceTests
 
         // Exactly the handshake and the read-only list — nothing else, and the
         // nonce travels in the HEADER, never in a query string.
-        Assert.Equal(new[] { "/", "/api/kerja" }, server.RequestPaths.ToArray());
+        Assert.Equal(new[] { "/", "/api/lokal/kerja-hari-ini" }, server.RequestPaths.ToArray());
         Assert.DoesNotContain(server.RequestPaths, p => p.Contains("?n="));
-        Assert.Contains("/api/kerja", server.AuthorisedKerjaCalls);
+        Assert.Contains("/api/lokal/kerja-hari-ini", server.AuthorisedKerjaCalls);
 
-        // /api/kerja is NOT a /api/lokal/* route: the nonce header authorises it
-        // and NO Origin header is sent (an Origin would be checked against the
-        // allowlist and rejected).
+        // /api/lokal/kerja-hari-ini is a nonce-only /api/lokal/* route: the nonce
+        // header authorises it and NO Origin header is sent.
         Assert.Equal(TestNonce, server.LastKerjaNonceHeader);
         Assert.Equal(string.Empty, server.LastKerjaOriginHeader);
     }
@@ -273,7 +272,7 @@ public class KerjaHariIniSourceTests
 
         Assert.False(hasil.AdaKerja);
         Assert.False(hasil.EnjinBolehDicapai);
-        Assert.DoesNotContain("/api/kerja", server.RequestPaths);
+        Assert.DoesNotContain("/api/lokal/kerja-hari-ini", server.RequestPaths);
     }
 
     [Fact]
@@ -407,7 +406,7 @@ public class KerjaHariIniSourceTests
                     return;
                 }
 
-                if (path == "/api/kerja" && ctx.Request.HttpMethod == "GET")
+                if (path == "/api/lokal/kerja-hari-ini" && ctx.Request.HttpMethod == "GET")
                 {
                     var nonceHeader = ctx.Request.Headers["X-HADIR-Lokal"] ?? "";
                     var originHeader = ctx.Request.Headers["Origin"] ?? "";

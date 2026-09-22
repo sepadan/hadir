@@ -17,10 +17,10 @@ public static class EngineEndpoints
     public const string LokalStatusPath = "/api/lokal/status";
 
     /// <summary>
-    /// Read-only list of HADIR MOEIS attendance jobs. Authorised by the
-    /// X-HADIR-Lokal nonce HEADER only: it is NOT one of the companion's
-    /// <c>/api/lokal/*</c> routes, so the loopback UI Origin is not an allowed
-    /// Origin for it and no Origin header is sent. GET only — never mutates.
+    /// Read-only list of HADIR MOEIS attendance jobs, nonce-only. It is a
+    /// <c>/api/lokal/*</c> route (added for the trusted local desktop app), so
+    /// it is authorised by the X-HADIR-Lokal nonce HEADER and carries no Origin.
+    /// GET only — never mutates, never returns the engine secret.
     /// </summary>
-    public const string KerjaPath = "/api/kerja";
+    public const string KerjaPath = "/api/lokal/kerja-hari-ini";
 }
