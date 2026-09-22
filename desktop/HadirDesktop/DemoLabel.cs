@@ -24,6 +24,12 @@ public static class DemoLabel
     /// <summary>Label shown when the dev/test debug transport is active (never in normal mode).</summary>
     public const string DevDebugBannerSuffix = " — MOD DEV-DEBUG (CDP loopback sahaja)";
 
+    /// <summary>Label shown when the real-portal dev mode is active (HADIR_DEV_REAL_PORTAL=1).</summary>
+    public const string RealPortalBannerSuffix = " — MOD DEV REAL-PORTAL (idMe sebenar, baca sahaja)";
+
+    /// <summary>Real idMe login page loaded only in real-portal dev mode.</summary>
+    public const string RealPortalLoginUrl = "https://idme.moe.gov.my/login";
+
     /// <summary>
     /// HADIR backend Apps Script Web App URL for the multi-PC device registry
     /// RPCs. Intentionally EMPTY: this repo is public (see CLAUDE.md) and no

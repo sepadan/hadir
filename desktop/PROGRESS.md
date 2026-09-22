@@ -1,5 +1,88 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Real idMe login inside embedded WebView2 — LIVE observation (2026-09-22)
+
+Decisive gate for replacing the Edge popup with an embedded portal: does the
+REAL idMe login page render and drive inside the embedded WebView2? Proven LIVE
+on this machine (read-only: navigation + DOM observation only, no credentials,
+no submit), behind an explicit default-OFF dev flag.
+
+### Code (default OFF, fixture default preserved)
+
+- `HadirDesktop/RealPortalDevMode.cs` (new) — explicit dev mode gated by
+  `HADIR_DEV_REAL_PORTAL=1` (truthy only). When OFF: `AllowedOrigins` is empty,
+  so the NavigationGuard keeps the fixture/loopback-only allowlist exactly as
+  before. When ON: allowlist widens to the single origin
+  `https://idme.moe.gov.my` and the app navigates to the real `/login` page
+  instead of the fixture.
+- `HadirDesktop/RealPortalObservation.cs` (new) — pure URL sanitizer for the
+  dev-only observation log: keeps `scheme://authority/path`, strips query and
+  fragment, and collapses any non-http(s) scheme (`data:`, `javascript:`,
+  `about:`) to its scheme name so embedded payloads never leak.
+- `HadirDesktop/DevDebugTransport.cs` — `FromEnvironment` now also enables the
+  SAME ephemeral loopback CDP transport (random port, isolated
+  `webview2-dev-<port>` profile, port file) when `HADIR_DEV_REAL_PORTAL=1` is
+  set, so the production Playwright adapter can attach in that mode. Normal
+  mode (neither flag) still returns null — verified.
+- `HadirDesktop/MainForm.cs` — real-portal mode navigates to
+  `https://idme.moe.gov.my/login`; banner/title gain a REAL-PORTAL suffix; a
+  sanitized observation log (`%LOCALAPPDATA%\HadirDesktop\real-portal-observations.log`)
+  records every `navigation-starting` and `new-window-requested` decision.
+  `NewWindowRequested` still always blocks OS popups (`e.Handled = true`).
+
+### LIVE result (this machine, 2026-09-22, .NET SDK 8.0.407, Node 24.19.0)
+
+Ran `HADIR_DEV_REAL_PORTAL=1` exe + `node observe-real-portal.mjs` (9/9 checks):
+
+- **Page renders.** WebView2 reached `https://idme.moe.gov.my/login`, title
+  `Sistem Pengurusan IDentiti (idMe)`, body shows the normal login UI
+  (`Daftar Masuk`, `Daftar Baru`, `Lupa Kata Laluan`, announcement banner).
+  Screenshot: `%LOCALAPPDATA%\HadirDesktop\real-portal-evidence\real-portal-*.png`.
+- **Normal login form (two-step).** Initial `/login` page carries ONLY the IC
+  field (`name="ic"`, placeholder `Nombor Kad Pengenalan / Passport`) plus a
+  hidden CSRF `_token` (value never read). No password field yet — correct:
+  idMe shows the password + security phrase only on `/loginverification` after
+  the IC is submitted (which this harness never does). No CAPTCHA/OTP detected
+  on the initial page.
+- **No popups / SSO windows / external browser.** Zero `new-window-requested`
+  events during load; NavigationGuard blocked nothing on the idMe flow. The
+  observation log recorded only `navigation-starting allowed=True
+  https://idme.moe.gov.my/login`.
+- **Playwright `connectOverCDP` attaches and reads the DOM.** Title, URL,
+  IC-field presence, "Daftar Masuk" presence, body text — all read back
+  concretely over the ephemeral loopback CDP endpoint.
+- **Fingerprint.** UA is plain desktop Edge `Edg/153.0.0.0` (no
+  `WebView2`/`EdgA` marker), so no embedded-webview signal in the UA string.
+  CDP bound loopback-only (0 processes with `--remote-debugging-address`).
+- **Normal mode unaffected.** `verify-normal-mode.mjs` on a normal launch: 3/3
+  pass — fixture default, 0 CDP, port file absent.
+
+### Still UNPROVEN (must NOT be assumed)
+
+- The full login + SSO redirect chain past the first `/login` page: nothing was
+  submitted, so the `/loginverification` password/security-phrase step, any SSO
+  redirect to other hosts, and any anti-bot/CAPTCHA challenge triggered ON
+  SUBMIT were not observed. A real credential login inside the app requires a
+  human — out of scope here by design.
+- Cookie/session persistence tied to the isolated `webview2-dev-<port>` profile
+  (never used a real credential, so nothing persisted).
+
+### Tests
+
+- `HadirDesktop.Tests/RealPortalDevModeTests.cs` (new) — flag gating, origin
+  allowlist, default-OFF behavior.
+- `HadirDesktop.Tests/RealPortalObservationTests.cs` (new) — URL sanitizer
+  (query/fragment strip, non-http collapse, placeholders).
+- `HadirDesktop.Tests/DevDebugTransportGatingTests.cs` (new) — no flags ⇒ null
+  transport (no CDP).
+- `dev-fixture/playwright/observe-real-portal.test.mjs` (new) — 6 pure tests.
+
+```
+dotnet build desktop/HadirDesktop.sln   # 0 warnings, 0 errors
+dotnet test  desktop/HadirDesktop.sln   # Passed! 123 (was 99, +24)
+node --test dev-fixture/playwright/observe-real-portal.test.mjs   # 6/6
+```
+
 ## Genuine WebView2/CDP feasibility gate correction (2026-09-22)
 
 The previous "Playwright↔WebView2 feasibility proven" entry below rested on a

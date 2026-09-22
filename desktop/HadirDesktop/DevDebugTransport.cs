@@ -49,14 +49,16 @@ public sealed class DevDebugTransport
     }
 
     /// <summary>
-    /// Builds the debug transport if (and only if) HADIR_DEV_DEBUG is set to a
-    /// truthy value. Returns null in normal app mode. Writes the port file so
-    /// a test harness can discover the CDP endpoint.
+    /// Builds the debug transport if HADIR_DEV_DEBUG or HADIR_DEV_REAL_PORTAL is
+    /// set to a truthy value. Returns null in normal app mode. Writes the port
+    /// file so a test harness can discover the CDP endpoint.
     /// </summary>
     public static DevDebugTransport? FromEnvironment(string? baseUserDataFolder = null)
     {
         var enable = Environment.GetEnvironmentVariable(EnableEnv);
-        if (string.IsNullOrWhiteSpace(enable) || Array.IndexOf(Truthy, enable.Trim().ToLowerInvariant()) < 0)
+        var realPortal = Environment.GetEnvironmentVariable(RealPortalDevMode.EnableEnv);
+        var enabled = IsTruthy(enable) || IsTruthy(realPortal);
+        if (!enabled)
         {
             return null;
         }
@@ -84,6 +86,9 @@ public sealed class DevDebugTransport
 
         return GetEphemeralLoopbackPort();
     }
+
+    private static bool IsTruthy(string? raw) =>
+        !string.IsNullOrWhiteSpace(raw) && Array.IndexOf(Truthy, raw.Trim().ToLowerInvariant()) >= 0;
 
     private static int GetEphemeralLoopbackPort()
     {

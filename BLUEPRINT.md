@@ -637,6 +637,23 @@ peraturan kehadiran, tulisan MOEIS dan auth idMe kekal eksklusif dalam
   sebenar (`netstat`), bukan andaian — lihat
   `desktop/docs/PLAYWRIGHT-CDP-REPORT.md`. **Keserasian idMe SSO TIDAK
   disahkan.**
+- **Mod dev portal sebenar (lalai MATI, `HADIR_DEV_REAL_PORTAL=1`).** Halaman
+  log masuk idMe sebenar (`https://idme.moe.gov.my/login`) TELAH diperhatikan
+  hidup di dalam WebView2 terbenam (baca sahaja — navigasi + pemerhatian DOM,
+  tiada kredensial, tiada hantar): tajuk `Sistem Pengurusan IDentiti (idMe)`,
+  borang dua-langkah (medan IC sahaja pada `/login`; kata laluan + frasa
+  keselamatan hanya pada `/loginverification` selepas IC dihantar), tiada
+  CAPTCHA/OTP pada halaman awal, sifar `new-window-requested`/popup SSO semasa
+  muat, dan Playwright `connectOverCDP` berjaya membaca DOM (tajuk/URL/medan IC/
+  butang "Daftar Masuk"). Dalam mod ini SAHAJA pengangkutan CDP loopback
+  sementara yang sama dihidupkan (port rawak, profil terasing
+  `webview2-dev-<port>`, fail port); mod normal kekal fixture + tiada
+  `--remote-debugging-port` (disahkan semula oleh `verify-normal-mode.mjs`).
+  **MASIH BELUM TERBUKTI:** rantaian penuh log masuk + redirect SSO melepasi
+  halaman `/login` pertama (langkah `/loginverification`, redirect SSO ke hos
+  lain, cabaran anti-bot/CAPTCHA yang dicetus semasa HANTAR) — tiada apa-apa
+  dihantar, jadi log masuk kredensial sebenar di dalam aplikasi memerlukan
+  manusia dan di luar skop. Bukti: `desktop/PROGRESS.md` (2026-09-22).
 
 ## 5b. Ciri berbilang PC (pendaftaran peranti + kepimpinan berpagar, staged, OFF secara lalai)
 

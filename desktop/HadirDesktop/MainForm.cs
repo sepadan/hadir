@@ -16,8 +16,10 @@ public sealed class MainForm : Form
     private readonly FixtureEngineStatusSource _fixtureSource = new();
     private readonly LoopbackEngineStatusSource _loopbackSource = new();
     private readonly DevDebugTransport? _devDebug;
+    private readonly RealPortalDevMode _realPortal;
     private readonly HttpClient _deviceHttp = new();
     private readonly DevicePanel _devicePanel;
+    private readonly string? _observationLogPath;
 
     private IEngineStatusSource _statusSource;
     private WebView2 _webView = null!;
@@ -34,7 +36,11 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _statusSource = _fixtureSource;
-        _navigationGuard = new NavigationGuard(Array.Empty<string>());
+        _realPortal = RealPortalDevMode.FromEnvironment();
+        // In real-portal dev mode, widen the allowlist to the exact idMe origin
+        // so the real login page can render (read-only). Normal mode keeps the
+        // empty allowlist = fixture/loopback only.
+        _navigationGuard = new NavigationGuard(_realPortal.AllowedOrigins);
         _devicePanel = new DevicePanel(
             new DeviceRegistrationClient(_deviceHttp, DemoLabel.HadirBackendApiUrl),
             DemoLabel.HadirBackendApiUrl,
@@ -44,7 +50,16 @@ public sealed class MainForm : Form
         // Developer/test-only debug transport: strictly opt-in, never in normal mode.
         _devDebug = DevDebugTransport.FromEnvironment();
 
-        Text = _devDebug is null ? DemoLabel.WindowTitle : DemoLabel.WindowTitle + DemoLabel.DevDebugBannerSuffix;
+        // Dev-only observation log for the real-portal run (sanitized URLs only).
+        _observationLogPath = _realPortal.Enabled
+            ? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "HadirDesktop", "real-portal-observations.log")
+            : null;
+
+        Text = _realPortal.Enabled
+            ? DemoLabel.WindowTitle + DemoLabel.RealPortalBannerSuffix
+            : _devDebug is null ? DemoLabel.WindowTitle : DemoLabel.WindowTitle + DemoLabel.DevDebugBannerSuffix;
         Width = 1100;
         Height = 750;
         StartPosition = FormStartPosition.CenterScreen;
@@ -70,7 +85,9 @@ public sealed class MainForm : Form
             ForeColor = System.Drawing.Color.White,
             TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
             Font = new System.Drawing.Font(Font, System.Drawing.FontStyle.Bold),
-            Text = DemoLabel.BannerText + (_devDebug is null ? string.Empty : DemoLabel.DevDebugBannerSuffix),
+            Text = DemoLabel.BannerText + (_realPortal.Enabled
+                ? DemoLabel.RealPortalBannerSuffix
+                : _devDebug is null ? string.Empty : DemoLabel.DevDebugBannerSuffix),
         };
 
         _webView = new WebView2
@@ -161,6 +178,14 @@ public sealed class MainForm : Form
             return;
         }
 
+        // Real-portal dev mode loads the real idMe login page instead of the
+        // fixture. Read-only: navigation only, never credentials, never submit.
+        if (_realPortal.Enabled)
+        {
+            _webView.CoreWebView2.Navigate(DemoLabel.RealPortalLoginUrl);
+            return;
+        }
+
         var url = _devDebug is null ? _portalServer.BaseUrl : _portalServer.DevBaseUrl;
         _webView.CoreWebView2.Navigate(url);
     }
@@ -171,6 +196,11 @@ public sealed class MainForm : Form
         {
             e.Cancel = true;
             ShowNavBlocked(e.Uri);
+            LogObservation("navigation-starting", e.Uri, allowed: false);
+        }
+        else
+        {
+            LogObservation("navigation-starting", e.Uri, allowed: true);
         }
     }
 
@@ -178,9 +208,35 @@ public sealed class MainForm : Form
     {
         // DEMO policy: never open a real OS browser window; block and notify.
         e.Handled = true;
-        if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) || !_navigationGuard.IsAllowed(uri))
+        var allowed = Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) && _navigationGuard.IsAllowed(uri);
+        if (!allowed)
         {
             ShowNavBlocked(e.Uri);
+        }
+        // New-window (popup/SSO) attempts are always blocked (no OS window) even
+        // when the origin is on the allowlist; record the exact URL and decision.
+        LogObservation("new-window-requested", e.Uri, allowed);
+    }
+
+    /// <summary>
+    /// Dev-only: appends one sanitized line (no query/fragment, no values) to the
+    /// local observation log during a real-portal run. No-op in normal mode.
+    /// </summary>
+    private void LogObservation(string kind, string? uri, bool allowed)
+    {
+        if (_observationLogPath is null) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_observationLogPath)!);
+            File.AppendAllText(_observationLogPath, RealPortalObservation.FormatLine(kind, uri, allowed) + Environment.NewLine);
+        }
+        catch (IOException)
+        {
+            // Observation is best-effort; never let it affect navigation.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Same as above.
         }
     }
 
