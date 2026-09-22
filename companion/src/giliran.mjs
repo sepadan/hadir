@@ -28,6 +28,24 @@ function adalahLangkau(hasil) { return !!(hasil && hasil.status === 'langkau'); 
 // — lalai selamat ialah TIDAK PERNAH cuba semula.
 function pastiTiadaSpawn(hasil) { return !!(hasil && hasil.pastiTiadaSpawn === true); }
 
+// Pemetaan keputusan verifikasi BACA-SAHAJA (mod 'verifikasi') bagi tugasan
+// berstatus 'tersimpan' — dialog Simpan berjaya tetapi pengesahan selepas muat
+// semula tidak lengkap. Digunakan oleh laluan manual sahkanTugasan (F3) DAN
+// laluan automatik (pemulihan tersimpan) supaya keputusan kekal SAMA:
+//   tidak-berubah           -> berjaya (MOEIS sudah padan; tiada tulis MOEIS)
+//   konflik / perlu-hantar  -> gagal (perubahan masih diperlukan; tindakan manusia)
+//   status lain (teknikal)  -> teknikal (pemanggil lepas lease, tiada rekod)
+function petakanKeputusanVerifikasiSahaja(h) {
+  if (h.status === 'tidak-berubah') {
+    return { jenis: 'berjaya', mesej: 'Pengesahan semula: MOEIS sudah padan dengan HADIR.', bilHadir: h.bilHadir ?? '' };
+  }
+  if (h.status === 'konflik' || h.status === 'perlu-hantar') {
+    const sebabAsas = h.status === 'konflik' ? h.sebab : 'Masih ada perubahan diperlukan di MOEIS berbanding HADIR.';
+    return { jenis: 'gagal', mesej: sebabAsas + ' Tindakan manusia diperlukan — semak MOEIS, kemudian admin boleh cipta tugasan baharu mengikut peraturan sedia ada.' };
+  }
+  return { jenis: 'teknikal' };
+}
+
 export function buatGiliran({
   klien, pemilik, log, jalankanTugasanAnak, semakKelayakanAutomatik, cubaLoginAutoKerja,
   segarkanSesiCache, jedaSegarSesiMs = 10 * 60 * 1000, sekarangMs, tutupKumpulanPelayar
@@ -107,13 +125,45 @@ export function buatGiliran({
     return false;
   }
 
+  // Pemulihan SELAMAT (baca sahaja) bagi tugasan berstatus 'tersimpan' pada
+  // laluan AUTOMATIK: klaim telah dilakukan dengan mod 'verifikasi' (read-only,
+  // status KEKAL 'tersimpan' di backend). Jalankan HANYA mod 'verifikasi' —
+  // TIDAK PERNAH mod 'hantar'. Keputusan dipetakan SAMA seperti sahkanTugasan
+  // (F3): padan => berjaya (tiada tulis MOEIS), perlu perubahan/konflik => gagal
+  // (tindakan manusia), kegagalan teknikal => lepas lease tanpa merekod hasil
+  // (boleh dicuba semula selepas restart; guard pernahDiklaimAutomatik
+  // menghalang cubaan semula dalam proses sama).
+  async function prosesTersimpan(klaim, tugasanKelayakan, automatik) {
+    try {
+      const verifikasi = await jalankanTugasanAnak(klaim, { mod: 'verifikasi' });
+      log.tulisKerja(klaim.id + '-sah-auto', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
+      const petakan = petakanKeputusanVerifikasiSahaja(verifikasi.hasil);
+      if (petakan.jenis === 'teknikal') {
+        await klien.lepas(klaim.id, pemilik).catch(() => {});
+        return null;
+      }
+      if (automatik && !(await masihLayak(tugasanKelayakan, 'sebelum-mutasi'))) {
+        await klien.lepas(klaim.id, pemilik).catch(() => {});
+        return null;
+      }
+      await klien.selesai(klaim.id, petakan.jenis, petakan.mesej,
+        petakan.jenis === 'berjaya' ? petakan.bilHadir : '', pemilik);
+      return { id: klaim.id, keputusan: petakan.jenis, mesej: petakan.mesej };
+    } catch (ralat) {
+      log.tulisKerja(klaim.id + '-sah-auto-ralat', String(ralat && ralat.stack || ralat));
+      await klien.lepas(klaim.id, pemilik).catch(() => {});
+      return null;
+    }
+  }
+
   async function prosesSatuTugasan(ringkasan, benarkanCubaSemula, automatik) {
     if (automatik && pernahDiklaimAutomatik.has(ringkasan.id)) {
       state.sebabKelayakanTerakhir = 'Tugasan ini sudah pernah dicuba automatik; cubaan semula memerlukan tindakan manual.';
       return null;
     }
     if (automatik && !(await masihLayak(ringkasan, 'sebelum-klaim'))) return null;
-    const klaim = await klien.klaim(ringkasan.id, pemilik, benarkanCubaSemula === true);
+    const mahuVerifikasiSahaja = ringkasan.status === 'tersimpan';
+    const klaim = await klien.klaim(ringkasan.id, pemilik, mahuVerifikasiSahaja ? 'verifikasi' : (benarkanCubaSemula === true));
     if (!klaim) return null; // sudah diambil enjin lain, atau tidak layak diklaim
     if (automatik) pernahDiklaimAutomatik.add(ringkasan.id);
 
@@ -128,6 +178,13 @@ export function buatGiliran({
     let sudahCubaLoginSemula = false;
     try {
       const jalan = (mod, opsyen) => jalankanTugasanAnak(klaim, { mod, ...opsyen });
+
+      // Tugasan 'tersimpan' (dialog Simpan berjaya tetapi pengesahan tidak
+      // lengkap) mengikut laluan BACA-SAHAJA: HANYA mod 'verifikasi', TIDAK
+      // PERNAH mod 'hantar'. Lihat prosesTersimpan di atas.
+      if (mahuVerifikasiSahaja) {
+        return await prosesTersimpan(klaim, tugasanKelayakan, automatik);
+      }
 
       let verifikasi = await jalan('verifikasi', {});
       log.tulisKerja(klaim.id + '-verifikasi', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
@@ -333,7 +390,14 @@ export function buatGiliran({
       // pemulihan tugasan tersekat. Backend (hadirMoeisJobKlaim_) yang
       // memutuskan secara atomik sama ada klaim dibenarkan; klaim yang tidak
       // dibenarkan pulang null dan tugasan itu dilangkau tanpa kesan.
-      const calon = (senarai || []).filter((j) => j.status === 'menunggu' || j.status === 'sedang_dihantar');
+      // Tugasan 'tersimpan' dipertimbangkan HANYA oleh giliran automatik
+      // (auto-mula) untuk pemulihan baca-sahaja (mod 'verifikasi'); giliran
+      // manual mengekalkan kelakuan sedia ada (pemulihan tersimpan manual
+      // kekal melalui sahkanTugasan / F3).
+      const automatik = state.modMula === 'auto';
+      const statusDibenarkan = ['menunggu', 'sedang_dihantar'];
+      if (automatik) statusDibenarkan.push('tersimpan');
+      const calon = (senarai || []).filter((j) => statusDibenarkan.indexOf(j.status) >= 0);
       const keputusan = [];
       let dilangkau = 0;
       for (const j of calon) {
@@ -342,7 +406,7 @@ export function buatGiliran({
         // kelakuan HEAD: tiada penapis kalendar/kesegaran, tiada cubaan semula
         // automatik dalam poll — auto-mula ialah TAMBAHAN opt-in, bukan pengubah
         // giliran manual.
-        const r = await prosesSatuTugasan(j, false, state.modMula === 'auto');
+        const r = await prosesSatuTugasan(j, false, automatik);
         if (r) { keputusan.push(r); state.keputusanTerakhir = r; }
         else dilangkau++;
       }
@@ -397,27 +461,19 @@ export function buatGiliran({
       try {
         const verifikasi = await jalankanTugasanAnak(klaim, { mod: 'verifikasi' });
         log.tulisKerja(klaim.id + '-sah', (verifikasi.stdout || '') + (verifikasi.stderr || ''));
-        const h = verifikasi.hasil;
-        if (h.status === 'tidak-berubah') {
-          const mesej = 'Pengesahan semula: MOEIS sudah padan dengan HADIR.';
-          await klien.selesai(klaim.id, 'berjaya', mesej, h.bilHadir ?? '', pemilik);
-          const r = { id: klaim.id, keputusan: 'berjaya', mesej };
-          state.keputusanTerakhir = r;
-          return { diproses: 1, keputusan: [r] };
+        const petakan = petakanKeputusanVerifikasiSahaja(verifikasi.hasil);
+        if (petakan.jenis === 'teknikal') {
+          // status 'gagal' teknikal (cth kelas tidak dapat dipetakan, sesi
+          // tamat) — lepaskan lease tanpa merekod keputusan supaya tugasan
+          // 'tersimpan' itu boleh dicuba sahkan semula kemudian.
+          await klien.lepas(klaim.id, pemilik).catch(() => {});
+          return { diproses: 0, sebab: verifikasi.hasil.sebab || 'Ralat semasa pengesahan semula.' };
         }
-        if (h.status === 'konflik' || h.status === 'perlu-hantar') {
-          const sebabAsas = h.status === 'konflik' ? h.sebab : 'Masih ada perubahan diperlukan di MOEIS berbanding HADIR.';
-          const mesej = sebabAsas + ' Tindakan manusia diperlukan — semak MOEIS, kemudian admin boleh cipta tugasan baharu mengikut peraturan sedia ada.';
-          await klien.selesai(klaim.id, 'gagal', mesej, '', pemilik);
-          const r = { id: klaim.id, keputusan: 'gagal', mesej };
-          state.keputusanTerakhir = r;
-          return { diproses: 1, keputusan: [r] };
-        }
-        // status 'gagal' teknikal (cth kelas tidak dapat dipetakan, sesi
-        // tamat) — lepaskan lease tanpa merekod keputusan supaya tugasan
-        // 'tersimpan' itu boleh dicuba sahkan semula kemudian.
-        await klien.lepas(klaim.id, pemilik).catch(() => {});
-        return { diproses: 0, sebab: h.sebab || 'Ralat semasa pengesahan semula.' };
+        await klien.selesai(klaim.id, petakan.jenis, petakan.mesej,
+          petakan.jenis === 'berjaya' ? petakan.bilHadir : '', pemilik);
+        const r = { id: klaim.id, keputusan: petakan.jenis, mesej: petakan.mesej };
+        state.keputusanTerakhir = r;
+        return { diproses: 1, keputusan: [r] };
       } catch (ralat) {
         log.tulisKerja(klaim.id + '-sah-ralat', String(ralat && ralat.stack || ralat));
         await klien.lepas(klaim.id, pemilik).catch(() => {});

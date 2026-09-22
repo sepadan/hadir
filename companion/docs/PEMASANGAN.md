@@ -101,8 +101,9 @@ yang diproses oleh giliran yang dimulakan oleh auto-mula; giliran yang dimulakan
 manual dengan butang **Mula** tidak ditapis kalendar/kesegaran. Tugasan layak
 diproses automatik hanya jika:
 
-- berstatus `menunggu` ATAU `sedang_dihantar` (yatim selepas crash/restart),
-  untuk **TARIKH HARI INI** dalam zon `Asia/Kuala_Lumpur`;
+- berstatus `menunggu` ATAU `sedang_dihantar` (yatim selepas crash/restart)
+  ATAU `tersimpan` (pengesahan selepas simpan tidak lengkap), untuk **TARIKH
+  HARI INI** dalam zon `Asia/Kuala_Lumpur`;
 - tarikh itu **ada dalam allowlist** tarikh sekolah tepat `kalendarSekolah`
   (allowlist kosong = gagal tertutup); **Sabtu/Ahad ditolak**;
 - cap masa penciptaan (`diciptaEpochMs`) **sah dan bukan masa depan** (kewarasan
@@ -114,6 +115,14 @@ bermula. `sedang_dihantar` TIDAK dihantar buta: klaim atomik + lease (backend)
 memutuskan pemilikan (lease aktif tidak dirampas), dan verifikasi-baca-dahulu
 memastikan padan => berjaya tanpa tulis, konflik => berhenti (perlu penyesuaian
 manusia).
+
+Tugasan `tersimpan` dipulihkan **baca-sahaja sahaja**: klaim dengan mod
+`'verifikasi'` (status KEKAL `tersimpan` di backend) dan jalankan HANYA mod
+`verifikasi` — **TIDAK PERNAH** mod `hantar`. Padan (`tidak-berubah`) =>
+`berjaya` tanpa tulis MOEIS; `konflik`/`perlu-hantar` => `gagal` dengan mesej
+tindakan manusia; kegagalan teknikal => lepaskan lease tanpa merekod hasil
+(boleh dicuba semula selepas restart). `berjaya`/`gagal` kekal TIDAK diproses
+automatik.
 
 Kelayakan ini diperiksa semula **sebelum klaim dan tepat sebelum mutasi
 MOEIS** — pertukaran tarikh/kalendar/togol semasa kerja tidak dicache.

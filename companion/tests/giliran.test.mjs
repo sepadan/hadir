@@ -571,6 +571,100 @@ test('auto-mula: sedang_dihantar dengan lease aktif (enjin hidup) TIDAK dirampas
   }
 });
 
+// ---------------- Auto-mula: pemulihan BACA-SAHAJA tugasan 'tersimpan' ----------------
+// Dasar baharu: auto-mula juga memulihkan tugasan 'tersimpan' hari ini (dialog
+// Simpan berjaya tetapi pengesahan tidak lengkap) — dengan klaim read-only mod
+// 'verifikasi' (status KEKAL 'tersimpan' di backend) dan HANYA mod 'verifikasi',
+// TIDAK PERNAH mod 'hantar'. Keputusan dipetakan sama seperti sahkanTugasan (F3).
+
+test('auto-mula: tersimpan hari ini diklaim mod verifikasi sahaja; padan => berjaya tanpa hantar', async () => {
+  const klien = klienPalsuLengkap({
+    id: 'jtersimpan-ok', status: 'tersimpan', kelas: '6 BIJAK', tarikhIso: '2026-09-21',
+    murid: [{ nama: 'MURID CONTOH SATU', kategori: 'D', sebab: 'DEMAM' }],
+    diciptaEpochMs: Date.parse('2026-09-21T00:10:00Z')
+  });
+  const modDipanggil = [];
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    modDipanggil.push(opsyen.mod);
+    return { stdout: '', stderr: '', hasil: { status: 'tidak-berubah', sebab: 'MOEIS sudah padan.', bilHadir: 5, kod: 0 } };
+  };
+  const g = buatGiliran({
+    klien, pemilik: 'runner-auto', log: logPalsu(), jalankanTugasanAnak,
+    semakKelayakanAutomatik: (job) => nilaiKelayakanTugasan(job, { tetapan: TETAPAN_AUTO, sekarangMs: MASA_AUTO })
+  });
+  g.mulakan(30, { automatik: true });
+  try {
+    const r = await g.jalankanSatuKitaran();
+    assert.equal(r.diproses, 1, 'tersimpan hari ini dipulihkan oleh auto-mula');
+    assert.equal(klien._klaimPanggilan.length, 1);
+    assert.equal(klien._klaimPanggilan[0].benarkanCubaSemula, 'verifikasi', 'tersimpan diklaim mod verifikasi (bukan true/false)');
+    assert.deepEqual(modDipanggil, ['verifikasi'], 'hanya mod verifikasi, TIDAK PERNAH mod hantar');
+    assert.equal(klien._selesaiPanggilan.length, 1);
+    assert.equal(klien._selesaiPanggilan[0].keputusan, 'berjaya');
+  } finally { g.hentikan(); }
+});
+
+test('auto-mula: tersimpan dengan perubahan masih diperlukan => gagal (tindakan manusia), tiada hantar', async () => {
+  const klien = klienPalsuLengkap({
+    id: 'jtersimpan-perlu', status: 'tersimpan', kelas: '6 BIJAK', tarikhIso: '2026-09-21',
+    murid: [{ nama: 'MURID CONTOH SATU', kategori: 'D', sebab: 'DEMAM' }],
+    diciptaEpochMs: Date.parse('2026-09-21T00:10:00Z')
+  });
+  const modDipanggil = [];
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    modDipanggil.push(opsyen.mod);
+    return { stdout: '', stderr: '', hasil: { status: 'perlu-hantar', sebab: 'Masih ada perubahan diperlukan.', kod: 0 } };
+  };
+  const g = buatGiliran({
+    klien, pemilik: 'runner-auto', log: logPalsu(), jalankanTugasanAnak,
+    semakKelayakanAutomatik: (job) => nilaiKelayakanTugasan(job, { tetapan: TETAPAN_AUTO, sekarangMs: MASA_AUTO })
+  });
+  g.mulakan(30, { automatik: true });
+  try {
+    const r = await g.jalankanSatuKitaran();
+    assert.equal(r.diproses, 1);
+    assert.deepEqual(modDipanggil, ['verifikasi'], 'tiada mod hantar automatik untuk tersimpan');
+    assert.equal(klien._selesaiPanggilan[0].keputusan, 'gagal');
+    assert.match(klien._selesaiPanggilan[0].mesej, /manusia/i);
+  } finally { g.hentikan(); }
+});
+
+test('auto-mula: tersimpan kegagalan teknikal => lepas lease tanpa merekod hasil', async () => {
+  const klien = klienPalsuLengkap({
+    id: 'jtersimpan-teknikal', status: 'tersimpan', kelas: '6 BIJAK', tarikhIso: '2026-09-21',
+    murid: [], diciptaEpochMs: Date.parse('2026-09-21T00:10:00Z')
+  });
+  const jalankanTugasanAnak = async () => ({ stdout: '', stderr: '', hasil: { status: 'gagal', sebab: 'Kelas tidak dapat dipetakan.', kod: 9 } });
+  const g = buatGiliran({
+    klien, pemilik: 'runner-auto', log: logPalsu(), jalankanTugasanAnak,
+    semakKelayakanAutomatik: (job) => nilaiKelayakanTugasan(job, { tetapan: TETAPAN_AUTO, sekarangMs: MASA_AUTO })
+  });
+  g.mulakan(30, { automatik: true });
+  try {
+    const r = await g.jalankanSatuKitaran();
+    assert.equal(r.diproses, 0, 'kegagalan teknikal tidak dikira diproses');
+    assert.equal(klien._selesaiPanggilan.length, 0, 'tiada keputusan direkod');
+    assert.equal(klien._lepasPanggilan.length, 1, 'lease dilepaskan untuk cubaan semula kemudian');
+  } finally { g.hentikan(); }
+});
+
+test('auto-mula: tersimpan TIDAK diambil oleh giliran MANUAL (pemulihan tersimpan hanya auto-mula)', async () => {
+  const klien = klienPalsuLengkap({
+    id: 'jtersimpan-manual', status: 'tersimpan', kelas: '6 BIJAK', tarikhIso: '2026-09-21',
+    murid: [], diciptaEpochMs: Date.parse('2026-09-21T00:10:00Z')
+  });
+  let dipanggil = false;
+  const jalankanTugasanAnak = async () => { dipanggil = true; return { hasil: { status: 'tidak-berubah', kod: 0 } }; };
+  const g = buatGiliran({ klien, pemilik: 'runner-manual', log: logPalsu(), jalankanTugasanAnak });
+  g.mulakan(30); // manual — tiada { automatik: true }
+  try {
+    const r = await g.jalankanSatuKitaran();
+    assert.equal(r.diproses, 0, 'giliran manual tidak mengambil tersimpan');
+    assert.equal(klien._klaimPanggilan.length, 0);
+    assert.equal(dipanggil, false);
+  } finally { g.hentikan(); }
+});
+
 test('langkau (profil Edge digunakan): lepaskan lease, TIDAK lapor gagal kekal, TIDAK paksa-bunuh', async () => {
   // Apabila jalankanTugasanAnak memulangkan status 'langkau' (profil Edge
   // digunakan oleh operasi pelayar lain), giliran mesti melepaskan lease dan

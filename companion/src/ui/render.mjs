@@ -126,8 +126,10 @@ tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
 <button id="btnSimpanKalendar">Simpan kalendar</button>
 <div id="statusKalendar" class="status"></div>
 <p class="status">Allowlist kosong gagal tertutup. Sabtu/Ahad, cuti, kerja lama,
-kerja dari sebelum startup, cap masa rosak, gagal, tersimpan dan lease luput
-tidak diproses automatik. Had umur tugasan ialah 15 minit.</p>
+kerja dari sebelum startup, cap masa rosak, gagal, berjaya dan lease luput
+tidak diproses automatik. Tugasan tersimpan (pengesahan tidak lengkap)
+dipulihkan dengan pengesahan baca-sahaja — mod verifikasi sahaja, tiada hantar.
+Had umur tugasan ialah 15 minit.</p>
 
 <script>
 (function () {

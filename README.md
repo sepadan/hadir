@@ -35,8 +35,12 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
   loopback sahaja. Pemasangan penuh: [`companion/docs/PEMASANGAN.md`](companion/docs/PEMASANGAN.md).
 - Companion mempunyai dua opt-in tempatan yang berasingan: autostart Windows
   dan auto-mula giliran berpengawal. Kedua-duanya lalai MATI; auto-mula
-  menerima kerja `menunggu` atau `sedang_dihantar` (yatim) untuk tarikh sekolah
-  allowlist hari ini, termasuk yang dicipta sebelum enjin bermula.
+  menerima kerja `menunggu`, `sedang_dihantar` (yatim) atau `tersimpan`
+  (pengesahan tidak lengkap) untuk tarikh sekolah allowlist hari ini, termasuk
+  yang dicipta sebelum enjin bermula. Tugasan `tersimpan` dipulihkan dengan
+  pengesahan **baca-sahaja** (mod `verifikasi` sahaja, tidak pernah `hantar`):
+  padan => berjaya tanpa tulis MOEIS; masih perlu perubahan/konflik => gagal
+  (tindakan manusia).
   Log masuk idMe automatik ialah opt-in berasingan (`loginAuto`, lalai MATI)
   melalui vault kredensial DPAPI tempatan; frasa kunci keselamatan mesti padan
   dan CAPTCHA/OTP/2FA memerlukan manusia.

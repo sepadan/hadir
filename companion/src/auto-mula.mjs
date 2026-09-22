@@ -67,8 +67,8 @@ export function bolehAutoMula({ tetapan, sekarangMs, sempadanProsesMs, sesiAda, 
 export function nilaiKelayakanTugasan(job, { tetapan, sekarangMs }) {
   const hari = asasHariSekolah(tetapan, sekarangMs);
   if (!hari.boleh) return hari;
-  if (!job || (job.status !== 'menunggu' && job.status !== 'sedang_dihantar')) {
-    return { boleh: false, sebab: 'Hanya tugasan menunggu atau sedang_dihantar (yatim) untuk hari ini boleh diproses automatik.' };
+  if (!job || (job.status !== 'menunggu' && job.status !== 'sedang_dihantar' && job.status !== 'tersimpan')) {
+    return { boleh: false, sebab: 'Hanya tugasan menunggu, sedang_dihantar (yatim) atau tersimpan untuk hari ini boleh diproses automatik.' };
   }
   if (job.tarikhIso !== hari.tarikhIso) {
     return { boleh: false, sebab: 'Hanya tugasan untuk hari ini di Asia/Kuala_Lumpur boleh diproses automatik.' };
@@ -78,13 +78,13 @@ export function nilaiKelayakanTugasan(job, { tetapan, sekarangMs }) {
   }
   // Kewarasan cap masa sahaja (bukan masa depan). Sempadan startup/aktivasi dan
   // umur maksimum TIDAK lagi dijadikan penolak — tugasan hari ini yang masih
-  // belum selesai (menunggu/sedang_dihantar) diteruskan selepas restart.
+  // belum selesai (menunggu/sedang_dihantar/tersimpan) diteruskan selepas restart.
   // Pemilikan lease aktif / klaim atomik diputuskan oleh backend (moeisJobKlaim_),
   // bukan di sini.
   if (job.diciptaEpochMs > sekarangMs) {
     return { boleh: false, sebab: 'Cap masa penciptaan tugasan berada pada masa depan.' };
   }
-  return { boleh: true, sebab: 'Tugasan menunggu/sedang_dihantar hari ini layak diproses automatik.' };
+  return { boleh: true, sebab: 'Tugasan menunggu/sedang_dihantar/tersimpan hari ini layak diproses automatik.' };
 }
 
 // --- Amaran kalendar sekolah (baca sahaja, tulen) ---

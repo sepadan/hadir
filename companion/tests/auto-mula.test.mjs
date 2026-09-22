@@ -64,16 +64,20 @@ test('tugasan menunggu hari ini layak walau lebih lama daripada 15 minit (had um
   assert.equal(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: Date.parse('2026-09-21T00:40:00Z') }), opsyen).boleh, true);
 });
 
-test('hanya menunggu/sedang_dihantar hari ini diterima; status selesai/tersimpan dan tarikh lain ditolak', () => {
+test('hanya menunggu/sedang_dihantar/tersimpan hari ini diterima; status selesai dan tarikh lain ditolak', () => {
   const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG };
   assert.equal(nilaiKelayakanTugasan(tugasanSah(), opsyen).boleh, true);
-  // sedang_dihantar (yatim selepas crash/restart) kini LAYAK untuk pemulihan auto.
+  // sedang_dihantar (yatim selepas crash/restart) LAYAK untuk pemulihan auto.
   assert.equal(nilaiKelayakanTugasan(tugasanSah({ status: 'sedang_dihantar' }), opsyen).boleh, true);
-  // Sudah berjaya TIDAK PERNAH dijalankan semula; gagal/tersimpan tidak dicuba auto.
-  for (const status of ['gagal', 'tersimpan', 'berjaya']) {
+  // tersimpan (dialog simpan berjaya tetapi pengesahan tidak lengkap) LAYAK
+  // untuk pemulihan baca-sahaja automatik (mod 'verifikasi' sahaja, tiada hantar).
+  assert.equal(nilaiKelayakanTugasan(tugasanSah({ status: 'tersimpan' }), opsyen).boleh, true);
+  // Sudah berjaya TIDAK PERNAH dijalankan semula; gagal tidak dicuba auto.
+  for (const status of ['gagal', 'berjaya']) {
     assert.equal(nilaiKelayakanTugasan(tugasanSah({ status }), opsyen).boleh, false, status);
   }
   assert.match(nilaiKelayakanTugasan(tugasanSah({ tarikhIso: '2026-09-20' }), opsyen).sebab, /hari ini/i);
+  assert.match(nilaiKelayakanTugasan(tugasanSah({ status: 'tersimpan', tarikhIso: '2026-09-20' }), opsyen).sebab, /hari ini/i);
 });
 
 test('kewarasan cap masa dikekalkan: nilai tidak sah dan masa depan ditolak', () => {
