@@ -36,6 +36,12 @@ public sealed class MainForm : Form
     private readonly LoopbackKerjaHariIniSource _kerjaHariIni = new();
     private readonly PortalLifecycle _lifecycle;
 
+    // Submission pass: full task list source + WebView2 adapter + opt-in pass.
+    private readonly LoopbackKerjaPenuhSource _kerjaPenuh = new();
+    private readonly PenghantaranMoeisWebView2 _penghantarMoeis;
+    private readonly AliranPenghantaranMoeis _aliranPenghantaran;
+    private bool _penghantaranDihidupkan; // DEFAULT OFF until a real opt-in UI exists
+
     /// <summary>
     /// Cancels an in-flight demand cycle on real shutdown. The login manager
     /// retries a TRANSIENT failure indefinitely on purpose (owner policy), and a
@@ -97,6 +103,15 @@ public sealed class MainForm : Form
             sesiSah: SesiSahProbeAsync);
         _loginDemand = new IdMeLoginDemand(_idMeSettingsStore, _loginManager, AdaKerjaMenungguAsync);
 
+        // Submission pass: built AFTER the login pieces so the WebView2 lambda
+        // (deferred) can reference _webView, and wired as the lifecycle's
+        // "after a valid session" hook. DEFAULT OFF (opt-in _penghantaranDihidupkan).
+        _penghantarMoeis = new PenghantaranMoeisWebView2(() => _webView.CoreWebView2);
+        _aliranPenghantaran = new AliranPenghantaranMoeis(
+            _kerjaPenuh,
+            _penghantarMoeis,
+            dihidupkan: () => _penghantaranDihidupkan);
+
         // Demand-only portal lifecycle: the ONLY decider of whether the embedded
         // WebView2 is ever pointed at the portal. Gate order: owner opt-in
         // (default OFF) -> read-only engine demand probe -> rejection guard ->
@@ -111,6 +126,7 @@ public sealed class MainForm : Form
             // continuation (see PadaUiAsync).
             ct => PadaUiAsync(() => _loginDemand.CubaAutoDenganPermintaanAsync(adaKerja: true, ct)),
             diblok: () => _penjaga.Diblok(),
+            selepasLoginSah: ct => PadaUiAsync(async () => (await _aliranPenghantaran.JalankanAsync(ct)).Sebab),
             lapor: LaporKeadaanPortal);
         _devicePanel = new DevicePanel(
             new DeviceRegistrationClient(_deviceHttp, DemoLabel.HadirBackendApiUrl),
@@ -694,6 +710,7 @@ public sealed class MainForm : Form
             _portalServer.Dispose();
             _loopbackSource.Dispose();
             _kerjaHariIni.Dispose();
+            _kerjaPenuh.Dispose();
             _deviceHttp.Dispose();
             _tray.Dispose();
             return;
