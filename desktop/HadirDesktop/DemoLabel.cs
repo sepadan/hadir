@@ -18,6 +18,7 @@ public static class DemoLabel
     public const string TrayOpenSettings = "Tetapan Tempatan";
     public const string TrayIdMeSettings = "Akaun idMe…";
     public const string TrayLoginAuto = "Log masuk idMe (atas permintaan)";
+    public const string TrayCubaLagi = "Cuba lagi (kosongkan penolakan)";
     public const string TrayExit = "Keluar";
 
     /// <summary>Loopback URL of the engine's protected local settings UI (nonce-gated).</summary>

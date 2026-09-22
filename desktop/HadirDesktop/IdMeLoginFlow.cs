@@ -284,6 +284,12 @@ public sealed class IdMeLoginManager
     {
         try
         {
+            // ALWAYS yield before doing any work: a fully synchronous attempt
+            // (all scripted callbacks already completed) would otherwise finish
+            // inside this call and clear `_dalamPenerbangan` BEFORE
+            // CubaDenganCubaSemulaAsync stores the task, leaving a stale
+            // completed task that silently disables every later attempt.
+            await Task.Yield();
             return await CubaDenganCubaSemulaTerasAsync(ct);
         }
         finally
@@ -433,6 +439,29 @@ public sealed class IdMeLoginDemand
         // Zero-activity guarantee: with no waiting attendance, never log in,
         // never open the portal, never touch idMe/MOEIS — not even a session probe.
         if (!await _adaKerjaMenunggu())
+        {
+            return new HasilLoginAuto { Status = "tiada-kerja", PerluManusia = false, Sebab = "Tiada kehadiran belum siap untuk dihantar; tiada log masuk, tiada portal dibuka." };
+        }
+
+        return await _pengurus.CubaDenganCubaSemulaAsync(ct);
+    }
+
+    /// <summary>
+    /// The SAME flow when the caller has ALREADY established demand itself
+    /// (<see cref="PortalLifecycle"/> probes the engine once per cycle): the
+    /// switch gate is applied here too, but the engine is not asked twice.
+    /// Callers MUST have probed read-only demand and must pass exactly what the
+    /// probe returned — never a guess.
+    /// </summary>
+    public async Task<HasilLoginAuto> CubaAutoDenganPermintaanAsync(bool adaKerja, CancellationToken ct = default)
+    {
+        var t = _tetapan.Baca();
+        if (!t.LoginAuto)
+        {
+            return new HasilLoginAuto { Status = "dilangkau", PerluManusia = false, Sebab = "Log masuk idMe automatik dimatikan (lalai)." };
+        }
+
+        if (!adaKerja)
         {
             return new HasilLoginAuto { Status = "tiada-kerja", PerluManusia = false, Sebab = "Tiada kehadiran belum siap untuk dihantar; tiada log masuk, tiada portal dibuka." };
         }

@@ -10,12 +10,14 @@ namespace HadirDesktop;
 public sealed class TrayHost : IDisposable
 {
     private readonly NotifyIcon _notifyIcon;
+    private readonly ToolStripMenuItem _stateItem;
     private bool _shownBalloonOnce;
 
     public event EventHandler? ShowRequested;
     public event EventHandler? OpenSettingsRequested;
     public event EventHandler? IdMeSettingsRequested;
     public event EventHandler? LoginAutoRequested;
+    public event EventHandler? CubaLagiRequested;
     public event EventHandler? ExitRequested;
 
     public TrayHost(Icon icon)
@@ -26,18 +28,40 @@ public sealed class TrayHost : IDisposable
         menu.Items.Add(DemoLabel.TrayIdMeSettings, null, (_, _) => IdMeSettingsRequested?.Invoke(this, EventArgs.Empty));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(DemoLabel.TrayLoginAuto, null, (_, _) => LoginAutoRequested?.Invoke(this, EventArgs.Empty));
+        menu.Items.Add(DemoLabel.TrayCubaLagi, null, (_, _) => CubaLagiRequested?.Invoke(this, EventArgs.Empty));
+        menu.Items.Add(new ToolStripSeparator());
+
+        // Read-only status row (disabled item): the portal lifecycle state in
+        // words. Never a command, never a credential — text only.
+        _stateItem = new ToolStripMenuItem(LabelKeadaanPortal.UntukMenu(KeadaanPortal.Diam, null))
+        {
+            Enabled = false,
+        };
+        menu.Items.Add(_stateItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(DemoLabel.TrayExit, null, (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty));
 
         _notifyIcon = new NotifyIcon
         {
             Icon = icon,
-            Text = DemoLabel.WindowTitle,
+            Text = LabelKeadaanPortal.UntukDulang(KeadaanPortal.Diam),
             ContextMenuStrip = menu,
             Visible = true,
         };
 
         _notifyIcon.DoubleClick += (_, _) => ShowRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Reflects the portal lifecycle state in the tray: the tooltip (truncated to
+    /// the WinForms 63-char limit by <see cref="LabelKeadaanPortal"/>, so a long
+    /// status line can never throw) and the disabled status row. Called on state
+    /// changes only — the tray never polls.
+    /// </summary>
+    public void SetPortalKeadaan(KeadaanPortal keadaan, string? sebab = null)
+    {
+        _stateItem.Text = LabelKeadaanPortal.UntukMenu(keadaan, sebab);
+        _notifyIcon.Text = LabelKeadaanPortal.UntukDulang(keadaan);
     }
 
     /// <summary>Show the "still running in tray" balloon tip, but only the first time.</summary>

@@ -1,5 +1,124 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Demand seam wired to the engine + portal lifecycle states (2026-09-22, default OFF)
+
+The placeholder demand seam is gone: the app now KNOWS whether HADIR has an
+unfinished MOEIS task TODAY, and the embedded WebView2 is pointed at the portal
+ONLY when that answer is provably yes. Same slice also exposes the portal state
+in the tray and gives the rejection guard a visible "Cuba lagi".
+
+### Demand probe (read-only)
+
+- `HadirDesktop/KerjaHariIni.cs` (new) — `PermintaanKerja(AdaKerja,
+  EnjinBolehDicapai, Sebab, BilanganKerja)` + `IKerjaHariIniSource` +
+  `LoopbackKerjaHariIniSource`. Uses the SAME authenticated loopback path as
+  `LoopbackEngineStatusSource`: `GET {base}/` and the nonce is taken from the
+  302 `Location` through the SAME redirect allowlist
+  (`TryGetNonceFromRedirect`; nonce never logged, never in a returned string),
+  then `GET /api/kerja` with header `X-HADIR-Lokal: <nonce>` and **no Origin**
+  — `/api/kerja` is not one of the companion's `/api/lokal/*` routes, so the
+  loopback UI Origin is not an allowed Origin for it; the nonce header alone
+  authorises it (companion/src/server.mjs). GET only — never mutates, never
+  reads/writes the engine secret, never pairs.
+- Counting rule: an entry counts only when its `status` is exactly one of
+  `menunggu` / `sedang_dihantar` / `tersimpan` AND its `tarikhIso` (first 10
+  chars, ordinal) equals the PC's local `yyyy-MM-dd` today.
+- Honest failure taxonomy — three distinct answers, never a guess:
+  * `AdaKerja=true` — at least one today job is unfinished;
+  * `AdaKerja=false, EnjinBolehDicapai=true` — engine answered, nothing to send;
+  * `EnjinBolehDicapai=false` — demand NOT established (engine not running,
+  401/403 on handshake or list, non-201/4xx, unreadable body, timeout). This
+  can never be read as "ada kerja" and never as a harmless "no work".
+- The date comparison uses the PC's own date. A clock/timezone mismatch degrades
+  to "no demand" (no portal activity) — documented, fail-safe direction only.
+
+### Portal lifecycle (`HadirDesktop/PortalLifecycle.cs`, new)
+
+`KeadaanPortal { Diam, AdaKerja, SedangLogin, PerluTindakanManusia,
+EnjinLuarTalian }` decided by ONE ordered gate per cycle, single-flight:
+
+1. owner opt-in (`LoginAuto`, default OFF) — off = `diam`, engine not even asked;
+2. demand probe — unreachable/unreadable = `enjin-luar-talian`, zero portal
+   activity; no unfinished task today = `diam`, zero portal activity (no
+   navigation, no session probe, no login);
+3. tripped rejection guard = `perlu-tindakan-manusia` BEFORE the portal is
+   touched (nothing to gain by opening it);
+4. only then: open the portal (`AdaKerja`) → `SedangLogin` → login manager
+   (which owns the session pre-flight, the indefinite backoff retry, and the
+   credential-rejection guard) → success = `AdaKerja` (work still waiting),
+   `PerluManusia` = `perlu-tindakan-manusia`, transient = `AdaKerja` (retrying).
+
+`LabelKeadaanPortal` maps the five states to text for the tray row, the tray
+tooltip (truncated to the WinForms 63-char `NotifyIcon.Text` limit so a long
+status line can never throw) and the status strip.
+
+### Wiring
+
+- `HadirDesktop/MainForm.cs` — `AdaKerjaMenungguAsync()` (the ONE demand seam,
+  previously hardcoded `false`) now awaits the real loopback probe and returns
+  true only for `EnjinBolehDicapai && AdaKerja`; the tray's "Log masuk idMe
+  (atas permintaan)" runs ONE lifecycle cycle; `OpenPortalDemandAsync` navigates
+  the embedded WebView2 to the MOEIS attendance URL only from the lifecycle and
+  only when the navigation allowlist already permits it; the status strip shows
+  the portal state; `CubaLagiPortalAsync` clears the guard and re-runs one
+  cycle; the new `HttpClient` is disposed in `FormClosing`.
+- `HadirDesktop/TrayHost.cs` — a disabled status row (`Keadaan portal: …`) plus
+  a "Cuba lagi (kosongkan penolakan)" menu item; `SetPortalKeadaan` updates the
+  row and the tooltip on state changes only (no polling, no timer anywhere).
+- `HadirDesktop/IdMeLoginFlow.cs` — added
+  `IdMeLoginDemand.CubaAutoDenganPermintaanAsync(bool adaKerja, ct)` so the
+  already-probed demand is reused instead of probing the engine twice (the
+  opt-in switch is still applied inside it).
+- `HadirDesktop/EngineEndpoints.cs` — `KerjaPath = "/api/kerja"`.
+
+### Bug found and fixed while testing (both single-flight owners)
+
+A cycle whose awaits ALL complete synchronously finished inside the call itself,
+so the `finally` that clears `_dalamPenerbangan` ran BEFORE the entry point had
+stored the task — leaving a stale completed task that silently turned every
+LATER cycle/attempt into a no-op. Fixed with `await Task.Yield()` before any
+work in `PortalLifecycle.TerasAsync` and `IdMeLoginManager.TerasAsync`.
+Regression test: `IdMeLoginManagerTests.DuaCubaanBerturutan_…`.
+
+### Tests
+
+`dotnet build desktop/HadirDesktop.sln` → **Build succeeded, 0 Warning(s),
+0 Error(s)**. `dotnet test desktop/HadirDesktop.sln --no-restore` →
+**249 passed / 0 failed** (was 189; +60). New: `PortalLifecycleTests` (23) —
+empty queue = zero portal/login/session activity, one waiting task = exactly one
+login attempt (and a session-valid pre-flight that submits nothing), engine
+offline = `enjin-luar-talian` with zero activity, tripped guard = stop until
+`Cuba lagi` (and 0 = never stop), single-flight, state labels/tooltip limits;
+`KerjaHariIniSourceTests` (36) — pure counting rules (status + today only,
+unexpected body = `null`, never zero) and real HTTP integration against an
+in-process companion stand-in (paths called, nonce in the HEADER, NO Origin,
+401/403, unreadable body, no engine, handshake failure, cancellation, nonce
+never leaked, HTTP 500/`ok:false`/timeout → never "ada kerja").
+
+### Review pass (MiMo, 2026-09-22) — fixes folded into this slice
+
+Independent review of the same diff; findings fixed in-place and the counts
+above reflect them:
+- SEDARGAH — a silent `catch` on the demand-probe path could swallow a real
+  failure; changed to a throwing path covered by a test.
+- BLUEPRINT.md previously claimed a stale count (237); corrected to 249 with
+  per-class counts re-measured via `dotnet test --list-tests`.
+- RENDAH (cosmetic, reported only) — tray label `&` mnemonic; `FormClosing`
+  hiding to tray keeps the cycle alive (intended design).
+- Open owner decisions: navigation-allowlist strictness vs real-portal mode,
+  and confirming that an unverifiable post-submit counts as "transient" (retry
+  without a ceiling). Neither is a bug; both are owner policy.
+
+### Verified vs unverified
+
+- VERIFIED: build + 249 tests, all fakes; no engine, no idMe/MOEIS, no
+  credential value, no pairing, no engine secret anywhere in this slice.
+- UNVERIFIED (live): `GET /api/kerja` has never been exercised against the real
+  companion engine from this app (the path/Origin rule is taken from
+  server.mjs, and the parent confirmed the auth shape), and the portal-opening /
+  login path has never been run end to end — `LoginAuto` stays OFF by default,
+  so a normal run performs zero portal activity.
+
 ## Shared idMe credential + demand-only auto-login in embedded WebView2 (2026-09-22, default OFF)
 
 Owner goal: fully automatic — app stores the idMe password locally (DPAPI),
@@ -66,6 +185,10 @@ OTP stop, success), `IdMeLoginDemandTests` (zero activity when queue empty).
 - Portal lifecycle (tray hide/close on idle) and auto-send — later phases.
 - Waiting-task detection is a seam (`AdaKerjaMenungguAsync()` returns false until
   the auto-send phase wires the real HADIR-record watcher).
+  *SUPERSEDED (later the same day)*: the seam is now wired to the real engine
+  (`LoopbackKerjaHariIniSource`, `GET /api/kerja`) and the portal lifecycle owns
+  the "open the portal only when there is work" decision — see the section at
+  the top of this file.
 - No commit yet — awaiting the parent gate.
 
 

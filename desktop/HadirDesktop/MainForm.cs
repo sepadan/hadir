@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -31,6 +32,20 @@ public sealed class MainForm : Form
     private readonly WebView2IdMeLoginDom _loginDom;
     private readonly IdMeLoginManager _loginManager;
     private readonly IdMeLoginDemand _loginDemand;
+    // Read-only demand probe + demand-only portal lifecycle (default OFF).
+    private readonly LoopbackKerjaHariIniSource _kerjaHariIni = new();
+    private readonly PortalLifecycle _lifecycle;
+
+    /// <summary>
+    /// Cancels an in-flight demand cycle on real shutdown. The login manager
+    /// retries a TRANSIENT failure indefinitely on purpose (owner policy), and a
+    /// cycle holds the lifecycle's single-flight slot for as long as it runs —
+    /// so without a token a closing window would leave a retry loop (and its
+    /// credential submissions) running until the process exits. Cancellation is
+    /// observed BETWEEN attempts: the DOM waits inside one attempt are not
+    /// cancellable, so a stuck attempt finishes before the cycle ends.
+    /// </summary>
+    private readonly CancellationTokenSource _cycleCts = new();
 
     private IEngineStatusSource _statusSource;
     private WebView2 _webView = null!;
@@ -43,6 +58,15 @@ public sealed class MainForm : Form
     private ToolStripButton _portalButton = null!;
     private ToolStripDropDownButton _sourceButton = null!;
     private bool _allowClose;
+    private KeadaanPortal _keadaanPortal = KeadaanPortal.Diam;
+
+    /// <summary>
+    /// The thread this form was constructed on — the UI thread. Needed because
+    /// <see cref="Control.InvokeRequired"/> answers <c>false</c> from ANY thread
+    /// before the handle exists, so it alone cannot tell "on the UI thread" from
+    /// "on a thread-pool continuation of the demand probe".
+    /// </summary>
+    private readonly int _uiThreadId = Environment.CurrentManagedThreadId;
 
     public MainForm()
     {
@@ -72,6 +96,22 @@ public sealed class MainForm : Form
             _penjaga,
             sesiSah: SesiSahProbeAsync);
         _loginDemand = new IdMeLoginDemand(_idMeSettingsStore, _loginManager, AdaKerjaMenungguAsync);
+
+        // Demand-only portal lifecycle: the ONLY decider of whether the embedded
+        // WebView2 is ever pointed at the portal. Gate order: owner opt-in
+        // (default OFF) -> read-only engine demand probe -> rejection guard ->
+        // open portal -> login. An empty queue or an unreachable engine means
+        // ZERO portal activity (no navigation, no session probe, no login).
+        _lifecycle = new PortalLifecycle(
+            _kerjaHariIni,
+            () => _idMeSettingsStore.Baca().LoginAuto,
+            OpenPortalDemandAsync,
+            // The login drives the embedded WebView2 DOM, so it MUST run on the
+            // UI thread — the lifecycle reaches here on a thread-pool
+            // continuation (see PadaUiAsync).
+            ct => PadaUiAsync(() => _loginDemand.CubaAutoDenganPermintaanAsync(adaKerja: true, ct)),
+            diblok: () => _penjaga.Diblok(),
+            lapor: LaporKeadaanPortal);
         _devicePanel = new DevicePanel(
             new DeviceRegistrationClient(_deviceHttp, DemoLabel.HadirBackendApiUrl),
             DemoLabel.HadirBackendApiUrl,
@@ -100,6 +140,7 @@ public sealed class MainForm : Form
         _tray.OpenSettingsRequested += (_, _) => OpenEngineSettings();
         _tray.IdMeSettingsRequested += (_, _) => OpenIdMeSettings();
         _tray.LoginAutoRequested += async (_, _) => await CubaLoginAutoAtasPermintaanAsync();
+        _tray.CubaLagiRequested += async (_, _) => await CubaLagiPortalAsync();
         _tray.ExitRequested += (_, _) => ExitForReal();
 
         BuildLayout();
@@ -405,15 +446,180 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Demand-only auto-login entry point (tray "Cuba log masuk" and, later,
-    /// the auto-send phase). Gated by the waiting-task check inside
-    /// <see cref="IdMeLoginDemand"/>: with no unfinished attendance it does
-    /// nothing at all. Never run on a timer/keepalive.
+    /// Demand-only auto-login entry point (tray "Log masuk idMe (atas
+    /// permintaan)" and, later, the auto-send phase). It runs ONE portal
+    /// lifecycle cycle: owner opt-in -> read-only engine demand probe -> open
+    /// the portal ONLY if there is unfinished work today -> login. With no
+    /// waiting work (or an unreachable engine) it performs ZERO portal
+    /// activity. Never run on a timer/keepalive.
     /// </summary>
     public async Task CubaLoginAutoAtasPermintaanAsync()
     {
-        var hasil = await _loginDemand.CubaAutoAsync();
-        _navLabel.Text = $"Login idMe auto: {hasil.Status} — {hasil.Sebab}";
+        try
+        {
+            var keadaan = await _lifecycle.PeriksaDanJalankanAsync(_cycleCts.Token);
+            SetNavLabel($"Portal: {LabelKeadaanPortal.Teks(keadaan)} — {_lifecycle.Sebab}");
+        }
+        catch (OperationCanceledException)
+        {
+            // Real shutdown cancelled the cycle mid-retry. This runs from an
+            // `async void` tray handler, so an escaping exception would take the
+            // app down on exit instead of just stopping the retry loop.
+            SetNavLabel("Portal: kitaran dibatalkan (aplikasi sedang ditutup).");
+        }
+    }
+
+    /// <summary>
+    /// Runs <paramref name="kerja"/> on the UI thread and awaits it there.
+    ///
+    /// The lifecycle's demand probe is real network I/O awaited with
+    /// ConfigureAwait(false), so every continuation after it — opening the
+    /// portal, driving the login DOM — resumes on a THREAD-POOL thread. WebView2
+    /// is thread-affine: <c>CoreWebView2.Navigate</c> throws off the UI thread,
+    /// and <see cref="WebView2IdMeLoginDom"/> swallows its own exceptions, so an
+    /// off-thread login would degrade into an endless "halaman belum sedia"
+    /// transient retry loop instead of failing visibly. Everything that touches
+    /// WebView2 or WinForms therefore goes through here.
+    /// </summary>
+    private Task<T> PadaUiAsync<T>(Func<Task<T>> kerja)
+    {
+        if (Environment.CurrentManagedThreadId == _uiThreadId) return kerja();   // already on the UI thread
+
+        if (!IsHandleCreated)
+        {
+            // Off the UI thread with no handle to marshal through: refuse rather
+            // than touch WebView2/WinForms from here. PortalLifecycle turns this
+            // into a visible "ralat teknikal" and retries, instead of an
+            // invisible cross-thread failure.
+            return Task.FromException<T>(new InvalidOperationException(
+                "Tetingkap HADIR belum sedia (tiada handle); tindakan portal tidak dijalankan dari benang lain."));
+        }
+
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            BeginInvoke(new Action(async () =>
+            {
+                try { tcs.TrySetResult(await kerja()); }
+                catch (OperationCanceledException) { tcs.TrySetCanceled(); }
+                catch (Exception ralat) { tcs.TrySetException(ralat); }
+            }));
+        }
+        catch (InvalidOperationException ralat)
+        {
+            // Handle torn down during exit.
+            tcs.TrySetException(ralat);
+        }
+
+        return tcs.Task;
+    }
+
+    private async Task PadaUiAsync(Func<Task> kerja) =>
+        await PadaUiAsync<bool>(async () => { await kerja(); return true; });
+
+    /// <summary>Status-strip text from any thread (text only, never a credential).</summary>
+    private void SetNavLabel(string teks)
+    {
+        if (Environment.CurrentManagedThreadId == _uiThreadId)
+        {
+            _navLabel.Text = teks;
+            return;
+        }
+
+        if (!IsHandleCreated) return;   // cannot marshal; the next cycle refreshes it
+
+        try { BeginInvoke(new Action(() => _navLabel.Text = teks)); }
+        catch (InvalidOperationException) { /* handle torn down during exit */ }
+    }
+
+    /// <summary>
+    /// One-click "Cuba lagi": clears the consecutive-credential-rejection guard
+    /// immediately (the guard is the ONLY auto-retry stop) and runs one more
+    /// demand-only cycle. Clearing is not a login attempt by itself.
+    /// </summary>
+    public async Task CubaLagiPortalAsync()
+    {
+        _loginManager.CubaLagi();
+        SetNavLabel("Pagar penolakan dikosongkan; menjalankan semakan deman semula…");
+        await CubaLoginAutoAtasPermintaanAsync();
+    }
+
+    /// <summary>
+    /// Opens the MOEIS attendance portal in the embedded WebView2. Called ONLY
+    /// from <see cref="PortalLifecycle"/> and only after the owner opt-in AND a
+    /// positive demand probe — the navigation allowlist still has the last word
+    /// (MOEIS/idMe origins are permitted only in the real-portal run mode; see
+    /// <see cref="RealPortalDevMode"/>).
+    ///
+    /// A portal that could NOT actually be opened is reported by THROWING, never
+    /// by a silent return. <see cref="PortalLifecycle"/> reads a normal return as
+    /// "opened" and would otherwise go on to the login stage — and, because a
+    /// transient failure is retried indefinitely, retry that stage forever
+    /// against a page this method never navigated to. Throwing instead makes the
+    /// cycle report "Portal tidak dapat dibuka" with NOTHING typed, which is
+    /// exactly what the caller is built to handle.
+    ///
+    /// Navigation only: this method types nothing, submits nothing, and is never
+    /// invoked when the queue is empty. Marshalled to the UI thread because the
+    /// lifecycle calls it from a thread-pool continuation (see
+    /// <see cref="PadaUiAsync{T}"/>).
+    /// </summary>
+    private Task OpenPortalDemandAsync(CancellationToken ct) => PadaUiAsync(() =>
+    {
+        var wv = _webView.CoreWebView2;
+        if (wv is null)
+        {
+            _navLabel.Text = "Portal tidak dibuka: WebView2 belum siap.";
+            throw new InvalidOperationException("WebView2 belum siap (CoreWebView2 belum tersedia).");
+        }
+
+        var url = IdMeLoginEndpoints.KehadiranUrl;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !_navigationGuard.IsAllowed(uri))
+        {
+            _navLabel.Text = "Portal MOEIS disekat oleh allowlist navigasi — tiada kredensial ditaip.";
+            throw new InvalidOperationException("Portal MOEIS disekat oleh allowlist navigasi.");
+        }
+
+        _navLabel.Text = "Ada kerja hari ini — membuka portal MOEIS (baca sahaja sehingga log masuk).";
+        wv.Navigate(url);
+        return Task.CompletedTask;
+    });
+
+    /// <summary>
+    /// Reflects a lifecycle state change on the UI thread: window status strip,
+    /// tray tooltip and the tray status row. Text only — never a credential.
+    /// </summary>
+    private void LaporKeadaanPortal(KeadaanPortal keadaan, string sebab)
+    {
+        void Terapkan()
+        {
+            _keadaanPortal = keadaan;
+            UpdateStateLabel();
+            _tray.SetPortalKeadaan(keadaan, sebab);
+            _navLabel.Text = $"Portal: {LabelKeadaanPortal.Teks(keadaan)} — {sebab}";
+        }
+
+        if (Environment.CurrentManagedThreadId == _uiThreadId)
+        {
+            Terapkan();
+            return;
+        }
+
+        // Off the UI thread (the lifecycle reports from a thread-pool
+        // continuation): NotifyIcon.Text and the status strip must not be
+        // touched from here. Without a handle there is nothing to marshal
+        // through, so the update is dropped — the lifecycle keeps the
+        // authoritative state and the next cycle refreshes the UI.
+        if (!IsHandleCreated) return;
+
+        try
+        {
+            BeginInvoke(Terapkan);
+        }
+        catch (InvalidOperationException)
+        {
+            // Handle torn down during exit; the status is not worth crashing over.
+        }
     }
 
     /// <summary>
@@ -438,14 +644,19 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Waiting-HADIR-task probe — the ONE and only demand signal. Wired in the
-    /// future auto-send phase (which watches today's HADIR records for
-    /// unfinished attendance). Until then: no known waiting work => no login,
-    /// no portal open, zero idMe/MOEIS activity.
+    /// Waiting-HADIR-task probe — the ONE and only demand signal, now WIRED to
+    /// the real engine: a read-only, nonce-authenticated `GET /api/kerja` for
+    /// today's jobs in status menunggu / sedang_dihantar / tersimpan. Answered
+    /// false — with the reason recorded in the lifecycle state — whenever the
+    /// answer is not provably positive (no job, engine not running, nonce
+    /// rejected, unreadable body). Never guesses "ada kerja"; never navigates,
+    /// never probes a session, never logs in.
     /// </summary>
-    private Task<bool> AdaKerjaMenungguAsync()
+    private async Task<bool> AdaKerjaMenungguAsync()
     {
-        return Task.FromResult(false);
+        var kerja = await _kerjaHariIni.SemakAsync();
+        SetNavLabel("Deman: " + kerja.Sebab);
+        return kerja.EnjinBolehDicapai && kerja.AdaKerja;
     }
 
     /// <summary>Called (marshalled to UI thread) when a second launch signals this instance.</summary>
@@ -471,9 +682,18 @@ public sealed class MainForm : Form
     {
         if (_allowClose || e.CloseReason != CloseReason.UserClosing)
         {
+            // Stop any in-flight demand cycle (and the login manager's indefinite
+            // transient retry loop) BEFORE the WebView2/HttpClient it drives are
+            // torn down. Cancel only — the CTS is deliberately not disposed, so a
+            // Task.Delay registration racing shutdown can never see a disposed
+            // source; the process is exiting anyway.
+            try { _cycleCts.Cancel(); }
+            catch (ObjectDisposedException) { /* already cancelled */ }
+
             _devicePanel.Dispose();
             _portalServer.Dispose();
             _loopbackSource.Dispose();
+            _kerjaHariIni.Dispose();
             _deviceHttp.Dispose();
             _tray.Dispose();
             return;
@@ -488,6 +708,6 @@ public sealed class MainForm : Form
 
     private void UpdateStateLabel()
     {
-        _stateLabel.Text = $"Keadaan: {_stateMachine.State}";
+        _stateLabel.Text = $"Keadaan: {_stateMachine.State} · portal: {LabelKeadaanPortal.Teks(_keadaanPortal)}";
     }
 }

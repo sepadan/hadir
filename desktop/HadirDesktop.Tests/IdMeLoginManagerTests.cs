@@ -181,4 +181,22 @@ public class IdMeLoginManagerTests
         var hasil = await pengurus.CubaSekaliAsync();
         Assert.Equal("sesi-sah", hasil.Status);
     }
+
+    [Fact]
+    public async Task DuaCubaanBerturutan_SecaraSekata_TidakTerkunciOlehPenerbanganLama()
+    {
+        // Regression: an attempt whose scripted callbacks all complete
+        // synchronously used to leave a STALE completed single-flight marker
+        // behind, which silently turned every later attempt into a no-op
+        // ("already in flight" forever). Each sequential call must really run.
+        var penjaga = BuatPenjaga();
+        var panggilan = 0;
+        var pengurus = BuatPengurus(penjaga,
+            jalankan: () => { panggilan++; return Task.FromResult(Hasil("sesi-sah", true)); });
+
+        Assert.Equal("sesi-sah", (await pengurus.CubaDenganCubaSemulaAsync()).Status);
+        Assert.Equal("sesi-sah", (await pengurus.CubaDenganCubaSemulaAsync()).Status);
+
+        Assert.Equal(2, panggilan);
+    }
 }
