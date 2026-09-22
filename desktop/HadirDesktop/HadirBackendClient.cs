@@ -443,3 +443,60 @@ public sealed class BackendKerjaPenuhSource : IKerjaPenuhSource
         }
     }
 }
+
+/// <summary>
+/// The DEMAND seam read straight from the HADIR backend — the same "is there an
+/// unfinished MOEIS task TODAY?" answer <see cref="LoopbackKerjaHariIniSource"/>
+/// gives, but answered by Apps Script through <see cref="IHadirBackendClient"/>,
+/// so the desktop needs no companion engine. This is the last loopback
+/// dependency to fall: with both demand and submission on the backend client,
+/// the Node engine can be switched off.
+///
+/// A failed read is <see cref="PermintaanKerja.TidakPasti"/> — never "no work" —
+/// so a broken backend can never be read as "nothing to send".
+/// </summary>
+public sealed class BackendKerjaHariIniSource : IKerjaHariIniSource
+{
+    private readonly IHadirBackendClient _klien;
+    private readonly Func<DateTime> _jam;
+
+    public BackendKerjaHariIniSource(IHadirBackendClient klien, Func<DateTime>? jam = null)
+    {
+        _klien = klien ?? throw new ArgumentNullException(nameof(klien));
+        _jam = jam ?? (() => DateTime.Now);
+    }
+
+    public async Task<PermintaanKerja> SemakAsync(CancellationToken ct = default)
+    {
+        var hariIni = _jam().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        try
+        {
+            var senarai = await _klien.SenaraiAsync(ct).ConfigureAwait(false);
+            var bilangan = senarai.Count(k => k.BelumSiap && k.PadaTarikh(hariIni));
+
+            if (bilangan == 0)
+            {
+                return PermintaanKerja.Tiada(
+                    "Tiada tugasan MOEIS belum siap untuk " + hariIni +
+                    " (status menunggu/sedang_dihantar/tersimpan, dibaca terus daripada backend).");
+            }
+
+            return PermintaanKerja.Ada(bilangan,
+                bilangan + " tugasan MOEIS belum siap untuk " + hariIni +
+                " (menunggu/sedang_dihantar/tersimpan) — backend boleh dihubungi.");
+        }
+        catch (Exception ex) when (ex is OperationCanceledException && ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HadirBackendException ex)
+        {
+            return PermintaanKerja.TidakPasti("Senarai tugasan HADIR tidak dapat dibaca daripada backend: " + ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return PermintaanKerja.TidakPasti(
+                "Ralat tidak dijangka semasa membaca senarai tugasan HADIR daripada backend (" + ex.GetType().Name + "); deman tidak dapat dipastikan.");
+        }
+    }
+}

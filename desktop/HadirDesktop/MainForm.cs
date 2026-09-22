@@ -33,7 +33,9 @@ public sealed class MainForm : Form
     private readonly IdMeLoginManager _loginManager;
     private readonly IdMeLoginDemand _loginDemand;
     // Read-only demand probe + demand-only portal lifecycle (default OFF).
-    private readonly LoopbackKerjaHariIniSource _kerjaHariIni = new();
+    // Backend-direct when the engine secret is readable, loopback only as a
+    // fallback — so the desktop needs no companion engine.
+    private readonly IKerjaHariIniSource _kerjaHariIni;
     private readonly PortalLifecycle _lifecycle;
 
     // Submission pass: full task list source + WebView2 adapter + opt-in pass.
@@ -117,6 +119,11 @@ public sealed class MainForm : Form
         {
             _backendClient = new HadirBackendClient(_deviceHttp, tetapanBackend.ApiUrl, tetapanBackend.RahsiaEnjin);
         }
+        // Demand probe also backend-direct when the secret is readable; loopback
+        // is only a fallback for a PC that has no engine secret configured yet.
+        _kerjaHariIni = _backendClient != null
+            ? new BackendKerjaHariIniSource(_backendClient)
+            : new LoopbackKerjaHariIniSource();
         _penghantarMoeis = new PenghantaranMoeisWebView2(() => _webView.CoreWebView2);
         _aliranPenghantaran = new AliranPenghantaranMoeis(
             _backendClient != null ? new BackendKerjaPenuhSource(_backendClient) : _kerjaPenuh,
@@ -722,7 +729,7 @@ public sealed class MainForm : Form
             _devicePanel.Dispose();
             _portalServer.Dispose();
             _loopbackSource.Dispose();
-            _kerjaHariIni.Dispose();
+            (_kerjaHariIni as IDisposable)?.Dispose();
             _kerjaPenuh.Dispose();
             _deviceHttp.Dispose();
             _tray.Dispose();
