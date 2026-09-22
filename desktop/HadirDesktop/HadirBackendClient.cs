@@ -1,0 +1,445 @@
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace HadirDesktop;
+
+/// <summary>
+/// Any RPC failure against the HADIR backend (Apps Script). The message is the
+/// backend's own <c>ralat</c> string or a transport description — the engine
+/// secret is NEVER part of it (it only ever travels inside the request body).
+/// </summary>
+public sealed class HadirBackendException : Exception
+{
+    public HadirBackendException(string message) : base(message)
+    {
+    }
+
+    public HadirBackendException(string message, Exception inner) : base(message, inner)
+    {
+    }
+}
+
+/// <summary>
+/// The third <c>moeisJobKlaim</c> argument. The backend distinguishes THREE
+/// values and a boolean coercion would corrupt the third one (see the explicit
+/// warning in <c>companion/src/klien-hadir.mjs</c>: <c>!!</c> would turn
+/// <c>'verifikasi'</c> into <c>true</c>, i.e. a read-only verification claim
+/// into a failed-task retry claim).
+/// </summary>
+public enum ModKlaim
+{
+    /// <summary>Normal automatic loop claim — wire value <c>false</c>.</summary>
+    Biasa,
+
+    /// <summary>Retry a <c>gagal</c> task (manual/admin) — wire value <c>true</c>.</summary>
+    CubaSemula,
+
+    /// <summary>READ-ONLY claim of a <c>tersimpan</c> task — wire value <c>"verifikasi"</c>.</summary>
+    Verifikasi,
+}
+
+/// <summary>
+/// What <c>moeisJobKlaim</c> returns when the claim actually succeeded: the
+/// task as re-read by the backend UNDER ITS SCRIPT LOCK (id, class, date, the
+/// absent students, MOEIS class id). A <c>null</c> claim result means the claim
+/// was REFUSED (another engine holds it, or the status does not allow it) — it
+/// is never an error and never a licence to submit.
+///
+/// The students are rebuilt field-by-field into <see cref="MuridKerjaPenuh"/>
+/// (id/nama/kategori/sebab) so an identity document number carried by the
+/// backend record can never enter this process — the same allowlist rule the
+/// companion applies in <c>kerjaPenuhSelamat</c>.
+/// </summary>
+public sealed record TugasanDiklaim(
+    string Id,
+    string Kelas,
+    string? TarikhIso,
+    string KelasMoeisId,
+    IReadOnlyList<MuridKerjaPenuh> Murid);
+
+/// <summary>
+/// The four backend job RPCs the desktop needs to own a task end to end.
+/// Separated as an interface so the submission cycle can be tested against an
+/// in-process fake with no network and no real Apps Script.
+/// </summary>
+public interface IHadirBackendClient
+{
+    /// <summary>READ-ONLY task list. The ONLY call that is retried.</summary>
+    Task<IReadOnlyList<KerjaPenuh>> SenaraiAsync(CancellationToken ct = default);
+
+    /// <summary>Atomic claim. <c>null</c> = refused (do NOT submit). NOT retried.</summary>
+    Task<TugasanDiklaim?> KlaimAsync(string id, string pemilik, ModKlaim mod, CancellationToken ct = default);
+
+    /// <summary>Release the lease without recording a result. NOT retried.</summary>
+    Task LepasAsync(string id, string pemilik, CancellationToken ct = default);
+
+    /// <summary>
+    /// Record the outcome (<c>berjaya</c> / <c>gagal</c> / <c>tersimpan</c>).
+    /// NOT retried here — the caller decides (the status report is idempotent,
+    /// a MOEIS write is not).
+    /// </summary>
+    Task SelesaiAsync(string id, string keputusan, string mesej, int? bilHadirSelepas, string pemilik, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Faithful C# port of <c>companion/src/klien-hadir.mjs</c> — the desktop app
+/// talking DIRECTLY to the HADIR backend (Apps Script), with no Node engine in
+/// between.
+///
+/// Wire contract (every detail here is load-bearing):
+///   * POST the JSON <c>{mode:'hadir', kaedah, argumen}</c> to the Web App URL;
+///   * <c>Content-Type: text/plain;charset=utf-8</c> (an Apps Script Web App
+///     rejects a JSON preflight);
+///   * a BROWSER <c>User-Agent</c> is MANDATORY — without it Apps Script
+///     answers <c>/exec</c> with a 404 redirect whose body is not JSON (noted
+///     in the reference file from moeis-bot);
+///   * redirects are followed (the Web App always bounces to
+///     <c>*.googleusercontent.com</c>);
+///   * the reply is <c>{ok:true,hasil}</c> or <c>{ok:false,ralat}</c>; a body
+///     that is not JSON is an error naming the STATUS only, never the body.
+///
+/// Retry policy, ported verbatim in spirit: ONLY the read call
+/// (<see cref="SenaraiAsync"/>) is retried (3 attempts). Claim / release /
+/// complete are state-changing and are NEVER retried blindly — a blind retry on
+/// an unstable network could create a double side effect. The caller decides
+/// what to do after an error.
+///
+/// The engine secret is appended as the last RPC argument and lives ONLY inside
+/// the request body: it is never logged, never put into an exception message,
+/// and never written anywhere by this class.
+/// </summary>
+public sealed class HadirBackendClient : IHadirBackendClient
+{
+    /// <summary>Same literal as <c>UA_PELAYAR</c> in klien-hadir.mjs.</summary>
+    private const string UserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+    /// <summary>Same default as the reference client's <c>timeoutMs</c>.</summary>
+    public static readonly TimeSpan TamatMasaLalai = TimeSpan.FromSeconds(20);
+
+    private readonly HttpClient _http;
+    private readonly string _apiUrl;
+    private readonly string _rahsia;
+    private readonly TimeSpan _tamatMasa;
+
+    public HadirBackendClient(HttpClient http, string apiUrl, string rahsia, TimeSpan? tamatMasa = null)
+    {
+        _http = http ?? throw new ArgumentNullException(nameof(http));
+        _apiUrl = apiUrl ?? throw new ArgumentNullException(nameof(apiUrl));
+        _rahsia = rahsia ?? throw new ArgumentNullException(nameof(rahsia));
+        _tamatMasa = tamatMasa ?? TamatMasaLalai;
+    }
+
+    /// <summary>
+    /// <c>moeisJobSenarai(['', rahsia])</c> — the empty first argument is the
+    /// ADMIN SESSION TOKEN slot: empty means "authenticate with the engine
+    /// secret instead", which is the mode that returns the <c>murid</c> array.
+    /// Retried up to 3 times (read-only, no side effect).
+    /// </summary>
+    public async Task<IReadOnlyList<KerjaPenuh>> SenaraiAsync(CancellationToken ct = default)
+    {
+        var hasil = await PanggilAsync("moeisJobSenarai", new object?[] { "", _rahsia }, cubaanMaks: 3, ct).ConfigureAwait(false);
+        return BacaSenarai(hasil);
+    }
+
+    public async Task<TugasanDiklaim?> KlaimAsync(string id, string pemilik, ModKlaim mod, CancellationToken ct = default)
+    {
+        object? benarkanCubaSemula = mod switch
+        {
+            ModKlaim.CubaSemula => true,
+            ModKlaim.Verifikasi => "verifikasi",
+            _ => false,
+        };
+
+        var hasil = await PanggilAsync("moeisJobKlaim", new object?[] { id, pemilik, benarkanCubaSemula, _rahsia }, cubaanMaks: 1, ct)
+            .ConfigureAwait(false);
+        return BacaKlaim(hasil);
+    }
+
+    public Task LepasAsync(string id, string pemilik, CancellationToken ct = default) =>
+        PanggilAsync("moeisJobLepas", new object?[] { id, pemilik, _rahsia }, cubaanMaks: 1, ct);
+
+    public Task SelesaiAsync(string id, string keputusan, string mesej, int? bilHadirSelepas, string pemilik, CancellationToken ct = default)
+    {
+        // `bilHadirSelepas ?? ''` in the reference: an unknown count is the
+        // EMPTY STRING, never 0 — 0 would assert "no student present".
+        object bil = bilHadirSelepas.HasValue ? bilHadirSelepas.Value : "";
+        return PanggilAsync("moeisJobSelesai",
+            new object?[] { id, keputusan, mesej ?? "", bil, pemilik ?? "", _rahsia }, cubaanMaks: 1, ct);
+    }
+
+    /// <summary>
+    /// PURE reader for a <c>moeisJobSenarai</c> result. Anything that is not an
+    /// array of objects yields an EMPTY list only when the array itself is
+    /// empty; a non-array result throws, because "unreadable" must never be
+    /// presented to the caller as "no work".
+    /// </summary>
+    public static IReadOnlyList<KerjaPenuh> BacaSenarai(string hasilJson)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(hasilJson) ? "null" : hasilJson);
+        }
+        catch (JsonException)
+        {
+            throw new HadirBackendException("Senarai tugasan HADIR tidak dapat dibaca (JSON tidak sah).");
+        }
+
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                throw new HadirBackendException("Senarai tugasan HADIR bukan tatasusunan; senarai tidak dapat dipastikan.");
+            }
+
+            var senarai = new List<KerjaPenuh>();
+            foreach (var job in doc.RootElement.EnumerateArray())
+            {
+                if (job.ValueKind != JsonValueKind.Object) continue;
+                var tarikh = Teks(job, "tarikhIso");
+                senarai.Add(new KerjaPenuh(
+                    Teks(job, "id"),
+                    Teks(job, "kelas"),
+                    tarikh.Length == 0 ? null : tarikh,
+                    Teks(job, "status"),
+                    Teks(job, "mesej"),
+                    Teks(job, "kelasMoeisId"),
+                    BacaMurid(job)));
+            }
+            return senarai;
+        }
+    }
+
+    /// <summary>
+    /// PURE reader for a <c>moeisJobKlaim</c> result. JSON <c>null</c> = the
+    /// claim was REFUSED (returns <c>null</c>); an object without an id is a
+    /// broken answer and throws rather than pretending a claim was held.
+    /// </summary>
+    public static TugasanDiklaim? BacaKlaim(string hasilJson)
+    {
+        JsonDocument doc;
+        try
+        {
+            doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(hasilJson) ? "null" : hasilJson);
+        }
+        catch (JsonException)
+        {
+            throw new HadirBackendException("Balasan klaim tugasan tidak dapat dibaca (JSON tidak sah).");
+        }
+
+        using (doc)
+        {
+            if (doc.RootElement.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                throw new HadirBackendException("Balasan klaim tugasan bukan objek; klaim tidak dapat dipastikan.");
+            }
+
+            var id = Teks(doc.RootElement, "id");
+            if (id.Length == 0)
+            {
+                throw new HadirBackendException("Balasan klaim tugasan tiada id; klaim tidak dapat dipastikan.");
+            }
+
+            var tarikh = Teks(doc.RootElement, "tarikhIso");
+            return new TugasanDiklaim(
+                id,
+                Teks(doc.RootElement, "kelas"),
+                tarikh.Length == 0 ? null : tarikh,
+                Teks(doc.RootElement, "kelasMoeisId"),
+                BacaMurid(doc.RootElement));
+        }
+    }
+
+    /// <summary>
+    /// Allowlisted student rebuild: id / nama / kategori / sebab ONLY. Built as
+    /// a NEW object (never by deleting keys), so a future field on the backend
+    /// record — <c>ic</c> above all — fails closed instead of leaking through.
+    /// </summary>
+    private static IReadOnlyList<MuridKerjaPenuh> BacaMurid(JsonElement job)
+    {
+        var murid = new List<MuridKerjaPenuh>();
+        if (!job.TryGetProperty("murid", out var senarai) || senarai.ValueKind != JsonValueKind.Array) return murid;
+        foreach (var m in senarai.EnumerateArray())
+        {
+            if (m.ValueKind != JsonValueKind.Object) continue;
+            murid.Add(new MuridKerjaPenuh(Teks(m, "id"), Teks(m, "nama"), Teks(m, "kategori"), Teks(m, "sebab")));
+        }
+        return murid;
+    }
+
+    private static string Teks(JsonElement obj, string nama)
+    {
+        if (!obj.TryGetProperty(nama, out var nilai)) return string.Empty;
+        return nilai.ValueKind switch
+        {
+            JsonValueKind.String => nilai.GetString() ?? string.Empty,
+            JsonValueKind.Number => nilai.ToString(),
+            _ => string.Empty,
+        };
+    }
+
+    /// <summary>
+    /// The RPC itself. Returns the RAW JSON text of <c>hasil</c> so each caller
+    /// parses its own shape. Every failure — transport, non-JSON body,
+    /// <c>ok:false</c> — becomes a <see cref="HadirBackendException"/>.
+    /// </summary>
+    private async Task<string> PanggilAsync(string kaedah, object?[] argumen, int cubaanMaks, CancellationToken ct)
+    {
+        Exception? ralatTerakhir = null;
+
+        for (var cubaan = 1; cubaan <= cubaanMaks; cubaan++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                return await SekaliAsync(kaedah, argumen, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ralat)
+            {
+                ralatTerakhir = ralat;
+                // Only a READ call ever reaches cubaan < cubaanMaks.
+            }
+        }
+
+        throw ralatTerakhir as HadirBackendException
+            ?? new HadirBackendException(
+                "Panggilan HADIR '" + kaedah + "' gagal: " + (ralatTerakhir?.GetType().Name ?? "tiada butiran"),
+                ralatTerakhir ?? new InvalidOperationException("tiada butiran"));
+    }
+
+    private async Task<string> SekaliAsync(string kaedah, object?[] argumen, CancellationToken ct)
+    {
+        var badan = JsonSerializer.Serialize(new { mode = "hadir", kaedah, argumen });
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(_tamatMasa);
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, _apiUrl)
+        {
+            // text/plain;charset=utf-8 — exactly the reference header.
+            Content = new StringContent(badan, Encoding.UTF8, "text/plain"),
+        };
+        request.Headers.UserAgent.Clear();
+        request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ralat)
+        {
+            throw new HadirBackendException("Masa tamat semasa memanggil HADIR '" + kaedah + "'.", ralat);
+        }
+        catch (HttpRequestException ralat)
+        {
+            // The TYPE only — a transport message can echo the URL.
+            throw new HadirBackendException("Sambungan ke HADIR gagal untuk '" + kaedah + "' (HttpRequestException).", ralat);
+        }
+
+        using (response)
+        {
+            string teks;
+            try
+            {
+                teks = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ralat)
+            {
+                throw new HadirBackendException("Balasan HADIR untuk '" + kaedah + "' tidak dapat dibaca.", ralat);
+            }
+
+            JsonDocument doc;
+            try
+            {
+                doc = JsonDocument.Parse(teks);
+            }
+            catch (JsonException)
+            {
+                // Same sentence as the reference (the 404-redirect case). The
+                // BODY is never echoed — only the status number.
+                throw new HadirBackendException("Balasan bukan JSON (status " + (int)response.StatusCode + ").");
+            }
+
+            using (doc)
+            {
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    throw new HadirBackendException("Balasan HADIR bukan objek (status " + (int)response.StatusCode + ").");
+                }
+
+                var ok = doc.RootElement.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True;
+                if (!ok)
+                {
+                    var ralat = doc.RootElement.TryGetProperty("ralat", out var ralatEl) && ralatEl.ValueKind == JsonValueKind.String
+                        ? ralatEl.GetString() ?? ""
+                        : "";
+                    throw new HadirBackendException(ralat.Length > 0 ? ralat : "Permintaan HADIR gagal.");
+                }
+
+                return doc.RootElement.TryGetProperty("hasil", out var hasilEl) ? hasilEl.GetRawText() : "null";
+            }
+        }
+    }
+}
+
+/// <summary>
+/// The FULL task list read straight from the HADIR backend, presented through
+/// the same <see cref="IKerjaPenuhSource"/> seam the submission pass already
+/// consumes. This is what makes the desktop a replacement for the Node engine
+/// rather than a client of it: the list no longer comes from the loopback
+/// companion route, it comes from Apps Script.
+///
+/// A failed read is <see cref="SenaraiKerjaPenuh.TidakPasti"/> — never an empty
+/// list — so a broken backend can never be read as "nothing to send".
+/// </summary>
+public sealed class BackendKerjaPenuhSource : IKerjaPenuhSource
+{
+    private readonly IHadirBackendClient _klien;
+
+    public BackendKerjaPenuhSource(IHadirBackendClient klien)
+    {
+        _klien = klien ?? throw new ArgumentNullException(nameof(klien));
+    }
+
+    public async Task<SenaraiKerjaPenuh> SemakAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var senarai = await _klien.SenaraiAsync(ct).ConfigureAwait(false);
+            return SenaraiKerjaPenuh.Jawapan(senarai, senarai.Count + " tugasan HADIR dibaca terus daripada backend.");
+        }
+        catch (Exception ex) when (ex is OperationCanceledException && ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (HadirBackendException ex)
+        {
+            return SenaraiKerjaPenuh.TidakPasti("Senarai tugasan HADIR tidak dapat dibaca: " + ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return SenaraiKerjaPenuh.TidakPasti(
+                "Ralat tidak dijangka semasa membaca senarai tugasan HADIR (" + ex.GetType().Name + ").");
+        }
+    }
+}

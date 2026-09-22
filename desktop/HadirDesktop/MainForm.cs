@@ -38,6 +38,9 @@ public sealed class MainForm : Form
 
     // Submission pass: full task list source + WebView2 adapter + opt-in pass.
     private readonly LoopbackKerjaPenuhSource _kerjaPenuh = new();
+    private readonly DpapiRahsiaEnjinStore _rahsiaStore = new();
+    private readonly PemilikTugasanStore _pemilikStore = new();
+    private readonly HadirBackendClient? _backendClient;
     private readonly PenghantaranMoeisWebView2 _penghantarMoeis;
     private readonly AliranPenghantaranMoeis _aliranPenghantaran;
     private bool _penghantaranDihidupkan; // DEFAULT OFF until a real opt-in UI exists
@@ -106,11 +109,21 @@ public sealed class MainForm : Form
         // Submission pass: built AFTER the login pieces so the WebView2 lambda
         // (deferred) can reference _webView, and wired as the lifecycle's
         // "after a valid session" hook. DEFAULT OFF (opt-in _penghantaranDihidupkan).
+        // Claim->submit->complete talks STRAIGHT to the Apps Script backend
+        // (engine-independent) using the shared engine secret via DPAPI.
+        // Fail-closed: no readable secret/URL = no backend = no claim, no send.
+        var tetapanBackend = _rahsiaStore.Baca();
+        if (tetapanBackend != null)
+        {
+            _backendClient = new HadirBackendClient(_deviceHttp, tetapanBackend.ApiUrl, tetapanBackend.RahsiaEnjin);
+        }
         _penghantarMoeis = new PenghantaranMoeisWebView2(() => _webView.CoreWebView2);
         _aliranPenghantaran = new AliranPenghantaranMoeis(
-            _kerjaPenuh,
+            _backendClient != null ? new BackendKerjaPenuhSource(_backendClient) : _kerjaPenuh,
             _penghantarMoeis,
-            dihidupkan: () => _penghantaranDihidupkan);
+            dihidupkan: () => _penghantaranDihidupkan,
+            backend: _backendClient,
+            pemilik: () => _pemilikStore.Dapatkan());
 
         // Demand-only portal lifecycle: the ONLY decider of whether the embedded
         // WebView2 is ever pointed at the portal. Gate order: owner opt-in

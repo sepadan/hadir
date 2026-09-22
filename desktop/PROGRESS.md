@@ -1,5 +1,117 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Desktop talks DIRECTLY to the HADIR backend: KLAIM → HANTAR → SELESAI (2026-09-23, default OFF)
+
+First step towards retiring the Node engine: the desktop app can now own a task
+end to end against Apps Script itself — no companion in the middle. Built,
+unit-tested against fakes, and NOT wired into `MainForm` (a normal run still
+produces zero backend traffic).
+
+### `HadirDesktop/HadirBackendClient.cs` (new)
+
+Faithful port of `companion/src/klien-hadir.mjs`:
+
+- POST `{mode:'hadir', kaedah, argumen}` with `Content-Type:
+  text/plain;charset=utf-8` and a BROWSER `User-Agent` (mandatory — without it
+  Apps Script answers `/exec` with a 404 redirect whose body is not JSON);
+  reply is `{ok:true,hasil}` / `{ok:false,ralat}`.
+- `moeisJobSenarai(['', rahsia])`, `moeisJobKlaim([id, pemilik, mod, rahsia])`,
+  `moeisJobLepas([id, pemilik, rahsia])`,
+  `moeisJobSelesai([id, keputusan, mesej, bilHadirSelepas, pemilik, rahsia])`.
+- Retry policy ported exactly: ONLY the read (`senarai`) is retried (3
+  attempts). Claim / release / complete are NEVER retried blindly.
+- `ModKlaim { Biasa, CubaSemula, Verifikasi }` preserves all THREE wire values
+  (`false` / `true` / `"verifikasi"`) — the `!!` trap called out in the
+  reference file cannot occur.
+- Student records are REBUILT from an allowlist (`id/nama/kategori/sebab`), so
+  an `ic` on the backend record has nowhere to land.
+- `BackendKerjaPenuhSource` exposes the backend list through the existing
+  `IKerjaPenuhSource` seam; a failed read is `TidakPasti`, never an empty list.
+- The engine secret only ever lives in the request body: never logged, never in
+  an exception message, never in a URL.
+
+### `HadirDesktop/RahsiaEnjinStore.cs` (new)
+
+Reads the companion's OWN stored config so the desktop can take its place:
+
+- `rahsia.dat` — DPAPI CurrentUser, NULL entropy (the SAME pattern already
+  proven compatible by `KredensialIdMeStore`); only `rahsiaEnjin` is taken out
+  of the decrypted `{rahsiaEnjin, klien:[...]}` blob.
+- `tetapan.json` — `apiUrl`, validated by a faithful port of `sahkanApiUrl`
+  (HTTPS, no userinfo, host must be `script.google.com` /
+  `script.googleusercontent.com`) so a tampered settings file can never
+  redirect the engine secret to another host.
+- FAIL CLOSED everywhere: missing/corrupt file, empty secret, or invalid
+  `apiUrl` → `null` → no submission. `Status()` returns BOOLEANS only.
+- `PemilikTugasanStore` gives the claim owner id, STABLE across restarts
+  (enrollment device id, else a persisted random local id). The backend lets
+  the SAME owner re-claim its own `sedang_dihantar` task immediately while a
+  different owner waits out a 15-minute lease, so a per-run id would strand
+  this PC's own interrupted task.
+
+### `HadirDesktop/AliranPenghantaranMoeis.cs` — the cycle
+
+When an `IHadirBackendClient` + owner id are supplied (both optional; absent =
+the previous pure-submission behaviour, unchanged):
+
+1. CLAIM FIRST, always. A refused claim (`null`) means another engine holds the
+   task: SKIPPED, never submitted. There is no path that submits unclaimed.
+2. Build from the CLAIMED payload (re-read by the backend under its ScriptLock),
+   not from the earlier list snapshot.
+3. Submit. Only a CONFIRMED result (`Berjaya`, i.e. the post-save re-read proved
+   every student) is reported `berjaya`.
+4. `tersimpan` is reported as `tersimpan` and NOT released — releasing would
+   queue an automatic re-submission of a write that may already be on MOEIS
+   (same rule as `giliran.mjs`).
+5. Any other failure releases the lease; a claimed task that cannot be built
+   honestly is released too (never a stranded `sedang_dihantar`).
+6. `selesai` is retried up to 3 times (idempotent status update — the reason
+   giliran.mjs does it, after the real 18 Sep 2026 bug where a confirmed MOEIS
+   write was recorded as failed only because Apps Script answered the report
+   with a 404 HTML page). The MOEIS write itself is never repeated.
+7. No stable owner id → `tiada-pemilik`: no claim, no submission.
+8. `bilHadirSelepas` is sent as `''`, not `0`: this adapter proves each student
+   individually but never reads MOEIS's own present-count, and an invented
+   number is worse than none.
+
+### Tests
+
+```
+dotnet build desktop/HadirDesktop.sln              # Build succeeded, 0 Error(s)
+dotnet test  desktop/HadirDesktop.sln --no-restore # Passed! 376 / Failed: 0
+```
+
+376 passed / 0 failed (was 313; **+63**):
+
+- `HadirBackendClientTests` (24) — real HTTP against an in-process
+  `HttpListener` fake: wire shape/headers/UA, argument order per RPC,
+  `'verifikasi'` stays a string, `senarai` retried 3×, claim/release/complete
+  attempted EXACTLY once, `hasil:null` = refused claim (not an error), non-JSON
+  body → `Balasan bukan JSON (status 404)` without echoing the body, `ic`
+  dropped, secret never in path/query.
+- `RahsiaEnjinStoreTests` (22) — DPAPI round-trip in an isolated temp dir,
+  corrupt blob / missing file / empty secret / corrupt settings → `null`,
+  `apiUrl` host allowlist, status never exposes a value, owner id stable across
+  a simulated restart.
+- `KitaranPenghantaranTests` (17) — ordered trace `senarai → klaim → hantar →
+  selesai`; `selesai` only after a confirmed submission; failure → `lepas`;
+  adapter throw → `lepas`; `tersimpan` → report without release; refused or
+  throwing claim → zero submissions; empty list → zero claims; finished /
+  not-today tasks → zero claims; report failure retried 3× without release;
+  default OFF → backend never touched.
+
+### Verified vs unverified
+
+- VERIFIED: build + 376 tests, all against fakes. No real backend/Apps Script
+  call, no real claim, no real submission, no real engine secret used.
+- UNVERIFIED (live): the client has never spoken to the real HADIR deployment
+  from this app; the DPAPI read of the real `rahsia.dat` was NOT exercised here
+  (only synthetic blobs written by the test itself, in a temp dir).
+- NOT DONE (deliberately out of this slice's scope): `MainForm` still builds
+  `AliranPenghantaranMoeis` with the loopback `LoopbackKerjaPenuhSource` and NO
+  backend client, so the app performs zero backend traffic. Wiring the store +
+  client into `MainForm` is the next step.
+
 ## Demand seam wired to the engine + portal lifecycle states (2026-09-22, default OFF)
 
 The placeholder demand seam is gone: the app now KNOWS whether HADIR has an
