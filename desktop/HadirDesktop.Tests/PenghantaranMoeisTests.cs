@@ -47,6 +47,28 @@ public class PenghantaranMoeisTests
 
     private static MuridTidakHadir Sakit(string id) => new(id, "SAKIT", "DEMAM");
 
+    // A name-only task student — the real HADIR record carries {nama, kategori,
+    // sebab} with NO page id, so the flow must resolve the id by name.
+    private static MuridTidakHadir NamaSakit(string nama) => new("", "SAKIT", "DEMAM") { Nama = nama };
+
+    // Same fixture as Dom(...) but with a name on each page row, for the
+    // name-matching tests.
+    private static DomMoeisPalsu DomMurid(params (string Id, string Nama)[] murid)
+    {
+        var dom = new DomMoeisPalsu { TarikhPada = "22/09/2026" };
+        dom.PilihanKelas.Add(new PilihanDropdown("", "-- Pilih Kelas --"));
+        dom.PilihanKelas.Add(new PilihanDropdown("K1", "PRASEKOLAH BIJAK"));
+        dom.PilihanKategori.Add(new PilihanDropdown("", "-- Pilih --"));
+        dom.PilihanKategori.Add(new PilihanDropdown("S", "SAKIT"));
+        dom.PilihanKategori.Add(new PilihanDropdown("U", "URUSAN KELUARGA"));
+        dom.PilihanSebab.Add(new PilihanDropdown("", "-- Pilih --"));
+        dom.PilihanSebab.Add(new PilihanDropdown("S1", "DEMAM"));
+        dom.PilihanSebab.Add(new PilihanDropdown("S2", "SELSEMA"));
+        foreach (var m in murid) dom.Murid.Add(new DomMoeisPalsu.Baris { Id = m.Id, Nama = m.Nama });
+        dom.Simpan();
+        return dom;
+    }
+
     // ---------- happy path ----------
 
     [Fact]
@@ -207,7 +229,7 @@ public class PenghantaranMoeisTests
     }
 
     [Fact]
-    public async Task KetidakhadiranSediaAdaLuarTugasan_TidakDipulihkanDanTidakMenjejaskanPengesahan()
+    public async Task Konflik_MoeisSudahTandaiMuridLuarTugasan_Berhenti_TiadaSimpan()
     {
         var dom = Dom("101", "102");
         var lain = dom.Murid.First(m => m.Id == "102");
@@ -216,9 +238,14 @@ public class PenghantaranMoeisTests
 
         var hasil = await new PenghantaranMoeis(dom).HantarAsync(Tugasan(Sakit("101")));
 
-        Assert.True(hasil.Berjaya);
+        // MOEIS shows an absence the task does NOT assert (102): that is a
+        // conflict — stop, never send, never restore anyone to present.
+        Assert.Equal("konflik", hasil.Status);
+        Assert.False(hasil.Berjaya);
+        Assert.Equal(2, hasil.BilMurid);
+        Assert.Equal(0, dom.BilSimpan);
         Assert.False(dom.Murid.First(m => m.Id == "102").Hadir);   // left exactly as MOEIS had it
-        Assert.DoesNotContain("tanda:102", dom.Panggilan);
+        Assert.DoesNotContain(dom.Panggilan, p => p.StartsWith("tanda:", StringComparison.Ordinal));
     }
 
     // ---------- dropdown matching: exact / prefix / ambiguous-STOP ----------
@@ -421,6 +448,61 @@ public class PenghantaranMoeisTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => new PenghantaranMoeis(dom).HantarAsync(Tugasan(Sakit("101")), cts.Token));
     }
+
+    // ---------- name matching (HADIR records carry a name, not a page id) ----------
+
+    [Fact]
+    public async Task PadananNama_Tepat_MenyelesaikanIdBetul()
+    {
+        var dom = DomMurid(("101", "NURUL AISYAH"), ("102", "MUHAMMAD DANISH"));
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(
+            Tugasan(NamaSakit("NURUL AISYAH")));
+
+        Assert.True(hasil.Berjaya);
+        Assert.Equal("disahkan", hasil.Status);
+        Assert.Equal(2, hasil.BilMurid);
+        Assert.Equal(1, hasil.BilPerubahan);
+        Assert.Contains("tanda:101", dom.Panggilan);   // resolved the correct page id
+        Assert.DoesNotContain(dom.Panggilan, p => p.StartsWith("tanda:102"));
+    }
+
+    [Fact]
+    public async Task PadananNama_NormalisasiHurufBesarDanRuang_Padan()
+    {
+        var dom = DomMurid(("101", "NURUL AISYAH BINTI HAMIDAH"));
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(
+            Tugasan(NamaSakit("  nurul   aisyah  binti hamidah  ")));
+
+        Assert.True(hasil.Berjaya);
+        Assert.Contains("tanda:101", dom.Panggilan);
+    }
+
+    [Fact]
+    public async Task PadananNama_TiadaPadanan_Gagal_TiadaSimpan()
+    {
+        var dom = DomMurid(("101", "NURUL AISYAH"));
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(
+            Tugasan(NamaSakit("MUHAMMAD DANISH")));
+
+        Assert.Equal("nama-tidak-padan", hasil.Status);
+        Assert.False(hasil.Berjaya);
+        Assert.Equal(1, hasil.BilMurid);
+        Assert.Equal(0, dom.BilSimpan);
+        Assert.DoesNotContain(dom.Panggilan, p => p.StartsWith("tanda:"));
+    }
+
+    [Fact]
+    public async Task PadananNama_Ambigu_Berhenti_TiadaSimpan()
+    {
+        var dom = DomMurid(("101", "NURUL AISYAH"), ("102", "NURUL AISYAH"));
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(
+            Tugasan(NamaSakit("NURUL AISYAH")));
+
+        Assert.Equal("nama-ambigu", hasil.Status);
+        Assert.False(hasil.Berjaya);
+        Assert.Equal(0, dom.BilSimpan);
+        Assert.DoesNotContain(dom.Panggilan, p => p.StartsWith("tanda:"));
+    }
 }
 
 /// <summary>
@@ -541,6 +623,42 @@ public class PadananDropdownTests
 }
 
 /// <summary>
+/// Student-name normalisation — a faithful port of <c>normNama</c> in
+/// <c>companion/src/moeis/push.mjs</c>. A name is matched on its letters only:
+/// uppercase, and everything that is not A-Z or a space collapses to a space.
+/// An accent is NOT bridged to its ASCII base (fail-closed, never guessed).
+/// </summary>
+public class PadananNamaTests
+{
+    [Fact]
+    public void Norm_HurufBesarDanRuang_Dinormalkan()
+    {
+        Assert.Equal("NURUL AISYAH", PadananNama.Norm("NURUL AISYAH"));
+        Assert.Equal("NURUL AISYAH", PadananNama.Norm("  nurul   aisyah  "));
+        Assert.Equal("NURUL AISYAH", PadananNama.Norm("Nurul\tAisyah"));
+    }
+
+    [Fact]
+    public void Norm_AksenDanTandaBaca_JadiRuang_BukanJambatan()
+    {
+        // [^A-Z ] → ' ': a digit/punctuation/accent collapses to a space, and an
+        // accent is NOT bridged to its ASCII base — "ÉLIANA" ≠ "ELIANA".
+        Assert.Equal("MUHAMMAD A LI", PadananNama.Norm("Muhammad A'li"));
+        Assert.Equal("MUHAMMAD ALI", PadananNama.Norm("muhammad-ali"));
+        Assert.Equal("LIANA", PadananNama.Norm("ÉLIANA"));   // 'É' → space, not 'E'
+        Assert.NotEqual("ELIANA", PadananNama.Norm("ÉLIANA"));
+    }
+
+    [Fact]
+    public void Norm_KosongAtauNull_Kosong()
+    {
+        Assert.Equal("", PadananNama.Norm(""));
+        Assert.Equal("", PadananNama.Norm(null));
+        Assert.Equal("", PadananNama.Norm("   "));
+    }
+}
+
+/// <summary>
 /// In-memory stand-in for the MOEIS attendance page. State only survives a
 /// reload if it was actually SAVED, so "the dialog said Berjaya but nothing
 /// persisted" is a state the tests can create honestly.
@@ -550,6 +668,7 @@ public sealed class DomMoeisPalsu : IDomMoeis
     public sealed class Baris
     {
         public string Id = "";
+        public string Nama = "";
         public bool Hadir = true;
         public string KategoriNilai = "";
         public string KategoriTeks = "";
@@ -557,7 +676,7 @@ public sealed class DomMoeisPalsu : IDomMoeis
         public string SebabTeks = "";
         public Baris Salin() => new()
         {
-            Id = Id, Hadir = Hadir,
+            Id = Id, Nama = Nama, Hadir = Hadir,
             KategoriNilai = KategoriNilai, KategoriTeks = KategoriTeks,
             SebabNilai = SebabNilai, SebabTeks = SebabTeks,
         };
@@ -635,7 +754,7 @@ public sealed class DomMoeisPalsu : IDomMoeis
     public Task<IReadOnlyList<BarisMurid>> BacaSenaraiMurid()
     {
         if (RalatPadaSenarai) throw new InvalidOperationException("skrip DOM gagal");
-        return Task.FromResult<IReadOnlyList<BarisMurid>>(Murid.Select(b => new BarisMurid(b.Id, b.Hadir)).ToList());
+        return Task.FromResult<IReadOnlyList<BarisMurid>>(Murid.Select(b => new BarisMurid(b.Id, b.Nama, b.Hadir)).ToList());
     }
 
     public Task<bool> TandaTidakHadir(string id)

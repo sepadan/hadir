@@ -66,25 +66,25 @@ public static class PembinaTugasanPenghantaran
         {
             var nama = (m.Nama ?? "").Trim();
             var id = (m.Id ?? "").Trim();
-            if (id.Length == 0)
+            if (id.Length == 0 && nama.Length == 0)
             {
-                // HADIR's task record carries only the student's NAME (the
-                // engine matches on it and reads data-idpelajar from the page).
-                // Without a page id the flow would have to GUESS a selector, so
-                // it refuses instead — name-based resolution is the next slice.
+                // A student with neither a page id nor a name cannot be
+                // identified on the MOEIS page — refuse rather than guess.
                 return new(null,
-                    "Tugasan " + kelas + ": id murid MOEIS tidak disertakan oleh enjin HADIR" +
-                    (nama.Length > 0 ? " (murid: " + nama + ")" : "") +
-                    "; padanan mengikut nama belum dilaksanakan — tiada penghantaran.");
+                    "Tugasan " + kelas + ": murid tanpa id dan tanpa nama; tiada penghantaran.");
             }
 
             var kategori = (m.Kategori ?? "").Trim();
             var sebab = (m.Sebab ?? "").Trim();
             if (kategori.Length == 0 || sebab.Length == 0)
             {
-                return new(null, "Tugasan " + kelas + ": murid " + id + " tiada kategori/sebab wajib MOEIS; tiada penghantaran.");
+                var label = id.Length > 0 ? id : nama;
+                return new(null, "Tugasan " + kelas + ": murid " + label + " tiada kategori/sebab wajib MOEIS; tiada penghantaran.");
             }
 
+            // A name-only student (the real HADIR record carries no page id) is
+            // carried through; PenghantaranMoeisFlow resolves the page id by
+            // normalised name against data-namapelajar, exactly like push.mjs.
             senarai.Add(new MuridTidakHadir(id, kategori, sebab) { Nama = nama });
         }
 
@@ -176,8 +176,58 @@ public sealed record KeputusanPadanan(
 /// <summary>The category/reason currently selected on a student's row.</summary>
 public sealed record SebabMurid(string KategoriNilai, string KategoriTeks, string SebabNilai, string SebabTeks);
 
-/// <summary>A student row: the <c>data-idpelajar</c> and whether the box is ticked (present).</summary>
-public sealed record BarisMurid(string Id, bool Hadir);
+/// <summary>
+/// A student row on the MOEIS page: <c>data-idpelajar</c>, the student's
+/// <c>data-namapelajar</c> (the join key HADIR's name-only records are matched
+/// on), and whether the box is ticked (present).
+/// </summary>
+public sealed record BarisMurid(string Id, string Nama, bool Hadir);
+
+/// <summary>
+/// Student-name normalisation — a faithful port of <c>normNama</c> in
+/// <c>companion/src/moeis/push.mjs</c>:
+///
+///   String(s||'').toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim()
+///
+/// i.e. uppercase, then every character that is NOT A-Z or a space becomes a
+/// space (digits, punctuation AND accented letters), runs of spaces collapse to
+/// one, and the edges are trimmed. This is deliberately DIFFERENT from
+/// <see cref="PadananDropdown.Norm"/> (which keeps digits and drops spaces): a
+/// name is matched on its letters, and an accent is NOT bridged to its ASCII
+/// base — "ÉLIANA" and "ELIANA" do not match, so a difference fails honestly
+/// instead of guessing.
+/// </summary>
+public static class PadananNama
+{
+    public static string Norm(string? s)
+    {
+        if (string.IsNullOrEmpty(s)) return "";
+        var sb = new StringBuilder(s.Length);
+        foreach (var c in s.ToUpperInvariant())
+        {
+            sb.Append((c >= 'A' && c <= 'Z') || c == ' ' ? c : ' ');
+        }
+        // Collapse runs of the space character (the pass above already turned
+        // every other whitespace, digit, punctuation and accent into ' ') and
+        // trim the edges.
+        var collapsed = new StringBuilder(sb.Length);
+        var dalamRuang = false;
+        for (var i = 0; i < sb.Length; i++)
+        {
+            var c = sb[i];
+            if (c == ' ')
+            {
+                if (!dalamRuang) { collapsed.Append(' '); dalamRuang = true; }
+            }
+            else
+            {
+                collapsed.Append(c);
+                dalamRuang = false;
+            }
+        }
+        return collapsed.ToString().Trim();
+    }
+}
 
 /// <summary>
 /// MOEIS dropdown label matching — a faithful port of <c>pilihDropdown</c> in
@@ -339,6 +389,10 @@ public static class PenghantaranMoeisFlow
         return h;
     }
 
+    /// <summary>Same key the duplicate check groups on: page id when carried, else normalised name.</summary>
+    private static string KunciMurid(MuridTidakHadir m) =>
+        !string.IsNullOrWhiteSpace(m.Id) ? m.Id.Trim() : PadananNama.Norm(m.Nama);
+
     /// <summary>Port of <c>formatTarikhPaparan</c>: yyyy-MM-dd → dd/MM/yyyy.</summary>
     public static string? FormatTarikhPaparan(string? tarikhIso)
     {
@@ -375,23 +429,29 @@ public static class PenghantaranMoeisFlow
                 "Tugasan tidak membawa seorang pun murid tidak hadir; tiada apa-apa untuk dihantar.", "tugasan-kosong");
         }
 
+        // Every task student must be identifiable (a page id OR a name) and carry
+        // the mandatory category+reason. A name-only student is the normal HADIR
+        // shape — the page id is resolved later against data-namapelajar.
         var kekurangan = senarai
-            .Where(m => m == null || string.IsNullOrWhiteSpace(m.Id) || string.IsNullOrWhiteSpace(m.Kategori) || string.IsNullOrWhiteSpace(m.Sebab))
+            .Where(m => m == null ||
+                (string.IsNullOrWhiteSpace(m.Id) && string.IsNullOrWhiteSpace(m.Nama)) ||
+                string.IsNullOrWhiteSpace(m.Kategori) || string.IsNullOrWhiteSpace(m.Sebab))
             .Count();
         if (kekurangan > 0)
         {
             return Buat(tugasan, "kategori-sebab-tiada",
-                $"{kekurangan} murid dalam tugasan tiada id/kategori/sebab; MOEIS mewajibkan kategori dan sebab bagi setiap murid tidak hadir.",
+                $"{kekurangan} murid dalam tugasan tiada id/nama/kategori/sebab; MOEIS mewajibkan kategori dan sebab bagi setiap murid tidak hadir.",
                 "kategori-sebab-tiada");
         }
 
-        var pendua = senarai.GroupBy(m => m.Id.Trim(), StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+        // Duplicates: by page id when one is carried, else by normalised name.
+        var pendua = senarai.GroupBy(KunciMurid, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
         if (pendua.Count > 0)
         {
             // Two entries for one student may disagree on category/reason. Stop
             // honestly instead of picking one — a duplicate is never submitted.
             return Buat(tugasan, "pendua-id",
-                $"{pendua.Count} id murid berulang dalam tugasan; pendua tidak dihantar.", "pendua-id");
+                $"{pendua.Count} murid berulang dalam tugasan; pendua tidak dihantar.", "pendua-id");
         }
 
         string? paparanTarikh = null;
@@ -405,8 +465,6 @@ public static class PenghantaranMoeisFlow
             }
         }
 
-        var dijangka = senarai.ToDictionary(m => m.Id.Trim(), m => m, StringComparer.Ordinal);
-
         try
         {
             // ---- 2. Open the page and put it in the task's context. ----
@@ -419,12 +477,72 @@ public static class PenghantaranMoeisFlow
             var muridAwal = sedia.Murid;
             var indeks = muridAwal.ToDictionary(m => m.Id, m => m, StringComparer.Ordinal);
 
-            var tiada = dijangka.Keys.Where(id => !indeks.ContainsKey(id)).ToList();
-            if (tiada.Count > 0)
+            // Name index (data-namapelajar) for HADIR's name-only records. A
+            // normalised name that maps to MORE than one page row is ambiguous —
+            // refuse rather than silently pick one (the companion's Map silently
+            // keeps the last, which we treat as a bug worth failing on).
+            var indeksNama = new Dictionary<string, List<BarisMurid>>(StringComparer.Ordinal);
+            foreach (var b in muridAwal)
             {
-                var h = Buat(tugasan, "id-tidak-dijumpai",
-                    $"{tiada.Count} id murid dalam tugasan tidak wujud pada senarai MOEIS kelas ini; tiada apa-apa disimpan.",
-                    "id-tidak-dijumpai");
+                var k = PadananNama.Norm(b.Nama);
+                if (k.Length == 0) continue;
+                if (!indeksNama.TryGetValue(k, out var l)) indeksNama[k] = l = new List<BarisMurid>();
+                l.Add(b);
+            }
+
+            // Resolve every task student to a page id: by id when one is carried,
+            // else by normalised name (port of push.mjs petaDijangka/idx).
+            var dijangka = new Dictionary<string, MuridTidakHadir>(StringComparer.Ordinal);
+            foreach (var m in senarai)
+            {
+                string id;
+                if (!string.IsNullOrWhiteSpace(m.Id))
+                {
+                    id = m.Id.Trim();
+                    if (!indeks.ContainsKey(id))
+                    {
+                        var h = Buat(tugasan, "id-tidak-dijumpai",
+                            $"id murid {id} dalam tugasan tidak wujud pada senarai MOEIS kelas ini; tiada apa-apa disimpan.",
+                            "id-tidak-dijumpai");
+                        h.BilMurid = muridAwal.Count;
+                        return h;
+                    }
+                }
+                else
+                {
+                    var k = PadananNama.Norm(m.Nama);
+                    if (!indeksNama.TryGetValue(k, out var calon) || calon.Count == 0)
+                    {
+                        var h = Buat(tugasan, "nama-tidak-padan",
+                            $"Nama tidak padan dengan MOEIS: {m.Nama.Trim()}; tiada apa-apa disimpan.",
+                            "nama-tidak-padan");
+                        h.BilMurid = muridAwal.Count;
+                        return h;
+                    }
+                    if (calon.Count > 1)
+                    {
+                        var h = Buat(tugasan, "nama-ambigu",
+                            $"Nama \"{m.Nama.Trim()}\" padan dengan {calon.Count} murid MOEIS (ambigu) — BERHENTI, tidak meneka.",
+                            "nama-ambigu");
+                        h.BilMurid = muridAwal.Count;
+                        return h;
+                    }
+                    id = calon[0].Id;
+                }
+                dijangka[id] = m;
+            }
+
+            // ---- Conflict: MOEIS already shows a student absent who is NOT in
+            // the task. That is an absence the task does not assert — stop,
+            // never send, never restore. (Port of push.mjs konflikList; the
+            // desktop has no --paksa, so this is always a hard stop.) ----
+            var idTidakHadir = new HashSet<string>(dijangka.Keys, StringComparer.Ordinal);
+            var konflik = muridAwal.Where(b => !b.Hadir && !idTidakHadir.Contains(b.Id)).ToList();
+            if (konflik.Count > 0)
+            {
+                var h = Buat(tugasan, "konflik",
+                    $"MOEIS sudah menanda {konflik.Count} murid tidak hadir yang tiada dalam HADIR; tiada apa-apa disimpan.",
+                    "konflik");
                 h.BilMurid = muridAwal.Count;
                 return h;
             }
@@ -432,8 +550,9 @@ public static class PenghantaranMoeisFlow
             // ---- 3. Only students MOEIS still shows as PRESENT get marked. ----
             var perluTanda = dijangka.Keys.Where(id => indeks[id].Hadir).ToList();
             var sudahTidakHadir = dijangka.Keys.Where(id => !indeks[id].Hadir).ToList();
-            // Everything MOEIS already had absent (task or not) is expected to
-            // stay absent through the re-read; we never restore anyone to present.
+            // After the conflict gate, every student MOEIS already had absent IS
+            // in the task, so they are expected to stay absent through the
+            // re-read; we never restore anyone to present.
             var praTidakHadir = muridAwal.Where(m => !m.Hadir).Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
 
             if (perluTanda.Count == 0)

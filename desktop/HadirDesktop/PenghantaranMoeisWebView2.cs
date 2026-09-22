@@ -97,7 +97,7 @@ public static class SkripMoeis
     public static string BacaSenaraiMurid() =>
         "(function(){return JSON.stringify(Array.prototype.map.call(" +
         "document.querySelectorAll(" + Lit(SelektorSenaraiMurid) + ")," +
-        "function(cb){return {id:String(cb.getAttribute('data-idpelajar')||''),hadir:!!cb.checked};}));})()";
+        "function(cb){return {id:String(cb.getAttribute('data-idpelajar')||''),nama:String(cb.getAttribute('data-namapelajar')||''),hadir:!!cb.checked};}));})()";
 
     /// <summary>
     /// Click the student's checkbox so the row becomes ABSENT. Idempotent by
@@ -302,8 +302,9 @@ public sealed class WebView2DomMoeis : IDomMoeis
             {
                 if (e.ValueKind != JsonValueKind.Object) continue;
                 var id = e.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString() ?? "" : "";
+                var nama = e.TryGetProperty("nama", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() ?? "" : "";
                 var hadir = e.TryGetProperty("hadir", out var h) && h.ValueKind == JsonValueKind.True;
-                if (id.Length > 0) senarai.Add(new BarisMurid(id, hadir));
+                if (id.Length > 0) senarai.Add(new BarisMurid(id, nama, hadir));
             }
         }
         catch

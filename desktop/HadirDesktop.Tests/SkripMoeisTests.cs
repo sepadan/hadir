@@ -51,11 +51,12 @@ public class SkripMoeisTests
     }
 
     [Fact]
-    public void SkripSenaraiMurid_BacaIdDanKeadaanKotak()
+    public void SkripSenaraiMurid_BacaIdNamaDanKeadaanKotak()
     {
         var js = SkripMoeis.BacaSenaraiMurid();
         Assert.Contains("#kehadiran input.case-hadir", js);
         Assert.Contains("data-idpelajar", js);
+        Assert.Contains("data-namapelajar", js);
         Assert.Contains("cb.checked", js);
     }
 
