@@ -101,21 +101,22 @@ yang diproses oleh giliran yang dimulakan oleh auto-mula; giliran yang dimulakan
 manual dengan butang **Mula** tidak ditapis kalendar/kesegaran. Tugasan layak
 diproses automatik hanya jika:
 
-- berstatus `menunggu` (fresh), untuk **TARIKH HARI INI** dalam zon
-  `Asia/Kuala_Lumpur`;
+- berstatus `menunggu` ATAU `sedang_dihantar` (yatim selepas crash/restart),
+  untuk **TARIKH HARI INI** dalam zon `Asia/Kuala_Lumpur`;
 - tarikh itu **ada dalam allowlist** tarikh sekolah tepat `kalendarSekolah`
   (allowlist kosong = gagal tertutup); **Sabtu/Ahad ditolak**;
-- **umur maksimum 15 minit** sejak penciptaan;
-- cap masa penciptaan (`diciptaEpochMs`) **lebih baharu daripada** sempadan
-  aktivasi opt-in (`autoMulaDiaktifkanPada`) **DAN** masa mula proses
-  (`sempadanProsesMs`).
+- cap masa penciptaan (`diciptaEpochMs`) **sah dan bukan masa depan** (kewarasan
+  cap masa dikekalkan).
+
+Tiada lagi had umur 15 minit atau sempadan startup/aktivasi — tugasan hari ini
+yang belum selesai **diteruskan selepas restart** walaupun dicipta sebelum enjin
+bermula. `sedang_dihantar` TIDAK dihantar buta: klaim atomik + lease (backend)
+memutuskan pemilikan (lease aktif tidak dirampas), dan verifikasi-baca-dahulu
+memastikan padan => berjaya tanpa tulis, konflik => berhenti (perlu penyesuaian
+manusia).
 
 Kelayakan ini diperiksa semula **sebelum klaim dan tepat sebelum mutasi
 MOEIS** — pertukaran tarikh/kalendar/togol semasa kerja tidak dicache.
-
-Kerja yang dicipta semasa PC mati/restart **tidak diambil automatik** — pilihan
-konservatif yang disengajakan (sempadan startup menolak tugasan yang lebih lama
-daripada masa proses bermula).
 
 ### Amaran tamat kalendar + editor allowlist (UI tempatan)
 
@@ -157,8 +158,8 @@ minit, unref (tidak menahan proses daripada keluar). Setiap kitaran:
 - Jika tidak, cuba log masuk automatik job-time (`cubaLoginAutoKerja` —
   cache-sahaja, terikat had 2 cubaan sedia ada; no-op jika sesi cache sudah
   sah), kemudian panggil semula `cubaAutoMula` PENUH — menilai semula SEMUA
-  pengawal (kalendar, hujung minggu, kesegaran tugasan, sempadan aktivasi)
-  daripada awal. Tiada pengawal dilonggarkan untuk laluan pemulihan ini.
+  pengawal (kalendar, hujung minggu, sempadan aktivasi opt-in) daripada awal.
+  Tiada pengawal dilonggarkan untuk laluan pemulihan ini.
 - Berhenti sebaik giliran bermula.
 
 `sesiDisahkan` yang disuntik ke `cubaAutoMula` dalam gelung ini ialah
@@ -168,8 +169,7 @@ kedua yang membuka Edge tanpa sebab.
 
 ### Tiada cubaan semula automatik
 
-- Tiada cubaan semula automatik untuk `gagal`, `tersimpan`, `sedang_dihantar`,
-  lease luput, tugasan lapuk atau cap masa tidak sah.
+- Tiada cubaan semula automatik untuk `gagal`, `tersimpan` atau `berjaya`.
 - Satu tugasan hanya dicuba **sekali secara automatik** sepanjang hayat proses;
   cubaan semula memerlukan tindakan manual admin.
 
@@ -177,20 +177,23 @@ kedua yang membuka Edge tanpa sebab.
 
 Apabila proses companion mati atau dimulakan semula di tengah-tengah kerja,
 tugasan itu boleh tertinggal berstatus `sedang_dihantar`. Pemulihan berlaku
-pada **poll manual** (butang **Mula** / **Jalankan sekarang**), bukan
-auto-mula (yang kekal gagal-tertutup terhadap `sedang_dihantar`):
+pada **poll manual** (butang **Mula** / **Jalankan sekarang**) DAN pada
+**auto-mula** (polisi baharu — auto-mula turut memulihkan yatim `sedang_dihantar`
+hari ini). Kedua-duanya TIDAK hantar buta: klaim atomik + lease memutuskan
+pemilikan, dan verifikasi-baca-dahulu membaca keadaan MOEIS sebenar dahulu
+(padan => berjaya tanpa tulis, konflik => berhenti untuk manusia):
 
 - **ID enjin stabil.** `pemilik` klaim bukan lagi `hostname:pid`; ia ialah UUID
   rawak tempatan yang disimpan di `<dirData>/id-enjin.json`. Apabila companion
   dimulakan semula, ID **sama** dikemukakan, jadi ia menuntut semula tugasan
   `sedang_dihantar` yang ditinggalkan proses sebelumnya **serta-merta** (klaim
   pemilik sama) tanpa menunggu lease 15 minit.
-- **Poll mempertimbangkan `sedang_dihantar`.** Giliran manual kini cuba klaim
-  tugasan `menunggu` DAN `sedang_dihantar`; backend (Apps Script) memutuskan
-  secara atomik sama ada klaim dibenarkan — pemilik sama, lease luput, atau
-  tugasan yatim tanpa pemilik/lease. Klaim tidak dibenarkan pulang `null` dan
-  tugasan itu dilangkau tanpa kesan (tugasan yang masih dipegang enjin hidup
-  tidak pernah dirampas).
+- **Poll mempertimbangkan `sedang_dihantar`.** Giliran (manual dan auto) kini
+  cuba klaim tugasan `menunggu` DAN `sedang_dihantar`; backend (Apps Script)
+  memutuskan secara atomik sama ada klaim dibenarkan — pemilik sama, lease
+  luput, atau tugasan yatim tanpa pemilik/lease. Klaim tidak dibenarkan pulang
+  `null` dan tugasan itu dilangkau tanpa kesan (tugasan yang masih dipegang
+  enjin hidup tidak pernah dirampas).
 - `id-enjin.json` bukan rahsia dan tidak mengandungi sebarang data murid; ia
   hanyalah pengecam mesin tempatan.
 

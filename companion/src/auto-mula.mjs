@@ -2,7 +2,6 @@
 // Semua keputusan menggunakan waktu Asia/Kuala_Lumpur dan dibuat semula pada
 // setiap poll. Modul ini tulen: tiada rangkaian, pelayar, registry atau fail.
 export const ZON_MASA_SEKOLAH = 'Asia/Kuala_Lumpur';
-export const UMUR_MAKS_TUGASAN_MINIT = 15;
 // Amaran awal (hari sebelum allowlist kalendar sekolah tamat) untuk memberi
 // pemilik masa menambah tarikh sebelum auto-mula gagal tertutup pada hari yang
 // tidak lagi dilindungi allowlist.
@@ -65,11 +64,11 @@ export function bolehAutoMula({ tetapan, sekarangMs, sempadanProsesMs, sesiAda, 
   return { boleh: true, sebab: 'Semua pengawal auto-mula lulus.', tarikhIso: hari.tarikhIso };
 }
 
-export function nilaiKelayakanTugasan(job, { tetapan, sekarangMs, sempadanProsesMs }) {
+export function nilaiKelayakanTugasan(job, { tetapan, sekarangMs }) {
   const hari = asasHariSekolah(tetapan, sekarangMs);
   if (!hari.boleh) return hari;
-  if (!job || job.status !== 'menunggu') {
-    return { boleh: false, sebab: 'Hanya tugasan fresh berstatus menunggu boleh diproses automatik.' };
+  if (!job || (job.status !== 'menunggu' && job.status !== 'sedang_dihantar')) {
+    return { boleh: false, sebab: 'Hanya tugasan menunggu atau sedang_dihantar (yatim) untuk hari ini boleh diproses automatik.' };
   }
   if (job.tarikhIso !== hari.tarikhIso) {
     return { boleh: false, sebab: 'Hanya tugasan untuk hari ini di Asia/Kuala_Lumpur boleh diproses automatik.' };
@@ -77,22 +76,15 @@ export function nilaiKelayakanTugasan(job, { tetapan, sekarangMs, sempadanProses
   if (!Number.isFinite(job.diciptaEpochMs)) {
     return { boleh: false, sebab: 'Cap masa penciptaan tugasan tiada atau tidak sah.' };
   }
-  const aktivasiMs = masaIsoSah(tetapan && tetapan.autoMulaDiaktifkanPada);
-  if (aktivasiMs === null || !Number.isFinite(sempadanProsesMs)) {
-    return { boleh: false, sebab: 'Sempadan aktivasi/startup tidak sah; tugasan ditolak.' };
-  }
-  const sempadan = Math.max(aktivasiMs, sempadanProsesMs);
-  if (job.diciptaEpochMs <= sempadan) {
-    return { boleh: false, sebab: 'Tugasan dicipta pada/sebelum sempadan opt-in atau startup; semakan manual diperlukan.' };
-  }
+  // Kewarasan cap masa sahaja (bukan masa depan). Sempadan startup/aktivasi dan
+  // umur maksimum TIDAK lagi dijadikan penolak — tugasan hari ini yang masih
+  // belum selesai (menunggu/sedang_dihantar) diteruskan selepas restart.
+  // Pemilikan lease aktif / klaim atomik diputuskan oleh backend (moeisJobKlaim_),
+  // bukan di sini.
   if (job.diciptaEpochMs > sekarangMs) {
     return { boleh: false, sebab: 'Cap masa penciptaan tugasan berada pada masa depan.' };
   }
-  const umurMs = sekarangMs - job.diciptaEpochMs;
-  if (umurMs > UMUR_MAKS_TUGASAN_MINIT * 60 * 1000) {
-    return { boleh: false, sebab: `Tugasan terlalu lama (had ${UMUR_MAKS_TUGASAN_MINIT} minit); semakan manual diperlukan.` };
-  }
-  return { boleh: true, sebab: 'Tugasan fresh dan layak diproses automatik.' };
+  return { boleh: true, sebab: 'Tugasan menunggu/sedang_dihantar hari ini layak diproses automatik.' };
 }
 
 // --- Amaran kalendar sekolah (baca sahaja, tulen) ---

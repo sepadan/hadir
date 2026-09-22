@@ -50,8 +50,10 @@ export function buatGiliran({
   };
   // Satu job hanya mendapat satu cubaan automatik sepanjang hayat proses.
   // Jika runner melepaskan lease selepas ralat, poll berikutnya tidak akan
-  // mengambilnya lagi. Restart juga selamat kerana sempadan startup menolak
-  // job yang dicipta sebelum proses baharu bermula.
+  // mengambilnya lagi. Restart kekal selamat: tugasan hari ini yang belum
+  // selesai (termasuk yang dicipta sebelum proses bermula) diteruskan melalui
+  // klaim atomik + lease + verifikasi-baca-dahulu (idempoten), bukan lagi
+  // ditolak oleh sempadan startup.
   const pernahDiklaimAutomatik = new Set();
 
   // Log masuk automatik PAKSA (bypass cache) apabila tugasan membawa isyarat

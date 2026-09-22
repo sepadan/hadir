@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buatGiliran } from '../src/giliran.mjs';
+import { nilaiKelayakanTugasan } from '../src/auto-mula.mjs';
 import { mulakanPelayanUjian, mintaMentah, TOKEN_SAH } from './bantuan-server.mjs';
 
 function klienPalsu(senaraiAwal) {
@@ -30,7 +31,7 @@ function klienPalsuLengkap(jobAwal) {
   const lepasPanggilan = [];
   const klaimPanggilan = [];
   return {
-    senarai: async () => [{ id: job.id, status: job.status, kelas: job.kelas, tarikhIso: job.tarikhIso, murid: job.murid }],
+    senarai: async () => [{ id: job.id, status: job.status, kelas: job.kelas, tarikhIso: job.tarikhIso, murid: job.murid, diciptaEpochMs: job.diciptaEpochMs }],
     klaim: async (id, pemilik, benarkanCubaSemula) => {
       klaimPanggilan.push({ id, pemilik, benarkanCubaSemula });
       if (id !== job.id) return null;
@@ -513,6 +514,61 @@ test('pemulihan tersekat: lease korup (bukan nombor) dengan pemilik bukan kosong
   const r = await g.jalankanSatuKitaran();
   assert.equal(r.diproses, 0, 'lease korup + pemilik bukan kosong tidak boleh dirampas');
   assert.equal(dipanggil, false);
+});
+
+// ---------------- Auto-mula: pemulihan yatim 'sedang_dihantar' (policy baharu) ----------------
+// Dasar baharu: selepas restart, auto-mula juga memulihkan tugasan 'sedang_dihantar'
+// hari ini yang tertinggal (crash/restart) — dengan verifikasi-baca-dahulu (tidak
+// hantar buta) dan klaim atomik (tidak rampas lease aktif).
+
+const TETAPAN_AUTO = { autoMulaGiliran: true, kalendarSekolah: ['2026-09-21'], autoMulaDiaktifkanPada: '2026-09-21T00:00:00.000Z' };
+const MASA_AUTO = Date.parse('2026-09-21T01:00:00.000Z'); // Isnin 09:00 Malaysia
+
+test('auto-mula: sedang_dihantar yatim (lease luput) dipulihkan — verifikasi dahulu, padan => berjaya tanpa hantar (tiada pendua)', async () => {
+  const klien = klienPalsuLengkap({
+    id: 'jauto-stuck', status: 'sedang_dihantar', pemilik: 'runner-lama', leaseMs: Date.now() - 60 * 1000,
+    kelas: '3 BIJAK', tarikhIso: '2026-09-21', murid: [], diciptaEpochMs: Date.parse('2026-09-21T00:10:00Z')
+  });
+  const modDipanggil = [];
+  const jalankanTugasanAnak = async (job, opsyen) => {
+    modDipanggil.push(opsyen.mod);
+    // Crash berlaku SELEPAS simpan: MOEIS sudah padan dengan HADIR -> tidak-berubah.
+    return { stdout: '', stderr: '', hasil: { status: 'tidak-berubah', sebab: 'MOEIS sudah padan.', kod: 0 } };
+  };
+  const g = buatGiliran({
+    klien, pemilik: 'runner-baharu', log: logPalsu(), jalankanTugasanAnak,
+    semakKelayakanAutomatik: (job) => nilaiKelayakanTugasan(job, { tetapan: TETAPAN_AUTO, sekarangMs: MASA_AUTO })
+  });
+  g.mulakan(30, { automatik: true });
+  try {
+    const r = await g.jalankanSatuKitaran();
+    assert.equal(r.diproses, 1, 'yatim sedang_dihantar dipulihkan oleh auto-mula');
+    assert.deepEqual(modDipanggil, ['verifikasi'], 'verifikasi dahulu, tiada hantar buta (tiada pendua)');
+    assert.equal(klien._selesaiPanggilan[0].keputusan, 'berjaya');
+  } finally {
+    g.hentikan();
+  }
+});
+
+test('auto-mula: sedang_dihantar dengan lease aktif (enjin hidup) TIDAK dirampas — ditolak oleh klaim atomik', async () => {
+  const klien = klienPalsuLengkap({
+    id: 'jauto-live', status: 'sedang_dihantar', pemilik: 'runner-hidup', leaseMs: Date.now() + 10 * 60 * 1000,
+    kelas: '3 BIJAK', tarikhIso: '2026-09-21', murid: [], diciptaEpochMs: Date.parse('2026-09-21T00:10:00Z')
+  });
+  let dipanggil = false;
+  const jalankanTugasanAnak = async () => { dipanggil = true; return { hasil: { status: 'tidak-berubah', kod: 0 } }; };
+  const g = buatGiliran({
+    klien, pemilik: 'runner-baharu', log: logPalsu(), jalankanTugasanAnak,
+    semakKelayakanAutomatik: (job) => nilaiKelayakanTugasan(job, { tetapan: TETAPAN_AUTO, sekarangMs: MASA_AUTO })
+  });
+  g.mulakan(30, { automatik: true });
+  try {
+    const r = await g.jalankanSatuKitaran();
+    assert.equal(r.diproses, 0, 'lease aktif tidak boleh dirampas');
+    assert.equal(dipanggil, false, 'tiada kerja dijalankan untuk tugasan yang masih dipegang enjin hidup');
+  } finally {
+    g.hentikan();
+  }
 });
 
 test('langkau (profil Edge digunakan): lepaskan lease, TIDAK lapor gagal kekal, TIDAK paksa-bunuh', async () => {

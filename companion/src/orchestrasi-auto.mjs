@@ -59,8 +59,8 @@ export async function cubaAutoMula({
 // Senario: startup auto-mula gagal (cth sesi idMe tidak sah semasa bind) dan
 // suis `autoMulaGiliran` masih ON — tanpa ini, giliran kekal MATI selama-lama
 // walaupun log masuk automatik kemudian berjaya memulihkan sesi. Fungsi ini
-// TIDAK melonggarkan sebarang pengawal (kalendar/hujung minggu/umur
-// tugasan/sempadan aktivasi/attendance): setiap kitaran memanggil semula
+// TIDAK melonggarkan sebarang pengawal (kalendar/hujung minggu/sempadan
+// aktivasi opt-in/sempadan proses): setiap kitaran memanggil semula
 // `cubaAutoMula` yang sama, yang menyemak semula SEMUA pengawal dari awal.
 //
 // Satu-satunya tindakan pelayar langsung di sini ialah `cubaLoginAutoKerja`

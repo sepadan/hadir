@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  UMUR_MAKS_TUGASAN_MINIT,
   bolehAutoMula,
   nilaiKelayakanTugasan
 } from '../src/auto-mula.mjs';
@@ -49,31 +48,45 @@ test('kalendar ialah allowlist tarikh tepat; kosong, tarikh tiada dan hujung min
   assert.match(bolehAutoMula({ ...asas, sekarangMs: sabtu, tetapan: tetapanSah({ kalendarSekolah: ['2026-09-19'] }) }).sebab, /hujung minggu/i);
 });
 
-test('hanya menunggu hari ini dengan cap penciptaan sah selepas kedua-dua sempadan diterima', () => {
-  const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG, sempadanProsesMs: SEMPADAN_PROSES };
+test('tugasan menunggu hari ini layak walau dicipta SEBELUM enjin bermula (sempadan startup/aktivasi dibuang)', () => {
+  const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG };
+  // dicipta sebelum sempadan proses (00:10) dan sebelum aktivasi opt-in
+  // (23:00 hari sebelumnya = 07:00 Malaysia) — kedua-duanya kini LAYAK.
+  assert.equal(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: Date.parse('2026-09-21T00:10:00Z') }), opsyen).boleh, true);
+  assert.equal(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: SEMPADAN_PROSES }), opsyen).boleh, true);
+  assert.equal(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: Date.parse('2026-09-20T23:00:00Z') }), opsyen).boleh, true);
+});
+
+test('tugasan menunggu hari ini layak walau lebih lama daripada 15 minit (had umur dibuang)', () => {
+  const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG };
+  // 00:40 — selepas sempadan/aktivasi tetapi 20 minit lebih tua daripada had
+  // lama 15 minit; masih layak.
+  assert.equal(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: Date.parse('2026-09-21T00:40:00Z') }), opsyen).boleh, true);
+});
+
+test('hanya menunggu/sedang_dihantar hari ini diterima; status selesai/tersimpan dan tarikh lain ditolak', () => {
+  const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG };
   assert.equal(nilaiKelayakanTugasan(tugasanSah(), opsyen).boleh, true);
-  for (const status of ['gagal', 'tersimpan', 'sedang_dihantar', 'berjaya']) {
+  // sedang_dihantar (yatim selepas crash/restart) kini LAYAK untuk pemulihan auto.
+  assert.equal(nilaiKelayakanTugasan(tugasanSah({ status: 'sedang_dihantar' }), opsyen).boleh, true);
+  // Sudah berjaya TIDAK PERNAH dijalankan semula; gagal/tersimpan tidak dicuba auto.
+  for (const status of ['gagal', 'tersimpan', 'berjaya']) {
     assert.equal(nilaiKelayakanTugasan(tugasanSah({ status }), opsyen).boleh, false, status);
   }
   assert.match(nilaiKelayakanTugasan(tugasanSah({ tarikhIso: '2026-09-20' }), opsyen).sebab, /hari ini/i);
-  assert.match(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: '21\/09\/2026 08:50' }), opsyen).sebab, /penciptaan/i);
-  assert.match(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: SEMPADAN_PROSES }), opsyen).sebab, /sempadan/i);
-  assert.match(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: Date.parse('2026-09-21T00:10:00Z') }), opsyen).sebab, /sempadan/i);
 });
 
-test(`umur maksimum konservatif ialah ${UMUR_MAKS_TUGASAN_MINIT} minit dan cap masa masa depan ditolak`, () => {
-  const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG, sempadanProsesMs: SEMPADAN_PROSES };
-  const terlaluLama = SEKARANG - (UMUR_MAKS_TUGASAN_MINIT * 60 * 1000) - 1;
-  assert.match(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: terlaluLama }), opsyen).sebab, /terlalu lama/i);
+test('kewarasan cap masa dikekalkan: nilai tidak sah dan masa depan ditolak', () => {
+  const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG };
+  assert.match(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: '21/09/2026 08:50' }), opsyen).sebab, /penciptaan/i);
   assert.match(nilaiKelayakanTugasan(tugasanSah({ diciptaEpochMs: SEKARANG + 1 }), opsyen).sebab, /masa depan/i);
 });
 
 test('pertukaran tengah malam dan perubahan kalendar dinilai semula, bukan dicache semasa startup', () => {
   const job = tugasanSah();
-  const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG, sempadanProsesMs: SEMPADAN_PROSES };
+  const opsyen = { tetapan: tetapanSah(), sekarangMs: SEKARANG };
   assert.equal(nilaiKelayakanTugasan(job, opsyen).boleh, true);
   const esok = Date.parse('2026-09-21T16:01:00.000Z'); // 22 Sep di Malaysia
   assert.equal(nilaiKelayakanTugasan(job, { ...opsyen, sekarangMs: esok }).boleh, false);
   assert.equal(nilaiKelayakanTugasan(job, { ...opsyen, tetapan: tetapanSah({ kalendarSekolah: [] }) }).boleh, false);
 });
-

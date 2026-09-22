@@ -34,8 +34,9 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
   menguji dan mengawal enjin Playwright pada satu PC guru (Windows) melalui
   loopback sahaja. Pemasangan penuh: [`companion/docs/PEMASANGAN.md`](companion/docs/PEMASANGAN.md).
 - Companion mempunyai dua opt-in tempatan yang berasingan: autostart Windows
-  dan auto-mula giliran berpengawal. Kedua-duanya lalai MATI; auto-mula hanya
-  menerima kerja `menunggu` yang fresh untuk tarikh sekolah allowlist hari ini.
+  dan auto-mula giliran berpengawal. Kedua-duanya lalai MATI; auto-mula
+  menerima kerja `menunggu` atau `sedang_dihantar` (yatim) untuk tarikh sekolah
+  allowlist hari ini, termasuk yang dicipta sebelum enjin bermula.
   Log masuk idMe automatik ialah opt-in berasingan (`loginAuto`, lalai MATI)
   melalui vault kredensial DPAPI tempatan; frasa kunci keselamatan mesti padan
   dan CAPTCHA/OTP/2FA memerlukan manusia.

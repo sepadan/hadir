@@ -391,7 +391,7 @@ async function main() {
     // Pengawal ini HANYA dipanggil untuk giliran AUTO: `masihLayak` dalam
     // giliran.mjs hanya berjalan apabila `automatik === true` (iaitu
     // state.modMula === 'auto'). Giliran manual (POST /api/mula, butang Mula)
-    // TIDAK pernah melalui semakan ini — kalendar/kesegaran tidak menapis
+    // TIDAK pernah melalui semakan ini — kalendar tidak menapis
     // giliran manual (penemuan semakan bebas).
     // Dibaca semula SETIAP kali: sebelum klaim, selepas klaim dan tepat
     // sebelum mutasi MOEIS. Tarikh/kalendar/togol tidak dicache ketika startup.
