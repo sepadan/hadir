@@ -824,12 +824,14 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Opens the engine's REAL protected local settings UI (nonce-gated, served
-    /// from the companion's loopback origin) in the embedded WebView2. Read-only
-    /// from this app's side: we only navigate; we never write settings, never
-    /// restart, and never control the engine.
+    /// Opens the engine's protected local settings page through the companion
+    /// root endpoint. The root issues a nonce-bearing redirect; never hardcode
+    /// or cache that nonce here. Before navigating, the loopback engine is
+    /// probed (short timeout): if it is offline, a friendly embedded page is
+    /// rendered via NavigateToString instead of leaving the WebView2 on an ugly
+    /// ERR_CONNECTION_REFUSED — everything stays embedded, no OS browser window.
     /// </summary>
-    private void OpenEngineSettings()
+    private async void OpenEngineSettings()
     {
         ShowFromTray();
 
@@ -846,7 +848,32 @@ public sealed class MainForm : Form
         }
 
         _navLabel.Text = "Membuka tetapan tempatan enjin (baca sahaja)…";
-        _webView.CoreWebView2.Navigate(DemoLabel.EngineSettingsUrl);
+
+        // Probe the loopback engine first so a stopped companion shows a friendly
+        // embedded page instead of ERR_CONNECTION_REFUSED inside the WebView2.
+        // Short timeout: the settings click must respond quickly; a slow cold
+        // start falls through to a normal Navigate (best effort).
+        EngineStatusModel status;
+        using (var probe = new LoopbackEngineStatusSource(timeout: TimeSpan.FromSeconds(5)))
+        {
+            status = await probe.GetStatusAsync();
+        }
+
+        try
+        {
+            if (status.Kind == EngineStatusKind.Offline)
+            {
+                _navLabel.Text = "Enjin tetapan tempatan tidak berjalan — pastikan Companion HADIR dimulakan.";
+                _webView.CoreWebView2.NavigateToString(EngineSettingsOfflinePage.Html(status.Catatan ?? string.Empty));
+                return;
+            }
+
+            _webView.CoreWebView2.Navigate(DemoLabel.EngineSettingsUrl);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Borang dilupuskan semasa menunggu siasatan enjin.
+        }
     }
 
     /// <summary>

@@ -3,6 +3,13 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.11 — Tetapan tempatan kekal dalam HADIR Desktop
+
+- Log masuk manual idMe dalam Tetapan Tempatan kini menavigasi WebView2 HADIR Desktop yang sama; kawalan yang melancarkan Edge dari halaman itu dibuang.
+- Jika Companion belum berjalan, Desktop memaparkan panduan ringkas di dalam WebView2 dan bukannya halaman ralat sambungan.
+- Companion mesti berjalan untuk menyimpan tetapan tempatan; halaman offline menerangkan perkara itu dan tidak membuka pelayar luar.
+- Ujian regresi Companion dan Desktop dijalankan sebelum penerbitan.
+
 ## Versi
 
 Nombor versi tinggal di satu tempat sahaja: `<Version>` dalam
@@ -30,7 +37,7 @@ sebab paling kerap seseorang menyangka ia "rosak":
 
 | Tetapan | Di mana | Apa yang berlaku jika MATI |
 |---|---|---|
-| `LoginAuto` | Menu dulang → "Akaun idMe…" | Allowlist navigasi tidak mengandungi idMe/MOEIS — halaman login TIDAK dapat dibuka langsung |
+| `LoginAuto` | Menu dulang → "Akaun idMe…" | Log masuk automatik MATI; halaman idMe masih boleh dibuka untuk log masuk manual dalam WebView2 HADIR Desktop. Redirect ke MOEIS/automasi kekal berpagar. |
 | `HantarAuto` | Menu dulang → "Hantar ke MOEIS (automatik)" | Kitaran boleh log masuk, tetapi tidak pernah menghantar kehadiran |
 
 Kedua-duanya disimpan dalam `%LOCALAPPDATA%\HadirDesktop\idme-login.json`.

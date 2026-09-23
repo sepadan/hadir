@@ -110,6 +110,15 @@ try {
   sah('GET /lokal.js nonce salah -> 403', r.status === 403, r.status);
   r = await minta(port, { laluan: '/lokal.js?n=' + nonce });
   sah('GET /lokal.js?n=<nonce> -> 200 JS', r.status === 200 && /X-HADIR-Lokal/.test(r.teks), r.status);
+  r = await minta(port, { laluan: '/?n=' + nonce });
+  sah('UI tetapan menawarkan log masuk idMe dalam aplikasi tanpa butang/teks pelancaran Edge',
+    r.status === 200 && /btnLogMasukManual/.test(r.teks) && !/btnUjiLogin|Membuka Edge|Buka Edge/.test(r.teks), r.status);
+  r = await minta(port, { laluan: '/lokal.js?n=' + nonce });
+  sah('butang log masuk menavigasi WebView sama ke idMe, bukan endpoint Companion yang membuka Edge',
+    /btnLogMasukManual[\s\S]*location\.assign\('https:\/\/idme\.moe\.gov\.my\/login'\)/.test(r.teks)
+      && !/panggil\('\/api\/lokal\/(?:uji-login|log-masuk-manual)'/.test(r.teks), 'semak lokal.js');
+  sah('teks status tidak lagi merujuk butang "Uji log masuk" yang telah dibuang',
+    !/Uji log masuk/.test(r.teks), 'semak lokal.js');
   r = await minta(port, { method: 'POST', laluan: '/api/lokal/kod-pasangan', headers: JSONCT, badan: '{}' });
   sah('POST /api/lokal/* tanpa header nonce -> 403 (query nonce tidak mencukupi)', r.status === 403, r.status);
   r = await minta(port, { method: 'POST', laluan: '/api/lokal/rahsia', headers: JSONCT, badan: JSON.stringify({ rahsiaEnjin: 'RAHSIA-PALSU-UJIAN' }) });

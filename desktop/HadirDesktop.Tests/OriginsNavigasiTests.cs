@@ -58,6 +58,14 @@ public class OriginsNavigasiTests
     }
 
     [Fact]
+    public void TetapanTempatan_BukaRootCompanionUntukRedirectNonceSemasa()
+    {
+        Assert.Equal("http://127.0.0.1:8747/", DemoLabel.EngineSettingsUrl);
+        Assert.Equal(EngineEndpoints.BaseUrl + EngineEndpoints.SettingsPath, DemoLabel.EngineSettingsUrl);
+        Assert.DoesNotContain("?n=", DemoLabel.EngineSettingsUrl);
+    }
+
+    [Fact]
     public void OriginsPortalSebenar_SentiasaDikekalkan()
     {
         var portal = RealPortalDevMode.Create(enabled: true);

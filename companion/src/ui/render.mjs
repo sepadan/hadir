@@ -89,15 +89,9 @@ semula: status hanya memaparkan boolean + pengguna tersamar.</div>
 
 <h2>Sesi MOEIS/idMe</h2>
 <div class="amaran">Log masuk idMe automatik ialah opt-in (suis loginAuto). Tanpa
-loginAuto, log masuk kekal manual (guru log masuk sendiri).</div>
-<p>Uji log masuk hanya MEMBACA hos + kunci keselamatan anti-pancing dan
-keadaan sesi semasa — ia <strong>tidak pernah</strong> menaip kata laluan,
-tidak mengklik kotak semak log masuk, dan tidak menulis kehadiran.</p>
-<button id="btnUjiLogin">Uji log masuk (tanpa tulis)</button>
-<div id="statusUjiLogin" class="status"></div>
-
-<label>Log masuk manual idMe (selepas sesi tamat — guru log masuk sendiri)</label>
-<button id="btnLogin">Buka Edge untuk log masuk</button>
+loginAuto, log masuk kekal manual dalam WebView HADIR Desktop ini.</div>
+<p>Log masuk manual idMe dibuka dalam WebView HADIR Desktop ini. Tiada tetingkap Edge berasingan dibuka.</p>
+<button id="btnLogMasukManual" type="button">Buka log masuk idMe dalam HADIR Desktop</button>
 <div id="statusLogin" class="status"></div>
 
 <h2>Automasi tempatan (suis opt-in berasingan)</h2>
@@ -255,7 +249,7 @@ export function halamanLokalJs() {
           : (g.klaimDisokong === false ? 'TIADA — naik taraf backend HADIR dahulu' : 'tidak dapat ditentukan')) + '\\n' +
         'Sesi idMe: ' + (moeis.sesiAda === true
           ? ('ada' + (moeis.umurSesi != null ? ' (disemak ' + moeis.umurSesi + 's lalu)' : ''))
-          : (moeis.sesiAda === false ? 'tiada/tamat — perlu log masuk manual' : 'belum diperiksa (tekan "Uji log masuk")')) + '\\n' +
+          : (moeis.sesiAda === false ? 'tiada/tamat — perlu log masuk manual' : 'belum diperiksa (log masuk manual idMe dalam HADIR Desktop untuk memulakan sesi)')) + '\\n' +
         'Rahsia enjin: ' + (r.rahsiaEnjinAda ? 'ada' : 'BELUM ditetapkan') + '\\n' +
         'Autostart Windows sebenar: ' + (autostart.berdaftar
           ? (autostart.sepadan ? 'HIDUP' : 'AMARAN: entri tidak sepadan')
@@ -398,26 +392,9 @@ export function halamanLokalJs() {
     });
   });
 
-  document.getElementById('btnUjiLogin').addEventListener('click', function () {
-    papar('statusUjiLogin', 'Membuka Edge untuk membaca status (tiada tulisan)…');
-    panggil('/api/lokal/uji-login', 'POST', {}).then(function (r) {
-      if (!r.ok) { papar('statusUjiLogin', r.ralat || 'Ralat.'); return; }
-      papar('statusUjiLogin',
-        'Status: ' + r.status + '\\n' +
-        'Hos: ' + (r.hos || '-') + '\\n' +
-        'Kunci keselamatan: ' + (r.kunci || '-') +
-        (r.sebab ? '\\n' + r.sebab : (r.perluManusia ? '\\nPerlu log masuk manual pada PC ini.' : ''))
-      );
-      muatStatus();
-    });
-  });
-
-  document.getElementById('btnLogin').addEventListener('click', function () {
-    papar('statusLogin', 'Membuka Edge… log masuk sendiri, tetingkap ditutup automatik selepas berjaya (had 20 minit).');
-    panggil('/api/lokal/log-masuk-manual', 'POST', {}).then(function (r) {
-      papar('statusLogin', r.ok ? JSON.stringify(r.hasil) : (r.ralat || 'Ralat.'));
-      muatStatus();
-    });
+  document.getElementById('btnLogMasukManual').addEventListener('click', function () {
+    papar('statusLogin', 'Membuka halaman log masuk idMe dalam HADIR Desktop…');
+    window.location.assign('https://idme.moe.gov.my/login');
   });
 
   document.getElementById('btnAutostart').addEventListener('click', function () {
