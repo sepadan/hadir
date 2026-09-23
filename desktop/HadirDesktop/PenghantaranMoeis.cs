@@ -580,6 +580,15 @@ public static class PenghantaranMoeisFlow
                 var h = Buat(tugasan, "tidak-berubah",
                     "MOEIS sudah menanda setiap murid dalam tugasan sebagai tidak hadir; tiada perubahan dihantar.",
                     "tidak-berubah");
+                // Keadaan YANG DIINGINI SAH telah disahkan: perluTanda dikira
+                // daripada jadual portal HIDUP (langkah 3), selepas pagar
+                // konflik — jadi setiap murid yang dijangkakan memang tidak
+                // hadir di MOEIS. Inilah pengesahan, bukan kegagalan. Tanpa
+                // ini Berjaya kekal false dan laluan pelaporan jatuh ke
+                // LepasSenyapAsync — tugasan dibebaskan tanpa rekod dan
+                // diulang setiap kitaran selamanya (diperhatikan 2 BIJAK,
+                // 14:07/14:15/14:21).
+                h.Berjaya = true;
                 h.BilMurid = muridAwal.Count;
                 h.BilDilangkau = sudahTidakHadir.Count;
                 return h;

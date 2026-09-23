@@ -152,7 +152,7 @@ public sealed class MainForm : Form
             _penghantarMoeis,
             dihidupkan: () => _idMeSettingsStore.Baca().HantarAuto,
             // Log langkah klaim/hantar/selesai — HANYA dalam mod pembangun.
-            log: _devAutoKitaran.Dihidupkan ? LogLangkahDev : null,
+            log: LogLangkah,
             backend: _backendClient,
             pemilik: () => _pemilikStore.Dapatkan());
 
@@ -457,8 +457,24 @@ public sealed class MainForm : Form
     /// datang daripada <see cref="AliranPenghantaranMoeis"/> dan hanya membawa
     /// id tugasan / nama kelas / status — tiada kredensial, IC, token atau URL.
     /// </summary>
-    private void LogLangkahDev(string mesej) =>
-        _devAutoKitaran.Tulis(DevAutoKitaran.BarisLangkah(DateTimeOffset.Now, mesej));
+    private void LogLangkahDev(string mesej) => LogLangkah(mesej);
+
+    /// <summary>
+    /// Satu baris bagi satu langkah aliran penghantaran (klaim / hantar /
+    /// selesai). Ia TELEMETRI PRODUksi, bukan log pembangun: kandungannya
+    /// hanya id tugasan, nama kelas, status dan sebab — tiada kredensial,
+    /// IC, token atau URL bertoken. Jika baris ini digerbangkan oleh suis
+    /// pembangun (keadaan sebelumnya: <c>log: _devAutoKitaran.Dihidupkan ?
+    /// ... : null</c>), maka ringkasan kitaran pada PC sekolah menulis
+    /// "semak bukti" sementara butirannya TIADA di mana-mana — seperti yang
+    /// berlaku pada percubaan 2 BIJAK 14:07 dan 14:15.
+    /// </summary>
+    private void LogLangkah(string mesej)
+    {
+        var baris = DevAutoKitaran.BarisLangkah(DateTimeOffset.Now, mesej);
+        DevAutoKitaran.TulisKe(KitaranAuto.LaluanLog(), baris);
+        if (_devAutoKitaran.Dihidupkan) _devAutoKitaran.Tulis(baris);
+    }
 
     private void NavigateToFixture()
     {

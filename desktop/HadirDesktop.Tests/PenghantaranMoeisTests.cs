@@ -182,7 +182,13 @@ public class PenghantaranMoeisTests
         var hasil = await new PenghantaranMoeis(dom).HantarAsync(Tugasan(Sakit("101")));
 
         Assert.Equal("tidak-berubah", hasil.Status);
-        Assert.False(hasil.Berjaya);
+        // Keadaan yang diingini telah disahkan oleh bacaan jadual portal hidup,
+        // jadi ini KEBERUNGGULAN, bukan kegagalan. Mengekalkan false di sini
+        // mengarahkan pelaporan ke LepasSenyapAsync — tugasan dibebaskan tanpa
+        // rekod lalu diulang setiap kitaran selamanya (diperhatikan pada
+        // 2 BIJAK, 14:07/14:15/14:21). Penjaga sebenar ujian ini ialah dua
+        // assert di bawah: tiada kemaskini, tiada simpan.
+        Assert.True(hasil.Berjaya);
         Assert.Equal(1, hasil.BilDilangkau);
         Assert.Equal(0, dom.BilKemaskini);
         Assert.Equal(0, dom.BilSimpan);
