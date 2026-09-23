@@ -213,11 +213,11 @@ public sealed class MainForm : Form
             backend: _backendClient,
             pemilik: () => _pemilikStore.Dapatkan());
 
-        // Demand-only portal lifecycle: the ONLY decider of whether the embedded
-        // WebView2 is ever pointed at the portal. Gate order: owner opt-in
-        // (default OFF) -> read-only engine demand probe -> rejection guard ->
-        // open portal -> login. An empty queue or an unreachable engine means
-        // ZERO portal activity (no navigation, no session probe, no login).
+        // Demand-only lifecycle decides when AUTOMATION may probe a session,
+        // type credentials, or submit. The initial WebView2 navigation now
+        // displays idMe independently (manual mode), without invoking this
+        // lifecycle. Gate order for automation remains owner opt-in -> read-only
+        // demand probe -> rejection guard -> login -> optional submission.
         _lifecycle = new PortalLifecycle(
             _kerjaHariIni,
             () => _idMeSettingsStore.Baca().LoginAuto,
@@ -353,7 +353,9 @@ public sealed class MainForm : Form
         // teks, jadi ia selamat berjalan walaupun kitaran automatik mati.
         _pemasaLabelKitaran.Start();
 
-        _portalServer.Start();
+        // Fixture dilayan hanya untuk larian dev-debug. Mod biasa tidak
+        // membuka pelayan HTTP tempatan hanya untuk memaparkan idMe sebenar.
+        if (_devDebug is not null && !_realPortal.Enabled) _portalServer.Start();
 
         var userDataFolder = _devDebug?.UserDataFolder
             ?? Path.Combine(
@@ -374,7 +376,7 @@ public sealed class MainForm : Form
         _webView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
         _webView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
 
-        NavigateToFixture();
+        NavigateToStartPage();
 
         KemasKiniStatus();
 
@@ -573,23 +575,16 @@ public sealed class MainForm : Form
         if (_devAutoKitaran.Dihidupkan) _devAutoKitaran.Tulis(baris);
     }
 
-    private void NavigateToFixture()
+    /// <summary>Halaman awal: portal idMe sebenar; fixture hanya untuk ujian pembangun.</summary>
+    public static string UrlHalamanMula(bool realPortalEnabled, bool fixtureDebugEnabled, string fixtureUrl) =>
+        fixtureDebugEnabled && !realPortalEnabled ? fixtureUrl : DemoLabel.RealPortalLoginUrl;
+
+    private void NavigateToStartPage()
     {
-        if (_webView.CoreWebView2 is null)
-        {
-            return;
-        }
+        if (_webView.CoreWebView2 is null) return;
 
-        // Real-portal dev mode loads the real idMe login page instead of the
-        // fixture. Read-only: navigation only, never credentials, never submit.
-        if (_realPortal.Enabled)
-        {
-            _webView.CoreWebView2.Navigate(DemoLabel.RealPortalLoginUrl);
-            return;
-        }
-
-        var url = _devDebug is null ? _portalServer.BaseUrl : _portalServer.DevBaseUrl;
-        _webView.CoreWebView2.Navigate(url);
+        var fixtureUrl = _devDebug is null ? _portalServer.BaseUrl : _portalServer.DevBaseUrl;
+        _webView.CoreWebView2.Navigate(UrlHalamanMula(_realPortal.Enabled, _devDebug is not null, fixtureUrl));
     }
 
     private void CoreWebView2_NavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
@@ -887,31 +882,30 @@ public sealed class MainForm : Form
 
     /// <summary>
     /// Senarai origin allowlist navigasi — fungsi TULEN (tiada WinForms, tiada
-    /// I/O) supaya ia boleh diuji tanpa message-loop. Origin mod portal-sebenar
-    /// sentiasa dikekalkan; origin idMe/MOEIS ditambah HANYA apabila pemilik
-    /// menghidupkan auto-login. Selain itu semuanya kekal disekat (loopback
-    /// dibenarkan oleh <see cref="NavigationGuard"/> sendiri).
+    /// I/O) supaya ia boleh diuji tanpa message-loop. IdMe HTTPS sentiasa
+    /// dibenarkan untuk PAPARAN/log masuk manual; itu tidak menghidupkan
+    /// auto-login. MOEIS kekal berpagar LoginAuto dan origin pembangun hanya
+    /// ditambah apabila mod portal-sebenar dihidupkan.
+    /// Loopback dibenarkan oleh <see cref="NavigationGuard"/> sendiri.
     /// </summary>
     public static List<string> OriginsNavigasi(bool realPortalEnabled, IEnumerable<string> realPortalOrigins, bool loginAuto)
     {
-        var origins = new List<string>();
+        var origins = new List<string> { IdMeLoginEndpoints.IdMeOrigin };
         if (realPortalEnabled && realPortalOrigins != null)
         {
             origins.AddRange(realPortalOrigins);
         }
         if (loginAuto)
         {
-            origins.Add(IdMeLoginEndpoints.IdMeOrigin);
             origins.Add(IdMeLoginEndpoints.MoeisOrigin);
         }
         return origins;
     }
 
     /// <summary>
-    /// Rebuilds the navigation allowlist from the real-portal dev mode origins
-    /// PLUS the idMe/MOEIS origins when (and only when) the owner has enabled
-    /// the auto-login feature. Everything else stays blocked. Dipanggil semasa
-    /// mula DAN selepas dialog "Akaun idMe" ditutup.
+    /// Rebuilds the navigation allowlist from the real-portal dev mode origins.
+    /// idMe is always permitted for manual viewing; MOEIS is added only when
+    /// the owner enables auto-login. Called at startup and after settings close.
     /// </summary>
     private void RebuildNavigationGuard()
     {
@@ -960,15 +954,21 @@ public sealed class MainForm : Form
             ? DemoLabel.RealPortalBannerSuffix
             : _devDebug is null ? string.Empty : DemoLabel.DevDebugBannerSuffix;
 
-        Text = DemoLabel.TajukTetingkapDenganVersi(sebenar) + hiasan;
+        // Pemilihan label mengikut halaman awal sebenar: kedua-dua mod dev
+        // dihidupkan serentak tetap memuat idMe, bukannya fixture.
+        var loginManual = !sebenar && (_devDebug is null || _realPortal.Enabled);
+        Text = loginManual
+            ? DemoLabel.NamaApl + " " + VersiAplikasi.Versi + DemoLabel.SufiksLoginManual + hiasan
+            : DemoLabel.TajukTetingkapDenganVersi(sebenar) + hiasan;
 
         if (_banner is null)
         {
             return;   // dipanggil semasa mula, sebelum BuildLayout()
         }
 
-        _banner.Text = DemoLabel.Banner(sebenar) + hiasan;
-        _banner.BackColor = sebenar ? System.Drawing.Color.DarkGreen : System.Drawing.Color.Firebrick;
+        _banner.Text = (loginManual ? DemoLabel.BannerLoginManual : DemoLabel.Banner(sebenar)) + hiasan;
+        _banner.BackColor = sebenar ? System.Drawing.Color.DarkGreen
+            : loginManual ? System.Drawing.Color.DarkSlateBlue : System.Drawing.Color.Firebrick;
     }
 
     /// <summary>

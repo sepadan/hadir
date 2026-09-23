@@ -16,15 +16,12 @@ Versi juga dipapar pada tajuk tetingkap dan pada nota (tooltip) ikon dulang
 sistem, dan ditulis satu baris setiap lancaran ke
 `%LOCALAPPDATA%\HadirDesktop\hadir-desktop.log`.
 
-Tajuk itu JUJUR tentang mod semasa:
-
-- `HADIR Desktop 1.0.3` + banner hijau **SISTEM SEBENAR** — pemilik telah
-  menghidupkan auto-login atau auto-hantar; aplikasi menulis ke MOEIS.
-- `HADIR Desktop 1.0.3 — MOD DEMO` + banner merah — kedua-duanya MATI;
-  aplikasi tidak melakukan apa-apa terhadap MOEIS.
-
-Jika tajuk berkata MOD DEMO tetapi anda menjangka sebaliknya, buka menu dulang
-dan hidupkan "Akaun idMe…" / "Hantar ke MOEIS (automatik)".
+Tajuk membezakan mod: **LOG MASUK MANUAL** apabila halaman idMe sebenar
+sekadar dipaparkan tetapi kedua-dua suis automatik MATI; **SISTEM SEBENAR**
+apabila ciri automatik dihidupkan; **MOD DEMO** hanya pada fixture pembangun.
+Membuka halaman idMe **tidak** menaip kata laluan atau menghantar MOEIS.
+Jika anda mahu aliran automatik, buka menu dulang → "Akaun idMe…" dan hidupkan
+suis yang dikehendaki; lihat jadual di bawah.
 
 ## Tetapan yang WAJIB dihidupkan (paling kerap tertinggal)
 

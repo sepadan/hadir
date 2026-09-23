@@ -8,12 +8,21 @@ namespace HadirDesktop.Tests;
 /// <summary>
 /// Senarai origin penjaga navigasi (fungsi tulen <see cref="MainForm.OriginsNavigasi"/>).
 ///
-/// Pepijat sebenar yang dilindungi di sini: penjaga dibina dengan senarai KOSONG
-/// semasa mula, jadi PC yang restart dengan <c>LoginAuto</c> sudah HIDUP tidak
-/// dibenarkan navigasi ke idMe/MOEIS sampai dialog "Akaun idMe…" dibuka.
+/// Paparan awal idMe dibenarkan walaupun LoginAuto mati; MOEIS kekal
+/// berpagar opt-in. Penjaga dibina semasa mula supaya halaman pertama tidak
+/// tersekat sebelum dialog tetapan dibuka.
 /// </summary>
 public class OriginsNavigasiTests
 {
+    [Fact]
+    public void PaparanLoginManual_TidakMengakuPortalPalsuAtauAutoHantar()
+    {
+        Assert.Contains("idMe", DemoLabel.BannerLoginManual);
+        Assert.Contains("manual", DemoLabel.BannerLoginManual, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("MOD DEMO", DemoLabel.BannerLoginManual);
+        Assert.Contains("MANUAL", DemoLabel.SufiksLoginManual);
+    }
+
     [Fact]
     public void ModBiasa_LoginAutoHidup_MengandungiIdMeDanMoeis()
     {
@@ -27,14 +36,25 @@ public class OriginsNavigasiTests
     }
 
     [Fact]
-    public void ModBiasa_LoginAutoMati_TiadaIdMeAtauMoeis()
+    public void ModBiasa_LoginAutoMati_IdMeBolehDibukaTetapiMoeisMasihDisekat()
     {
         var origins = MainForm.OriginsNavigasi(
             realPortalEnabled: false,
             realPortalOrigins: Array.Empty<string>(),
             loginAuto: false);
 
-        Assert.Empty(origins);
+        Assert.Contains(IdMeLoginEndpoints.IdMeOrigin, origins);
+        Assert.DoesNotContain(IdMeLoginEndpoints.MoeisOrigin, origins);
+    }
+
+    [Fact]
+    public void HalamanMula_BiasaIdMe_FixtureHanyaUntukDebug()
+    {
+        const string fixture = "http://127.0.0.1:8748/";
+        Assert.Equal(DemoLabel.RealPortalLoginUrl, MainForm.UrlHalamanMula(false, false, fixture));
+        Assert.Equal(fixture, MainForm.UrlHalamanMula(false, true, fixture));
+        Assert.Equal(DemoLabel.RealPortalLoginUrl, MainForm.UrlHalamanMula(true, false, fixture));
+        Assert.Equal(DemoLabel.RealPortalLoginUrl, MainForm.UrlHalamanMula(true, true, fixture));
     }
 
     [Fact]
@@ -52,23 +72,25 @@ public class OriginsNavigasiTests
     }
 
     [Fact]
-    public void PortalSebenarMati_OriginnyaTidakDitambah()
+    public void PortalSebenarMati_OriginDevTidakDitambah()
     {
         var origins = MainForm.OriginsNavigasi(
             realPortalEnabled: false,
             realPortalOrigins: new[] { "https://contoh.example" },
             loginAuto: false);
 
-        Assert.Empty(origins);
+        Assert.Contains(IdMeLoginEndpoints.IdMeOrigin, origins);
+        Assert.DoesNotContain("https://contoh.example", origins);
     }
 
     [Fact]
-    public void PenjagaDibinaDariSenaraiIni_MembenarkanIdMeBilaLoginAutoHidup()
+    public void PenjagaMembenarkanPaparanIdMeWalaupunLoginAutoMati()
     {
         var hidup = new NavigationGuard(MainForm.OriginsNavigasi(false, Array.Empty<string>(), loginAuto: true));
         var mati = new NavigationGuard(MainForm.OriginsNavigasi(false, Array.Empty<string>(), loginAuto: false));
 
         Assert.True(hidup.IsAllowed(new Uri(IdMeLoginEndpoints.IdMeOrigin + "/login")));
-        Assert.False(mati.IsAllowed(new Uri(IdMeLoginEndpoints.IdMeOrigin + "/login")));
+        Assert.True(mati.IsAllowed(new Uri(IdMeLoginEndpoints.IdMeOrigin + "/login")));
+        Assert.False(mati.IsAllowed(new Uri(IdMeLoginEndpoints.MoeisOrigin + "/")));
     }
 }

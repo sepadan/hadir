@@ -26,6 +26,9 @@ public static class DemoLabel
         NamaApl + " " + VersiAplikasi.Versi + (adaCiriSebenar ? string.Empty : SufiksDemo);
 
     public const string BannerText = "MOD DEMO — bukan sistem pengeluaran. Tiada tulisan MOEIS, tiada log masuk idMe sebenar.";
+    /// <summary>Portal idMe sebenar dipaparkan tanpa menghidupkan sebarang automasi.</summary>
+    public const string BannerLoginManual = "idMe sebenar — log masuk manual; log masuk automatik dan penghantaran MOEIS dimatikan.";
+    public const string SufiksLoginManual = " — LOG MASUK MANUAL";
 
     /// <summary>Banner untuk pemasangan sebenar: kerja sebenar dihidupkan oleh pemilik.</summary>
     public const string BannerProduksi = "SISTEM SEBENAR — log masuk idMe & tulisan MOEIS dihidupkan oleh pemilik.";
@@ -61,7 +64,7 @@ public static class DemoLabel
     /// <summary>Label shown when the real-portal dev mode is active (HADIR_DEV_REAL_PORTAL=1).</summary>
     public const string RealPortalBannerSuffix = " — MOD DEV REAL-PORTAL (idMe sebenar, baca sahaja)";
 
-    /// <summary>Real idMe login page loaded only in real-portal dev mode.</summary>
+    /// <summary>Halaman log masuk idMe rasmi untuk WebView2 biasa dan dev real-portal.</summary>
     public const string RealPortalLoginUrl = "https://idme.moe.gov.my/login";
 
     /// <summary>
