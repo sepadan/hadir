@@ -286,6 +286,34 @@ public class PortalLifecycleTests
         Assert.False(sumber.Panggilan == 0);
     }
 
+    // ---------- (c2) TRANSIENT backend failure => retryable, NOT offline ----
+
+    [Fact]
+    public async Task DemanSementaraGagal_BukanEnjinLuarTalian_SebabBolehDicubaLagi()
+    {
+        // A timeout/non-JSON/5xx read failure (after the client's retries) is
+        // NOT "enjin-luar-talian": the reason must say it can be retried, the
+        // next cycle asks again, and portal activity stays at ZERO.
+        var buka = new Kiraan();
+        var login = new Kiraan();
+        var sumber = new SumberPalsu(PermintaanKerja.TidakPasti(
+            "Senarai tugasan HADIR tidak dapat dibaca daripada backend: backend sibuk (masa tamat) semasa memanggil HADIR 'moeisJobSenarai'. (kegagalan sementara — boleh dicuba semula)",
+            sementara: true));
+        var lifecycle = Buat(sumber, true,
+            _ => { buka.Tambah(); return Task.CompletedTask; },
+            _ => { login.Tambah(); return Task.FromResult(Hasil("sesi-sah", true)); });
+
+        var keadaan = await lifecycle.PeriksaDanJalankanAsync();
+
+        Assert.Equal(KeadaanPortal.BackendSementaraGagal, keadaan);
+        Assert.NotEqual(KeadaanPortal.EnjinLuarTalian, keadaan);
+        Assert.Contains("backend sibuk (masa tamat)", lifecycle.Sebab);
+        Assert.Contains("boleh dicuba", lifecycle.Sebab);
+        Assert.DoesNotContain("enjin-luar-talian", lifecycle.Sebab);
+        Assert.Equal(0, buka.Nilai);
+        Assert.Equal(0, login.Nilai);
+    }
+
     // ---------- (d) rejection guard reached => stop until CubaLagi ----------
 
     [Fact]
@@ -496,7 +524,8 @@ public class PortalLifecycleTests
     [InlineData(KeadaanPortal.SedangLogin, "sedang-login")]
     [InlineData(KeadaanPortal.PerluTindakanManusia, "perlu-tindakan-manusia")]
     [InlineData(KeadaanPortal.EnjinLuarTalian, "enjin-luar-talian")]
-    public void LabelKeadaan_SemuaLimaKeadaan(KeadaanPortal keadaan, string dijangka)
+    [InlineData(KeadaanPortal.BackendSementaraGagal, "backend-sementara-gagal")]
+    public void LabelKeadaan_SemuaEnamKeadaan(KeadaanPortal keadaan, string dijangka)
     {
         Assert.Equal(dijangka, LabelKeadaanPortal.Teks(keadaan));
         Assert.Contains(dijangka, LabelKeadaanPortal.UntukMenu(keadaan, "sebab"));

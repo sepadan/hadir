@@ -23,8 +23,11 @@ public class HadirBackendClientTests
 {
     private const string Rahsia = "rahsia-enjin-ujian-000111222";
 
-    private static HadirBackendClient Klien(FakeBackendJob server, string? rahsia = null) =>
-        new(new HttpClient(), server.BaseUrl, rahsia ?? Rahsia, TimeSpan.FromSeconds(5));
+    private static HadirBackendClient Klien(
+        FakeBackendJob server,
+        string? rahsia = null,
+        Func<TimeSpan, CancellationToken, Task>? tunggu = null) =>
+        new(new HttpClient(), server.BaseUrl, rahsia ?? Rahsia, TimeSpan.FromSeconds(5), tunggu: tunggu);
 
     // ---------- wire shape ----------
 
@@ -127,30 +130,36 @@ public class HadirBackendClientTests
     }
 
     [Fact]
-    public async Task Senarai_DicubaSemula3Kali_LaluanBaca()
+    public async Task Senarai_BukanJson2Kali_KemudianBerjaya_DicubaSemula3Kali()
     {
-        var bil = 0;
-        using var server = new FakeBackendJob(_ =>
-        {
-            bil++;
-            return bil < 3 ? (false, "null", "Ralat sementara.") : (true, "[]", "");
-        });
+        // Two TRANSIENT failures (Apps Script's HTML 404 page), then a real
+        // JSON answer: only the read call earns retries, so all three attempts
+        // land. The backoff ladder itself is asserted (and stubbed) in
+        // HadirBackendClientCubaSemulaTests.
+        using var server = new FakeBackendJob(
+            _ => (true, "[]", ""),
+            balasanMentahIkutCubaan: n => n <= 2
+                ? ("<html>404</html>", 404)
+                : ("{\"ok\":true,\"hasil\":[]}", 200));
 
-        var senarai = await Klien(server).SenaraiAsync();
+        var senarai = await Klien(server, tunggu: (_, _) => Task.CompletedTask).SenaraiAsync();
 
         Assert.Empty(senarai);
         Assert.Equal(3, server.Permintaan.Count);
     }
 
     [Fact]
-    public async Task Senarai_GagalSelepas3Cubaan_Melontar()
+    public async Task Senarai_BackendTolak_TidakDicubaSemula_Melontar()
     {
+        // A REJECTION (ok:false) is the backend's FINAL answer: exactly one
+        // attempt — never retried — and the reason is labelled "backend tolak".
         using var server = new FakeBackendJob(_ => (false, "null", "Rahsia enjin tidak sah."));
 
         var ex = await Assert.ThrowsAsync<HadirBackendException>(() => Klien(server).SenaraiAsync());
 
-        Assert.Equal(3, server.Permintaan.Count);
-        Assert.Contains("Rahsia enjin tidak sah.", ex.Message);
+        Assert.Single(server.Permintaan);
+        Assert.Contains("backend tolak: Rahsia enjin tidak sah.", ex.Message);
+        Assert.False(ex.Sementara);
     }
 
     // ---------- klaim ----------
@@ -301,7 +310,7 @@ public class HadirBackendClientTests
         var ex = await Assert.ThrowsAsync<HadirBackendException>(
             () => Klien(server).KlaimAsync("job-1", "pc-1", ModKlaim.Biasa));
 
-        Assert.Contains("Balasan bukan JSON (status 404)", ex.Message);
+        Assert.Contains("backend balas bukan-JSON (status 404)", ex.Message);
         Assert.DoesNotContain("<html>", ex.Message);
     }
 
@@ -369,9 +378,10 @@ public class HadirBackendClientTests
     {
         private readonly HttpListener _listener = new();
         private readonly Func<string, (bool ok, string hasilJson, string ralat)> _jawab;
-        private readonly (string badan, int status)? _mentah;
+        private readonly Func<int, (string badan, int status)>? _mentah;
         private readonly object _gate = new();
         private readonly List<PermintaanDirakam> _permintaan = new();
+        private int _bilMentah;
 
         public string BaseUrl { get; }
 
@@ -382,10 +392,23 @@ public class HadirBackendClientTests
 
         public FakeBackendJob(
             Func<string, (bool, string, string)> jawab,
-            (string badan, int status)? balasanMentah = null)
+            (string badan, int status)? balasanMentah = null,
+            Func<int, (string badan, int status)>? balasanMentahIkutCubaan = null)
         {
             _jawab = jawab;
-            _mentah = balasanMentah;
+            if (balasanMentahIkutCubaan is not null)
+            {
+                _mentah = balasanMentahIkutCubaan;
+            }
+            else if (balasanMentah is not null)
+            {
+                var tetap = balasanMentah.Value;
+                _mentah = _ => tetap;
+            }
+            else
+            {
+                _mentah = null;
+            }
             var port = PortTidakDigunakan();
             BaseUrl = $"http://127.0.0.1:{port}/";
             _listener.Prefixes.Add(BaseUrl);
@@ -434,8 +457,9 @@ public class HadirBackendClientTests
                 var status = 200;
                 if (_mentah is not null)
                 {
-                    balasan = _mentah.Value.badan;
-                    status = _mentah.Value.status;
+                    var (badanMentah, statusMentah) = _mentah(++_bilMentah);
+                    balasan = badanMentah;
+                    status = statusMentah;
                 }
                 else
                 {

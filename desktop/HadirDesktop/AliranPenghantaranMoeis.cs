@@ -77,6 +77,13 @@ public sealed class AliranPenghantaranMoeis
 {
     public const string StatusDimatikan = "dimatikan";
     public const string StatusEnjinLuarTalian = "enjin-luar-talian";
+    /// <summary>
+    /// The list read failed on a TEMPORARY backend condition (timeout /
+    /// non-JSON / 5xx after the client's retries). Deliberately NOT
+    /// <see cref="StatusEnjinLuarTalian"/>: the reason already says the
+    /// failure is retryable, and the next cycle may read normally.
+    /// </summary>
+    public const string StatusBackendSementara = "backend-sementara-gagal";
     public const string StatusTiadaPenghantaran = "tiada-penghantaran";
     public const string StatusDihantar = "dihantar";
     public const string StatusGagal = "gagal";
@@ -152,7 +159,10 @@ public sealed class AliranPenghantaranMoeis
             var sebab = senarai is null
                 ? "Senarai penuh tidak dapat dibaca; tiada penghantaran dibuat."
                 : senarai.Sebab + " Tiada penghantaran dibuat.";
-            return new HasilHantarKerja(StatusEnjinLuarTalian, sebab, 0, 0, Array.Empty<HasilPenghantaran>());
+            // A temporary read failure is reported as such — never as
+            // "enjin-luar-talian" — so the log and menus show it will retry.
+            var status = senarai?.Sementara == true ? StatusBackendSementara : StatusEnjinLuarTalian;
+            return new HasilHantarKerja(status, sebab, 0, 0, Array.Empty<HasilPenghantaran>());
         }
 
         var hariIni = _jam().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);

@@ -1,5 +1,77 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Cuba semula baca backend + had masa 60 s + sebab kegagalan bertingkat (2026-09-23)
+
+Bukti ujian hidup 10:43: kitaran dev berhenti pada langkah pertama —
+`keadaan=enjin-luar-talian sebab=Senarai tugasan HADIR tidak dapat dibaca
+daripada backend: Masa tamat semasa memanggil HADIR 'moeisJobSenarai'`.
+Pengukuran di PC pemilik: POST /exec → 302 (~2.5 s), ikut Location → 200
+(1.3–2.3 s); kadangkala panggilan badan sebenar (~15 KB) melebihi 20 s, dan
+kadangkala balasan ialah halaman HTML 404 (gejala penyekatan Apps Script).
+Dua kelemahan: had 20 s terlalu rapat, dan SATU kegagalan sementara
+membatalkan seluruh kitaran di bawah label "enjin-luar-talian".
+
+### `HadirDesktop/HadirBackendClient.cs` (diubah)
+
+- `TamatMasaLalai` 20 s → **60 s**, kekal boleh ditetapkan setiap instan
+  klien melalui `tamatMasa`. Parameter pilihan baharu: `jedaCubaSemula`,
+  `tunggu` (penyuntik jeda — ujian tidak pernah menunggu masa sebenar), dan
+  `cubaanBaca`.
+- Jadual jeda eksponen `JedaCubaSemulaLalai = {2 s, 6 s, 15 s}`; dengan
+  `CubaanBacaLalai = 3` hanya 2 s dan 6 s pernah dijanakan (rung 15 s sedia
+  jika had percubaan dinaikkan, tanpa jatuh kepada jeda pendek).
+- Pagar cuba-semula berganda: HANYA panggilan baca-tulen (`bacaTulen: true`,
+  kini `moeisJobSenarai` sahaja) DAN kegagalan berlabel `Sementara`.
+  Klaim/lepas/selesai kekal TEPAT satu percubaan walaupun kegagalan sementara.
+- Taksonomi sebab berbeza dan jelas, tiada badan/bukan rahsia disalin:
+  `backend sibuk (masa tamat)` (termasuk masa tamat semasa membaca badan),
+  `backend balas bukan-JSON (status N)` (halaman HTML Apps Script — status
+  sahaja), `backend ralat pelayan (status N)` (5xx), dan `backend tolak:
+  <ralat>` (ok:false — KEKAL, tidak pernah dicuba semula).
+  `HadirBackendException.Sementara` membawa penanda kelas kegagalan ini.
+  Laluan enjin luar talian sebenar (HttpRequestException) kekal tidak
+  direkod sebagai sementara — senarai tiga kelas di atas tertutup.
+
+### `KerjaHariIni.cs` / `KerjaPenuh.cs` / `PortalLifecycle.cs` / `AliranPenghantaranMoeis.cs` (diubah)
+
+- `PermintaanKerja.Sementara` dan `SenaraiKerjaPenuh.Sementara` (lalai false)
+  membawa penanda kegagalan sementara kepada panggil.
+- Keadaan portal baharu `BackendSementaraGagal` (label
+  `backend-sementara-gagal`, Ayat + rawak Tooltip ≤63 aksara): kegagalan baca
+  SEMENTARA tidak lagi dilabel `enjin-luar-talian`; sebab kitaran mengandungi
+  frasa sebab klien + "(kegagalan sementara — boleh dicuba semula)".
+  Jaminan aktiviti sifar kekal sama: tiada navigasi, tiada probe sesi, tiada
+  log masuk; kitaran seterusnya bertanya semula.
+- Laluan penghantaran: `StatusBackendSementara` (`backend-sementara-gagal`)
+  untuk kegagalan baca sementara; `StatusEnjinLuarTalian` kekal untuk enjin
+  benar-benar mati, penolakan, dan ralat tidak dijangka.
+
+### Ujian
+
+- `HadirBackendClientCubaSemulaTests` (baharu, 11 fakta) — HttpMessageHandler
+  palsu, TIADA rangkaian: masa tamat → cuba semula → berjaya; HTML 404 →
+  cuba semula; 5xx → cuba semula; maks 3 percubaan + jeda 2 s/6 s direkod
+  tepat; tiga sebab berbeza/betul dan tiada rahsia/IC/badan dalam mesej;
+  klaim/lepas/selesai TIDAK pernah dicuba semula (termasuk untuk masa
+  tamat); pemalar 60 s / {2,6,15} / maks 3 percubaan.
+- Kemas kini ujian sedia ada: laluan loopback membuktikan cuba-semula dengan
+  HTML mentah 2× → JSON (3 percubaan); penolakan (ok:false) = 1 percubaan dan
+  sebab "backend tolak"; ujian sumber/lifecycle/aliran untuk penanda sementara
+  dan label baharu.
+- Pembuktian ujian menangkap pepijat: `CubaanBacaLalai` ditukar 3→1 sementara
+  → **7 ujian gagal** (kemudian dipulihkan; penuh hijau semula).
+- `dotnet build desktop/HadirDesktop.sln`: 0 ralat (1 amaran CS8619 di
+  MainForm.cs:162 — PRInsedia ada, disahkan dengan membina teras bersih);
+  `dotnet test desktop/HadirDesktop.sln`: **558/558** (asas teras 543, +15).
+
+### Belum disahkan (perlu ujian hidup)
+
+- Larian sebenar terhadap Apps Script dengan 60 s × maks 3 percubaan baca
+  (≈3 minit paling teruk bacaan tersekat berterusan) dan kesan penyekatan
+  Apps Script yang sebenar terhadap panggilan baca berulang.
+- Laluan loopback/`IkutTempatan`: penanda sementara kekal false di sana
+  (kegagalan loopback masih `enjin-luar-talian` — sengaja, di luar skop).
+
 ## Alat PEMBANGUN: `HADIR_DEV_AUTO_KITARAN` — satu kitaran automatik + log (2026-09-23, lalai MATI)
 
 Ujian hidup memerlukan klik menu dulang "Log masuk idMe (atas permintaan)"

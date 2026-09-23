@@ -22,11 +22,20 @@ namespace HadirDesktop;
 ///     (engine not running, nonce rejected, unreadable body). This is reported
 ///     as its own state so a dead/unreadable engine can never be mistaken for
 ///     "no work" and can never be mistaken for "there IS work".
+///     <see cref="Sementara"/> distinguishes a TEMPORARY backend failure
+///     (timeout / non-JSON / 5xx after the client's retries — retryable on the
+///     next cycle) from a dead/unreachable engine, so callers never label a
+///     backend blip as "enjin-luar-talian".
 /// </summary>
-public sealed record PermintaanKerja(bool AdaKerja, bool EnjinBolehDicapai, string Sebab, int BilanganKerja = 0)
+public sealed record PermintaanKerja(
+    bool AdaKerja,
+    bool EnjinBolehDicapai,
+    string Sebab,
+    int BilanganKerja = 0,
+    bool Sementara = false)
 {
     public static PermintaanKerja Tiada(string sebab) => new(false, true, sebab);
-    public static PermintaanKerja TidakPasti(string sebab) => new(false, false, sebab);
+    public static PermintaanKerja TidakPasti(string sebab, bool sementara = false) => new(false, false, sebab, 0, sementara);
     public static PermintaanKerja Ada(int bilangan, string sebab) => new(true, true, sebab, bilangan);
 }
 

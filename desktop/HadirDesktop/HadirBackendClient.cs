@@ -12,15 +12,28 @@ namespace HadirDesktop;
 /// Any RPC failure against the HADIR backend (Apps Script). The message is the
 /// backend's own <c>ralat</c> string or a transport description — the engine
 /// secret is NEVER part of it (it only ever travels inside the request body).
+/// <see cref="Sementara"/> classifies the failure so callers can tell a
+/// temporary hiccup from the backend's final answer.
 /// </summary>
 public sealed class HadirBackendException : Exception
 {
-    public HadirBackendException(string message) : base(message)
+    /// <summary>
+    /// True ONLY for a failure classified as temporary — timeout, a non-JSON
+    /// body (Apps Script's HTML error page) or an HTTP 5xx. Those may be
+    /// retried by a READ-ONLY call. A rejection (<c>ok:false</c>), a transport
+    /// failure or any other answer is NOT temporary: it must never be blindly
+    /// retried and must never be reported as "will heal by itself".
+    /// </summary>
+    public bool Sementara { get; }
+
+    public HadirBackendException(string message, bool sementara = false) : base(message)
     {
+        Sementara = sementara;
     }
 
-    public HadirBackendException(string message, Exception inner) : base(message, inner)
+    public HadirBackendException(string message, Exception inner, bool sementara = false) : base(message, inner)
     {
+        Sementara = sementara;
     }
 }
 
@@ -103,11 +116,17 @@ public interface IHadirBackendClient
 ///   * the reply is <c>{ok:true,hasil}</c> or <c>{ok:false,ralat}</c>; a body
 ///     that is not JSON is an error naming the STATUS only, never the body.
 ///
-/// Retry policy, ported verbatim in spirit: ONLY the read call
-/// (<see cref="SenaraiAsync"/>) is retried (3 attempts). Claim / release /
-/// complete are state-changing and are NEVER retried blindly — a blind retry on
-/// an unstable network could create a double side effect. The caller decides
-/// what to do after an error.
+/// Retry policy: ONLY the read call (<see cref="SenaraiAsync"/>) may loop, at
+/// most <see cref="CubaanBacaLalai"/> attempts, and ONLY for a failure
+/// classified temporary (timeout / non-JSON body / HTTP 5xx), waiting
+/// <see cref="JedaCubaSemulaLalai"/> (2 s, then 6 s) between attempts. A
+/// rejection (<c>ok:false</c>) or any other permanent answer is attempted
+/// exactly once. Claim / release / complete are state-changing and are NEVER
+/// retried blindly — a blind retry on an unstable network could create a
+/// double side effect. The caller decides what to do after an error. Reasons
+/// stay distinct and never echo a body: "backend sibuk (masa tamat)", "backend
+/// balas bukan-JSON (status N)", "backend ralat pelayan (status N)",
+/// "backend tolak: ...".
 ///
 /// The engine secret is appended as the last RPC argument and lives ONLY inside
 /// the request body: it is never logged, never put into an exception message,
@@ -119,31 +138,70 @@ public sealed class HadirBackendClient : IHadirBackendClient
     private const string UserAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-    /// <summary>Same default as the reference client's <c>timeoutMs</c>.</summary>
-    public static readonly TimeSpan TamatMasaLalai = TimeSpan.FromSeconds(20);
+    /// <summary>
+    /// Per-call timeout. The reference client uses 20 s, but the LIVE
+    /// deployment (measured 2026-09-23) answers /exec with a 302 in ~2.5 s and
+    /// the echo endpoint in 1.3–2.3 s YET occasionally takes longer than 20 s
+    /// for a real ~15 KB payload — so 20 s cancelled healthy calls. 60 s gives
+    /// that headroom. Configurable per client instance via the constructor.
+    /// </summary>
+    public static readonly TimeSpan TamatMasaLalai = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Backoff ladder between READ attempts: 2 s, then 6 s, then 15 s. With
+    /// <see cref="CubaanBacaLalai"/> = 3 attempts only the first two rungs are
+    /// ever awaited (attempt 2 waits 2 s, attempt 3 waits 6 s); the third rung
+    /// is ready for a raised attempt cap instead of silently falling back to a
+    /// shorter delay. Configurable per client instance via the constructor.
+    /// </summary>
+    public static readonly IReadOnlyList<TimeSpan> JedaCubaSemulaLalai = new[]
+    {
+        TimeSpan.FromSeconds(2),
+        TimeSpan.FromSeconds(6),
+        TimeSpan.FromSeconds(15),
+    };
+
+    /// <summary>Maximum attempts for the read-only call (1 + 2 retries).</summary>
+    public const int CubaanBacaLalai = 3;
 
     private readonly HttpClient _http;
     private readonly string _apiUrl;
     private readonly string _rahsia;
     private readonly TimeSpan _tamatMasa;
+    private readonly IReadOnlyList<TimeSpan> _jedaCubaSemula;
+    private readonly Func<TimeSpan, CancellationToken, Task> _tunggu;
+    private readonly int _cubaanBaca;
 
-    public HadirBackendClient(HttpClient http, string apiUrl, string rahsia, TimeSpan? tamatMasa = null)
+    public HadirBackendClient(
+        HttpClient http,
+        string apiUrl,
+        string rahsia,
+        TimeSpan? tamatMasa = null,
+        IReadOnlyList<TimeSpan>? jedaCubaSemula = null,
+        Func<TimeSpan, CancellationToken, Task>? tunggu = null,
+        int? cubaanBaca = null)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
         _apiUrl = apiUrl ?? throw new ArgumentNullException(nameof(apiUrl));
         _rahsia = rahsia ?? throw new ArgumentNullException(nameof(rahsia));
         _tamatMasa = tamatMasa ?? TamatMasaLalai;
+        _jedaCubaSemula = jedaCubaSemula ?? JedaCubaSemulaLalai;
+        _tunggu = tunggu ?? Task.Delay;
+        _cubaanBaca = cubaanBaca ?? CubaanBacaLalai;
     }
 
     /// <summary>
     /// <c>moeisJobSenarai(['', rahsia])</c> — the empty first argument is the
     /// ADMIN SESSION TOKEN slot: empty means "authenticate with the engine
     /// secret instead", which is the mode that returns the <c>murid</c> array.
-    /// Retried up to 3 times (read-only, no side effect).
+    /// Retried up to <see cref="CubaanBacaLalai"/> attempts — ONLY for a
+    /// temporary failure (timeout / non-JSON / 5xx), waiting the
+    /// <see cref="JedaCubaSemulaLalai"/> ladder between attempts (read-only,
+    /// no side effect). A rejection is attempted exactly once.
     /// </summary>
     public async Task<IReadOnlyList<KerjaPenuh>> SenaraiAsync(CancellationToken ct = default)
     {
-        var hasil = await PanggilAsync("moeisJobSenarai", new object?[] { "", _rahsia }, cubaanMaks: 3, ct).ConfigureAwait(false);
+        var hasil = await PanggilAsync("moeisJobSenarai", new object?[] { "", _rahsia }, bacaTulen: true, ct).ConfigureAwait(false);
         return BacaSenarai(hasil);
     }
 
@@ -156,13 +214,13 @@ public sealed class HadirBackendClient : IHadirBackendClient
             _ => false,
         };
 
-        var hasil = await PanggilAsync("moeisJobKlaim", new object?[] { id, pemilik, benarkanCubaSemula, _rahsia }, cubaanMaks: 1, ct)
+        var hasil = await PanggilAsync("moeisJobKlaim", new object?[] { id, pemilik, benarkanCubaSemula, _rahsia }, bacaTulen: false, ct)
             .ConfigureAwait(false);
         return BacaKlaim(hasil);
     }
 
     public Task LepasAsync(string id, string pemilik, CancellationToken ct = default) =>
-        PanggilAsync("moeisJobLepas", new object?[] { id, pemilik, _rahsia }, cubaanMaks: 1, ct);
+        PanggilAsync("moeisJobLepas", new object?[] { id, pemilik, _rahsia }, bacaTulen: false, ct);
 
     public Task SelesaiAsync(string id, string keputusan, string mesej, int? bilHadirSelepas, string pemilik, CancellationToken ct = default)
     {
@@ -170,7 +228,7 @@ public sealed class HadirBackendClient : IHadirBackendClient
         // EMPTY STRING, never 0 — 0 would assert "no student present".
         object bil = bilHadirSelepas.HasValue ? bilHadirSelepas.Value : "";
         return PanggilAsync("moeisJobSelesai",
-            new object?[] { id, keputusan, mesej ?? "", bil, pemilik ?? "", _rahsia }, cubaanMaks: 1, ct);
+            new object?[] { id, keputusan, mesej ?? "", bil, pemilik ?? "", _rahsia }, bacaTulen: false, ct);
     }
 
     /// <summary>
@@ -288,10 +346,19 @@ public sealed class HadirBackendClient : IHadirBackendClient
     /// <summary>
     /// The RPC itself. Returns the RAW JSON text of <c>hasil</c> so each caller
     /// parses its own shape. Every failure — transport, non-JSON body,
-    /// <c>ok:false</c> — becomes a <see cref="HadirBackendException"/>.
+    /// <c>ok:false</c> — becomes a <see cref="HadirBackendException"/> whose
+    /// <see cref="HadirBackendException.Sementara"/> flag classifies it.
+    ///
+    /// RETRY GATE (both conditions, no exception): <paramref name="bacaTulen"/>
+    /// must be true (only the read call may loop) AND the failure must be
+    /// classified temporary. Everything else — a rejection, a transport error,
+    /// and every state-changing call (klaim / lepas / selesai) — is attempted
+    /// EXACTLY once. Between read attempts it waits the exponential ladder
+    /// (2 s, then 6 s).
     /// </summary>
-    private async Task<string> PanggilAsync(string kaedah, object?[] argumen, int cubaanMaks, CancellationToken ct)
+    private async Task<string> PanggilAsync(string kaedah, object?[] argumen, bool bacaTulen, CancellationToken ct)
     {
+        var cubaanMaks = bacaTulen ? _cubaanBaca : 1;
         Exception? ralatTerakhir = null;
 
         for (var cubaan = 1; cubaan <= cubaanMaks; cubaan++)
@@ -308,7 +375,15 @@ public sealed class HadirBackendClient : IHadirBackendClient
             catch (Exception ralat)
             {
                 ralatTerakhir = ralat;
-                // Only a READ call ever reaches cubaan < cubaanMaks.
+                var sementara = ralat is HadirBackendException { Sementara: true };
+                // Permanent failure, or the last attempt: stop immediately.
+                if (!sementara || cubaan >= cubaanMaks) break;
+
+                // Wait BEFORE the next read attempt. The wait honours caller
+                // cancellation, so shutdown is never blocked by a backoff.
+                var jeda = JedaSelepasCubaan(cubaan);
+                if (jeda > TimeSpan.Zero)
+                    await _tunggu(jeda, ct).ConfigureAwait(false);
             }
         }
 
@@ -316,6 +391,15 @@ public sealed class HadirBackendClient : IHadirBackendClient
             ?? new HadirBackendException(
                 "Panggilan HADIR '" + kaedah + "' gagal: " + (ralatTerakhir?.GetType().Name ?? "tiada butiran"),
                 ralatTerakhir ?? new InvalidOperationException("tiada butiran"));
+    }
+
+    /// <summary>Wait before attempt N+1: rung N of the ladder, clamped to the last rung.</summary>
+    private TimeSpan JedaSelepasCubaan(int cubaan)
+    {
+        if (_jedaCubaSemula.Count == 0) return TimeSpan.Zero;
+        var indeks = cubaan - 1;
+        if (indeks >= _jedaCubaSemula.Count) indeks = _jedaCubaSemula.Count - 1;
+        return _jedaCubaSemula[indeks];
     }
 
     private async Task<string> SekaliAsync(string kaedah, object?[] argumen, CancellationToken ct)
@@ -344,7 +428,10 @@ public sealed class HadirBackendClient : IHadirBackendClient
         }
         catch (OperationCanceledException ralat)
         {
-            throw new HadirBackendException("Masa tamat semasa memanggil HADIR '" + kaedah + "'.", ralat);
+            // Caller cancellation was filtered above: this is the per-call
+            // timeout — temporary, and the reason says exactly that.
+            throw new HadirBackendException(
+                "backend sibuk (masa tamat) semasa memanggil HADIR '" + kaedah + "'.", ralat, sementara: true);
         }
         catch (HttpRequestException ralat)
         {
@@ -363,9 +450,27 @@ public sealed class HadirBackendClient : IHadirBackendClient
             {
                 throw;
             }
+            catch (OperationCanceledException ralat)
+            {
+                // The per-call budget covered the body too: a stalled ~15 KB
+                // payload is the same temporary condition as a stalled call.
+                throw new HadirBackendException(
+                    "backend sibuk (masa tamat) semasa membaca balasan HADIR '" + kaedah + "'.", ralat, sementara: true);
+            }
             catch (Exception ralat)
             {
                 throw new HadirBackendException("Balasan HADIR untuk '" + kaedah + "' tidak dapat dibaca.", ralat);
+            }
+
+            var status = (int)response.StatusCode;
+
+            // HTTP 5xx: the backend (or Google's front end) had a temporary
+            // problem — classified before anything is parsed, body never echoed.
+            if (status >= 500)
+            {
+                throw new HadirBackendException(
+                    "backend ralat pelayan (status " + status + ") semasa memanggil HADIR '" + kaedah + "'.",
+                    sementara: true);
             }
 
             JsonDocument doc;
@@ -375,16 +480,19 @@ public sealed class HadirBackendClient : IHadirBackendClient
             }
             catch (JsonException)
             {
-                // Same sentence as the reference (the 404-redirect case). The
-                // BODY is never echoed — only the status number.
-                throw new HadirBackendException("Balasan bukan JSON (status " + (int)response.StatusCode + ").");
+                // Apps Script's blocking symptom: an HTML error page (the 404
+                // redirect, a 403 block). TEMPORARY — a read call retries it.
+                // The BODY is never echoed — only the status number.
+                throw new HadirBackendException(
+                    "backend balas bukan-JSON (status " + status + ") semasa memanggil HADIR '" + kaedah + "'.",
+                    sementara: true);
             }
 
             using (doc)
             {
                 if (doc.RootElement.ValueKind != JsonValueKind.Object)
                 {
-                    throw new HadirBackendException("Balasan HADIR bukan objek (status " + (int)response.StatusCode + ").");
+                    throw new HadirBackendException("Balasan HADIR bukan objek (status " + status + ").");
                 }
 
                 var ok = doc.RootElement.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True;
@@ -393,7 +501,10 @@ public sealed class HadirBackendClient : IHadirBackendClient
                     var ralat = doc.RootElement.TryGetProperty("ralat", out var ralatEl) && ralatEl.ValueKind == JsonValueKind.String
                         ? ralatEl.GetString() ?? ""
                         : "";
-                    throw new HadirBackendException(ralat.Length > 0 ? ralat : "Permintaan HADIR gagal.");
+                    // The backend's FINAL answer (bad secret, unknown task…):
+                    // distinct wording, NOT temporary, never retried.
+                    throw new HadirBackendException(
+                        "backend tolak: " + (ralat.Length > 0 ? ralat : "Permintaan HADIR gagal."));
                 }
 
                 return doc.RootElement.TryGetProperty("hasil", out var hasilEl) ? hasilEl.GetRawText() : "null";
@@ -434,7 +545,10 @@ public sealed class BackendKerjaPenuhSource : IKerjaPenuhSource
         }
         catch (HadirBackendException ex)
         {
-            return SenaraiKerjaPenuh.TidakPasti("Senarai tugasan HADIR tidak dapat dibaca: " + ex.Message);
+            return SenaraiKerjaPenuh.TidakPasti(
+                "Senarai tugasan HADIR tidak dapat dibaca: " + ex.Message
+                + (ex.Sementara ? " (kegagalan sementara — boleh dicuba semula)" : ""),
+                sementara: ex.Sementara);
         }
         catch (Exception ex)
         {
@@ -491,7 +605,13 @@ public sealed class BackendKerjaHariIniSource : IKerjaHariIniSource
         }
         catch (HadirBackendException ex)
         {
-            return PermintaanKerja.TidakPasti("Senarai tugasan HADIR tidak dapat dibaca daripada backend: " + ex.Message);
+            // A TEMPORARY failure says so, in words: the lifecycle must see it
+            // is retryable instead of labelling a backend blip as
+            // "enjin-luar-talian". The flag travels on PermintaanKerja.Sementara.
+            return PermintaanKerja.TidakPasti(
+                "Senarai tugasan HADIR tidak dapat dibaca daripada backend: " + ex.Message
+                + (ex.Sementara ? " (kegagalan sementara — boleh dicuba semula)" : ""),
+                sementara: ex.Sementara);
         }
         catch (Exception ex)
         {

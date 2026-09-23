@@ -57,10 +57,13 @@ public sealed record KerjaPenuh(
 /// list could NOT be established (engine down, nonce refused, unreadable body):
 /// the desktop must then submit NOTHING — an unreadable answer is never "empty
 /// queue" and never "here are the students".
+/// <see cref="Sementara"/> marks a TEMPORARY backend failure (timeout /
+/// non-JSON / 5xx after the client's retries) so the submission pass can report
+/// it as retryable instead of "enjin-luar-talian".
 /// </summary>
-public sealed record SenaraiKerjaPenuh(bool EnjinBolehDicapai, IReadOnlyList<KerjaPenuh> Senarai, string Sebab)
+public sealed record SenaraiKerjaPenuh(bool EnjinBolehDicapai, IReadOnlyList<KerjaPenuh> Senarai, string Sebab, bool Sementara = false)
 {
-    public static SenaraiKerjaPenuh TidakPasti(string sebab) => new(false, Array.Empty<KerjaPenuh>(), sebab);
+    public static SenaraiKerjaPenuh TidakPasti(string sebab, bool sementara = false) => new(false, Array.Empty<KerjaPenuh>(), sebab, sementara);
     public static SenaraiKerjaPenuh Jawapan(IReadOnlyList<KerjaPenuh> senarai, string sebab) => new(true, senarai, sebab);
 }
 

@@ -81,4 +81,22 @@ public class BackendKerjaHariIniSourceTests
         Assert.False(hasil.EnjinBolehDicapai);
         Assert.Contains("tidak dapat", hasil.Sebab);
     }
+
+    [Fact]
+    public async Task KegagalanSementara_SebabMenerangkanBolehDicubaLagi()
+    {
+        // A transient client failure must surface as a RETRYABLE reason and
+        // carry the Sementara flag — never as a plain "cannot reach" answer
+        // and never with the label "enjin-luar-talian".
+        var hasil = await Sumber(() => throw new HadirBackendException(
+                "backend sibuk (masa tamat) semasa memanggil HADIR 'moeisJobSenarai'.", sementara: true))
+            .SemakAsync();
+
+        Assert.False(hasil.AdaKerja);
+        Assert.False(hasil.EnjinBolehDicapai);
+        Assert.True(hasil.Sementara);
+        Assert.Contains("backend sibuk (masa tamat)", hasil.Sebab);
+        Assert.Contains("boleh dicuba", hasil.Sebab);
+        Assert.DoesNotContain("enjin-luar-talian", hasil.Sebab);
+    }
 }

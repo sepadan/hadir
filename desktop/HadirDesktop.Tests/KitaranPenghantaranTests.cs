@@ -270,6 +270,22 @@ public class KitaranPenghantaranTests
         Assert.Empty(penghantar.Dihantar);
     }
 
+    [Fact]
+    public async Task BacaanSementaraGagal_StatusBackendSementara_BukanEnjinLuarTalian()
+    {
+        // A TRANSIENT read failure (timeout/non-JSON/5xx after the client's
+        // retries) is reported as retryable — never as "enjin-luar-talian".
+        var backend = new FakeBackend(Array.Empty<KerjaPenuh>()) { SenaraiSementara = true };
+        var penghantar = new FakePenghantar(FakePenghantar.Disahkan());
+
+        var hasil = await Aliran(backend, penghantar).JalankanAsync();
+
+        Assert.Equal(AliranPenghantaranMoeis.StatusBackendSementara, hasil.Status);
+        Assert.NotEqual(AliranPenghantaranMoeis.StatusEnjinLuarTalian, hasil.Status);
+        Assert.Empty(backend.Klaim);
+        Assert.Empty(penghantar.Dihantar);
+    }
+
     // ---------- gates ----------
 
     [Fact]
@@ -439,6 +455,7 @@ public class KitaranPenghantaranTests
         public List<(string id, string keputusan, string mesej, int? bil, string pemilik)> Selesai { get; } = new();
 
         public bool SenaraiMelontar { get; init; }
+        public bool SenaraiSementara { get; init; }
         public bool KlaimMelontar { get; init; }
         public bool SelesaiMelontar { get; init; }
         public Func<string, TugasanDiklaim?>? KlaimPulangan { get; init; }
@@ -450,6 +467,8 @@ public class KitaranPenghantaranTests
         {
             _jejak.Add("senarai");
             if (SenaraiMelontar) throw new HadirBackendException("Rahsia enjin tidak sah.");
+            if (SenaraiSementara) throw new HadirBackendException(
+                "backend sibuk (masa tamat) semasa memanggil HADIR 'moeisJobSenarai'.", sementara: true);
             return Task.FromResult(_senarai);
         }
 

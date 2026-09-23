@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 namespace HadirDesktop;
 
 /// <summary>
-/// The five states the portal lifecycle can be in. This is the honest status of
+/// The six states the portal lifecycle can be in. This is the honest status of
 /// the PC app with respect to the idMe/MOEIS portal:
 ///
 ///   * <see cref="Diam"/> — nothing to do: no unfinished HADIR task today (or
@@ -23,6 +23,11 @@ namespace HadirDesktop;
 ///   * <see cref="EnjinLuarTalian"/> — demand could NOT be established (engine
 ///     not running, nonce rejected, unreadable body). Treated exactly like
 ///     "no work" for activity purposes: nothing is opened and nothing is typed.
+///   * <see cref="BackendSementaraGagal"/> — the demand read failed on a
+///     TEMPORARY backend condition (timeout / non-JSON / HTTP 5xx after the
+///     client's retries). NOT "engine offline": the reason says it is
+///     retryable and the next cycle simply asks again. Same zero-activity
+///     rule as <see cref="EnjinLuarTalian"/>: nothing opened, nothing typed.
 /// </summary>
 public enum KeadaanPortal
 {
@@ -31,9 +36,10 @@ public enum KeadaanPortal
     SedangLogin,
     PerluTindakanManusia,
     EnjinLuarTalian,
+    BackendSementaraGagal,
 }
 
-/// <summary>Pure text mapping for the five states (window strip + tray tooltip).</summary>
+/// <summary>Pure text mapping for the six states (window strip + tray tooltip).</summary>
 public static class LabelKeadaanPortal
 {
     /// <summary>WinForms caps NotifyIcon.Text at 63 characters (a longer string throws).</summary>
@@ -45,6 +51,7 @@ public static class LabelKeadaanPortal
         KeadaanPortal.SedangLogin => "sedang-login",
         KeadaanPortal.PerluTindakanManusia => "perlu-tindakan-manusia",
         KeadaanPortal.EnjinLuarTalian => "enjin-luar-talian",
+        KeadaanPortal.BackendSementaraGagal => "backend-sementara-gagal",
         _ => "diam",
     };
 
@@ -54,6 +61,7 @@ public static class LabelKeadaanPortal
         KeadaanPortal.SedangLogin => "Sedang log masuk idMe automatik.",
         KeadaanPortal.PerluTindakanManusia => "Perlu tindakan manusia sebelum cubaan automatik diteruskan.",
         KeadaanPortal.EnjinLuarTalian => "Enjin tempatan tidak dapat dihubungi; deman tidak dapat dipastikan.",
+        KeadaanPortal.BackendSementaraGagal => "Backend HADIR gagal sementara (masa tamat/bukan-JSON/5xx); deman belum dipastikan — akan dicuba semula pada kitaran seterusnya. Tiada portal dibuka.",
         _ => "Diam — tiada tugasan belum siap hari ini; tiada portal dibuka, tiada log masuk.",
     };
 
@@ -83,7 +91,10 @@ public static class LabelKeadaanPortal
 ///      is asked;
 ///   2. the engine's read-only demand probe (<see cref="IKerjaHariIniSource"/>)
 ///      — unreachable/unreadable = <see cref="KeadaanPortal.EnjinLuarTalian"/>
-///      with ZERO portal activity; no unfinished task today =
+///      with ZERO portal activity; a TEMPORARY backend failure (timeout /
+///      non-JSON / 5xx after retries) = <see cref="KeadaanPortal.BackendSementaraGagal"/>
+///      — also ZERO activity, but reported as retryable, never as offline;
+///      no unfinished task today =
 ///      <see cref="KeadaanPortal.Diam"/> with ZERO portal activity (no
 ///      navigation, no session probe, no login);
 ///   3. only then: open the portal, log in (the login manager owns the retry
@@ -220,7 +231,10 @@ public sealed class PortalLifecycle
 
         if (!kerja.EnjinBolehDicapai)
         {
-            Set(KeadaanPortal.EnjinLuarTalian,
+            // A TRANSIENT backend failure gets its own state: labelling it
+            // "enjin-luar-talian" would claim the engine is down when the next
+            // cycle may read normally. The zero-activity rule is identical.
+            Set(kerja.Sementara ? KeadaanPortal.BackendSementaraGagal : KeadaanPortal.EnjinLuarTalian,
                 kerja.Sebab + " Tiada portal dibuka, tiada probe sesi, tiada log masuk dicuba.", 0);
             return Keadaan;
         }
