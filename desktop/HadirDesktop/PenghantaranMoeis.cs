@@ -91,6 +91,8 @@ public static class PembinaTugasanPenghantaran
         return new(new TugasanPenghantaran
         {
             Kelas = kelas,
+            // HADIR tiada medan tahun berasingan: ia diterbitkan daripada nama
+            // kelas oleh KelasTahunMoeis di dalam aliran penghantaran.
             Tahun = null,
             TarikhIso = tarikh.Length == 0 ? null : tarikh,
             TidakHadir = senarai,
@@ -109,7 +111,11 @@ public sealed class TugasanPenghantaran
     /// <summary>Class label as HADIR stores it (e.g. "PRASEKOLAH").</summary>
     public string Kelas { get; init; } = "";
 
-    /// <summary>Optional year/"tahun" label; when null the year dropdown is left alone.</summary>
+    /// <summary>
+    /// Optional year/"tahun" label. When null the flow DERIVES it from
+    /// <see cref="Kelas"/> (<see cref="KelasTahunMoeis"/>): "1 BIJAK" → year
+    /// "TAHUN SATU" + class "BIJAK". A label given here wins and is used as-is.
+    /// </summary>
     public string? Tahun { get; init; }
 
     /// <summary>Optional <c>yyyy-MM-dd</c>. When null the page's own date is used as-is and reported.</summary>
@@ -759,13 +765,31 @@ public static class PenghantaranMoeisFlow
             keadaan.TarikhSah = true;
         }
 
-        if (!string.IsNullOrWhiteSpace(tugasan.Tahun))
+        // MOEIS memisahkan tahun dan kelas kepada DUA dropdown, tetapi HADIR
+        // menyimpan satu label ("1 BIJAK"). Terbitkan pasangan itu di sini —
+        // fungsi TULEN, jadi laluan pertama dan baca semula sentiasa sepakat.
+        // Tugasan yang sudah membawa Tahun sendiri tidak disentuh.
+        var tahunDipakai = (tugasan.Tahun ?? "").Trim();
+        var kelasDipakai = kelas;
+        if (tahunDipakai.Length == 0)
         {
-            var padananTahun = PadananDropdown.Pilih(await dom.BacaPilihanDropdown(SelektorTahun), tugasan.Tahun);
+            var terbitan = KelasTahunMoeis.Terbitkan(kelas);
+            if (!terbitan.Ok)
+            {
+                keadaan.Gagal = Buat(tugasan, "kelas-tidak-dipilih", terbitan.Sebab, "tahun-tidak-diterbit");
+                return keadaan;
+            }
+            tahunDipakai = terbitan.Tahun;
+            kelasDipakai = terbitan.Kelas;
+        }
+
+        if (tahunDipakai.Length > 0)
+        {
+            var padananTahun = PadananDropdown.Pilih(await dom.BacaPilihanDropdown(SelektorTahun), tahunDipakai);
             if (!padananTahun.Ok)
             {
                 keadaan.Gagal = Buat(tugasan, "kelas-tidak-dipilih",
-                    SebabPadanan("tahun", tugasan.Tahun!, padananTahun) + ".", "tahun-tidak-dipilih");
+                    SebabPadanan("tahun", tahunDipakai, padananTahun) + ".", "tahun-tidak-dipilih");
                 return keadaan;
             }
             if (!await dom.PilihNilaiDropdown(SelektorTahun, padananTahun.Nilai))
@@ -776,11 +800,11 @@ public static class PenghantaranMoeisFlow
             }
         }
 
-        var padananKelas = PadananDropdown.Pilih(await dom.BacaPilihanDropdown(SelektorKelas), kelas);
+        var padananKelas = PadananDropdown.Pilih(await dom.BacaPilihanDropdown(SelektorKelas), kelasDipakai);
         if (!padananKelas.Ok)
         {
             keadaan.Gagal = Buat(tugasan, "kelas-tidak-dipilih",
-                SebabPadanan("kelas", kelas, padananKelas) + ".", "kelas-tidak-dipilih");
+                SebabPadanan("kelas", kelasDipakai, padananKelas) + ".", "kelas-tidak-dipilih");
             return keadaan;
         }
         if (!await dom.PilihNilaiDropdown(SelektorKelas, padananKelas.Nilai))

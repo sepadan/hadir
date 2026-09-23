@@ -1,5 +1,107 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Pepijat BLOK: tahun MOEIS tidak pernah diterbitkan daripada nama kelas (2026-09-23)
+
+Bukti ujian hidup 12:13 (`dev-kitaran.log`):
+
+```
+langkah=PENGHANTARAN_MULA: kelas=1 BIJAK
+langkah=PENGHANTARAN_TAMAT: kelas=1 BIJAK status=kelas-tidak-dipilih
+sebab=kelas tidak dijumpai dalam senarai MOEIS: 1 BIJAK.
+```
+
+**Punca.** HADIR menyimpan SATU label ("PRASEKOLAH", "1 BIJAK", "6 BIJAK"),
+tetapi halaman MOEIS memisahkannya kepada DUA dropdown: `#txtThnting` (tahun)
+dan `#txtNamakelas` (nama kelas SAHAJA, cth "BIJAK", dan senarainya hanya terisi
+selepas tahun dipilih). `PembinaTugasanPenghantaran` menetapkan `Tahun = null`
+dan tiada kod yang menerbitkan tahun daripada nama kelas, jadi langkah tahun
+dilangkau sepenuhnya dan langkah kelas memadankan seluruh "1 BIJAK" terhadap
+senarai yang berbunyi "BIJAK" — tiada padanan, dan kegagalan itu betul (padanan
+kabur memang tidak boleh meneka).
+
+### `HadirDesktop/KelasTahunMoeis.cs` (baharu) — fungsi TULEN
+
+`KelasTahunMoeis.Terbitkan(nama)` → `TerbitanKelasMoeis(Ok, Tahun, Kelas, Sebab)`:
+
+- token pertama angka 1..6 → `TAHUN SATU` … `TAHUN ENAM`;
+- token pertama bukan angka (cth `PRASEKOLAH`) → tahun = token itu;
+- kelas = baki token selepas token tahun (`1 BIJAK` → `BIJAK`); tiada baki →
+  kelas = nama penuh, supaya padanan kabur sedia ada yang menentukan
+  (`PRASEKOLAH` padan awalan dengan `PRASEKOLAH BIJAK`);
+- angka di luar 1..6, angka bercampur huruf (`1A`), kosong/ruang sahaja/null →
+  `Ok=false` + sebab yang boleh dibaca pemilik. Tiada tekaan senyap.
+
+Semua keluaran huruf besar, ruang berlebihan dikecilkan.
+
+### `HadirDesktop/PenghantaranMoeis.cs` (diubah)
+
+Dalam `SediakanHalamanAsync`, SEBELUM langkah tahun: bila `tugasan.Tahun` kosong,
+tahun+kelas diterbitkan daripada nama kelas dan dipakai untuk kedua-dua dropdown.
+Kerana fungsi itu tulen dan dipanggil dari `SediakanHalamanAsync`, laluan pertama
+dan baca semula selepas muat semula sentiasa memilih nilai yang SAMA. Penerbitan
+gagal = `kelas-tidak-dipilih` dengan sebab penerbitan (bukti `tahun-tidak-diterbit`)
+sebelum mana-mana dropdown disentuh. `Tahun` yang diberi secara eksplisit MENANG
+dan dipakai seperti adanya (`Kelas` pun kekal seperti diberi).
+
+### Apa yang TIDAK diubah
+
+- Pemilih DOM: TIADA perubahan langsung (`#txtThnting`, `#txtNamakelas`, dan
+  semua pemilih lain kekal — kesemuanya baru disahkan terhadap DOM sebenar).
+- Semakan sedia ada kekal semuanya: padanan tepat→awalan→ambigu-BERHENTI,
+  pagar konflik, kategori/sebab wajib, baca balik sebelum simpan, dan baca
+  semula wajib selepas simpan.
+- `PembinaTugasanPenghantaran` masih `Tahun = null` (HADIR tiada medan tahun);
+  penerbitan berlaku di satu tempat sahaja, dalam aliran.
+
+### Ujian
+
+```
+dotnet build desktop/HadirDesktop.sln              # Build succeeded, 0 Error(s), 1 Warning(s)
+dotnet test  desktop/HadirDesktop.sln --no-build   # Passed! 596 / Failed: 0
+```
+
+596 lulus / 0 gagal (sebelum ini 564; **+32**):
+
+- `KelasTahunMoeisTests` (25) — jadual `[Theory]`: `1 BIJAK`, `2..6 BIJAK`,
+  `3 CERDIK`, `PRASEKOLAH`, `PRASEKOLAH BIJAK`, `1 BIJAK CERIA`, huruf kecil,
+  ruang/tab/baris baharu berlebihan; tolakan bersebab bagi `9 BIJAK`, `0 BIJAK`,
+  `7`, `12 BIJAK`, `1A BIJAK`, kosong, ruang sahaja, null; sebab menyebut julat
+  1–6; enam angka menghasilkan enam label tahun BERBEZA.
+- `PenghantaranTahunKelasTests` (7) — aliran penuh terhadap fixture yang membawa
+  senarai `#txtThnting` SEBENAR (102=PRASEKOLAH, 73=TAHUN SATU … 79=KELAS KHAS
+  RENDAH) dan senarai kelas seperti MOEIS memaparkannya selepas tahun dipilih
+  (1149831=BIJAK): `1 BIJAK` → tahun 73 + kelas 1149831 dan tahun dipilih SEBELUM
+  kelas (regresi langsung bagi baris log hidup di atas); `6 BIJAK` → 78;
+  `PRASEKOLAH` → 102 + kelas ikut padanan awalan; nama tidak dikenali = BERHENTI
+  tanpa menyentuh mana-mana dropdown dan tanpa simpan; senarai tahun kosong =
+  BERHENTI tanpa simpan; `Tahun` eksplisit dipakai seperti adanya; baca semula
+  memilih tahun+kelas yang sama (2× setiap satu, 1 muat semula).
+- Fixture `PenghantaranMoeisTests` (`Dom`/`DomMurid`) kini membawa dropdown tahun
+  seperti halaman sebenar; tiada ujian sedia ada dibuang atau dilonggarkan.
+
+Bukti ujian tidak lompong: dengan penerbitan dilumpuhkan (`if (false && …)`),
+**5 daripada 7** ujian aliran baharu GAGAL (dua yang lain memang mesti kekal
+lulus: `Tahun` eksplisit, dan nama tidak dikenali yang gagal atas sebab lain);
+pembetulan dipulihkan dan `dotnet test` kembali 596/0.
+
+Amaran `CS8619` pada `MainForm.cs:168` masih yang sama seperti pada HEAD (a2cd21a).
+
+### Disahkan vs tidak disahkan
+
+- DISAHKAN: build + 596 ujian terhadap DOM palsu dan fungsi tulen. Tiada WebView2
+  sebenar, tiada portal, tiada backend, tiada kredensial.
+- TIDAK DISAHKAN HIDUP: larian sebenar `HADIR_DEV_AUTO_KITARAN=1` selepas
+  pembetulan ini belum dijalankan oleh manusia, jadi `PENGHANTARAN_TAMAT` yang
+  melepasi peringkat pemilihan kelas pada MOEIS sebenar belum pernah dilihat.
+- TIDAK DISAHKAN: sama ada `#txtNamakelas` benar-benar terisi semula secara
+  automatik (AJAX) selepas tahun ditetapkan melalui skrip, dan berapa lama.
+  Nilai tahun/kelas diambil daripada DOM sebenar yang dimuat turun, TETAPI
+  penetapannya melalui `PilihNilaiDropdown` belum diperhatikan hidup; jika
+  senarai kelas belum sempat terisi, kegagalannya SELAMAT
+  (`kelas-tidak-dipilih`/`senarai-kosong`), bukan senyap.
+- TIDAK DISAHKAN: nama kelas HADIR selain `PRASEKOLAH` / `1..6 <NAMA>` (cth
+  kelas khas) — ia akan ditolak dengan sebab yang jelas, bukan diteka.
+
 ## Pepijat BLOK: penghantaran MOEIS di benang KOLAM, bukan benang UI (2026-09-23)
 
 Bukti ujian hidup 11:59 (`dev-kitaran.log`):

@@ -32,6 +32,7 @@ public class PenghantaranMoeisTests
     private static DomMoeisPalsu Dom(params string[] idHadir)
     {
         var dom = new DomMoeisPalsu { TarikhPada = "22/09/2026" };
+        IsiPilihanTahun(dom);
         dom.PilihanKelas.Add(new PilihanDropdown("", "-- Pilih Kelas --"));
         dom.PilihanKelas.Add(new PilihanDropdown("K1", "PRASEKOLAH BIJAK"));
         dom.PilihanKategori.Add(new PilihanDropdown("", "-- Pilih --"));
@@ -45,6 +46,22 @@ public class PenghantaranMoeisTests
         return dom;
     }
 
+    // Senarai #txtThnting SEBENAR (nilai + teks disalin daripada DOM MOEIS yang
+    // dimuat turun). Halaman sebenar sentiasa membawa dropdown tahun, jadi
+    // fixture pun membawanya.
+    internal static void IsiPilihanTahun(DomMoeisPalsu dom)
+    {
+        dom.PilihanTahun.Add(new PilihanDropdown("", "-- Pilih Tahun --"));
+        dom.PilihanTahun.Add(new PilihanDropdown("102", "PRASEKOLAH"));
+        dom.PilihanTahun.Add(new PilihanDropdown("73", "TAHUN SATU"));
+        dom.PilihanTahun.Add(new PilihanDropdown("74", "TAHUN DUA"));
+        dom.PilihanTahun.Add(new PilihanDropdown("75", "TAHUN TIGA"));
+        dom.PilihanTahun.Add(new PilihanDropdown("76", "TAHUN EMPAT"));
+        dom.PilihanTahun.Add(new PilihanDropdown("77", "TAHUN LIMA"));
+        dom.PilihanTahun.Add(new PilihanDropdown("78", "TAHUN ENAM"));
+        dom.PilihanTahun.Add(new PilihanDropdown("79", "KELAS KHAS RENDAH"));
+    }
+
     private static MuridTidakHadir Sakit(string id) => new(id, "SAKIT", "DEMAM");
 
     // A name-only task student — the real HADIR record carries {nama, kategori,
@@ -56,6 +73,7 @@ public class PenghantaranMoeisTests
     private static DomMoeisPalsu DomMurid(params (string Id, string Nama)[] murid)
     {
         var dom = new DomMoeisPalsu { TarikhPada = "22/09/2026" };
+        IsiPilihanTahun(dom);
         dom.PilihanKelas.Add(new PilihanDropdown("", "-- Pilih Kelas --"));
         dom.PilihanKelas.Add(new PilihanDropdown("K1", "PRASEKOLAH BIJAK"));
         dom.PilihanKategori.Add(new PilihanDropdown("", "-- Pilih --"));
