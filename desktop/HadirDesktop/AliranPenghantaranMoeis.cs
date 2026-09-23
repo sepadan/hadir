@@ -206,6 +206,8 @@ public sealed class AliranPenghantaranMoeis
                     // lease to release. Skip the task; it stays claimable later.
                     dilangkau++;
                     sebabLangkau.Add("Klaim tugasan gagal (" + ex.GetType().Name + "); tiada penghantaran bagi tugasan ini.");
+                    // Hanya id tugasan — tiada murid, tiada rahsia enjin.
+                    _log?.Invoke("KLAIM_RALAT: id=" + kerja.Id + " ralat=" + ex.GetType().Name);
                     continue;
                 }
 
@@ -214,10 +216,12 @@ public sealed class AliranPenghantaranMoeis
                     // Refused: another engine holds it, or the status forbids it.
                     dilangkau++;
                     sebabLangkau.Add("Klaim ditolak (tugasan dipegang enjin lain atau status tidak layak); tiada penghantaran bagi tugasan ini.");
+                    _log?.Invoke("KLAIM_DITOLAK: id=" + kerja.Id);
                     continue;
                 }
 
                 memegangKlaim = true;
+                _log?.Invoke("KLAIM_OK: id=" + kerja.Id);
                 // Build from the payload the backend re-read UNDER ITS LOCK.
                 sumberKerja = kerja with
                 {
@@ -354,6 +358,8 @@ public sealed class AliranPenghantaranMoeis
             try
             {
                 await _backend.SelesaiAsync(id, keputusan, mesej, null, pemilik, ct).ConfigureAwait(false);
+                // Id + keputusan sahaja; mesej TIDAK dilog (ia datang dari adaptor).
+                _log?.Invoke("SELESAI_OK: id=" + id + " keputusan=" + keputusan);
                 return true;
             }
             catch (Exception ex) when (IsCancellation(ex, ct))

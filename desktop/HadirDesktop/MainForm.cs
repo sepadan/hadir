@@ -20,6 +20,12 @@ public sealed class MainForm : Form
     private readonly LoopbackEngineStatusSource _loopbackSource = new();
     private readonly DevDebugTransport? _devDebug;
     private readonly RealPortalDevMode _realPortal;
+    // Alat PEMBANGUN sahaja: satu kitaran automatik + log diagnostik. MATI
+    // secara lalai; tiada kesan langsung pada pengeluaran.
+    private readonly DevAutoKitaran _devAutoKitaran;
+    private bool _devKitaranSudahJalan;
+    /// <summary>Sebab aliran penghantaran terakhir dalam kitaran ini (untuk log pembangun).</summary>
+    private string? _sebabPenghantaranTerakhir;
     private readonly HttpClient _deviceHttp = new();
     private readonly DevicePanel _devicePanel;
     private readonly string? _observationLogPath;
@@ -82,6 +88,7 @@ public sealed class MainForm : Form
     {
         _statusSource = _fixtureSource;
         _realPortal = RealPortalDevMode.FromEnvironment();
+        _devAutoKitaran = DevAutoKitaran.DariPersekitaran();
         // Bina penjaga navigasi DARI TETAPAN TERSIMPAN semasa mula, bukan hanya
         // selepas dialog "Akaun idMe" ditutup. Tanpa ini, PC yang restart dengan
         // LoginAuto sudah HIDUP tidak dibenarkan navigasi ke origin idMe/MOEIS
@@ -133,6 +140,8 @@ public sealed class MainForm : Form
             _backendClient != null ? new BackendKerjaPenuhSource(_backendClient) : _kerjaPenuh,
             _penghantarMoeis,
             dihidupkan: () => _idMeSettingsStore.Baca().HantarAuto,
+            // Log langkah klaim/hantar/selesai — HANYA dalam mod pembangun.
+            log: _devAutoKitaran.Dihidupkan ? LogLangkahDev : null,
             backend: _backendClient,
             pemilik: () => _pemilikStore.Dapatkan());
 
@@ -150,7 +159,12 @@ public sealed class MainForm : Form
             // continuation (see PadaUiAsync).
             ct => PadaUiAsync(() => _loginDemand.CubaAutoDenganPermintaanAsync(adaKerja: true, ct)),
             diblok: () => _penjaga.Diblok(),
-            selepasLoginSah: ct => PadaUiAsync(async () => (await _aliranPenghantaran.JalankanAsync(ct)).Sebab),
+            selepasLoginSah: ct => PadaUiAsync(async () =>
+            {
+                var hasilAliran = await _aliranPenghantaran.JalankanAsync(ct);
+                _sebabPenghantaranTerakhir = hasilAliran.Sebab;
+                return hasilAliran.Sebab;
+            }),
             lapor: LaporKeadaanPortal);
         _devicePanel = new DevicePanel(
             new DeviceRegistrationClient(_deviceHttp, DemoLabel.HadirBackendApiUrl),
@@ -287,7 +301,42 @@ public sealed class MainForm : Form
         NavigateToFixture();
 
         await RefreshEngineStatusAsync();
+
+        // Borang siap DAN WebView2 bersedia — barulah kitaran pembangun (jika
+        // dihidupkan) dijalankan. Sekali sahaja, tiada pemasa.
+        await KitaranAutoDevAsync();
     }
+
+    /// <summary>
+    /// Alat PEMBANGUN sahaja (<c>HADIR_DEV_AUTO_KITARAN</c>): jalankan SATU
+    /// kitaran deman/log-masuk sebaik borang siap, supaya ujian hidup tidak
+    /// perlu klik menu dulang. MATI = tiada apa-apa berlaku di sini.
+    /// Kitaran itu sendiri ialah laluan pengeluaran yang SAMA
+    /// (<see cref="CubaLoginAutoAtasPermintaanAsync"/>) — semua penjaga
+    /// (opt-in pemilik, deman, pagar penolakan) kekal terpakai.
+    /// </summary>
+    private async Task KitaranAutoDevAsync()
+    {
+        if (!_devAutoKitaran.Dihidupkan || _devKitaranSudahJalan) return;
+        _devKitaranSudahJalan = true;
+
+        _sebabPenghantaranTerakhir = null;
+        await CubaLoginAutoAtasPermintaanAsync();
+
+        _devAutoKitaran.Tulis(DevAutoKitaran.BarisKitaran(
+            DateTimeOffset.Now,
+            LabelKeadaanPortal.Teks(_lifecycle.Keadaan),
+            _lifecycle.Sebab,
+            _sebabPenghantaranTerakhir));
+    }
+
+    /// <summary>
+    /// Log satu langkah aliran penghantaran (klaim/hantar/selesai). Mesej
+    /// datang daripada <see cref="AliranPenghantaranMoeis"/> dan hanya membawa
+    /// id tugasan / nama kelas / status — tiada kredensial, IC, token atau URL.
+    /// </summary>
+    private void LogLangkahDev(string mesej) =>
+        _devAutoKitaran.Tulis(DevAutoKitaran.BarisLangkah(DateTimeOffset.Now, mesej));
 
     private void NavigateToFixture()
     {

@@ -343,6 +343,83 @@ public class KitaranPenghantaranTests
         Assert.Empty(backend.Lepas);
     }
 
+    // ---------- log pembangun (callback pilihan) ----------
+
+    [Fact]
+    public async Task Log_MelaporkanLangkahKlaimHantarSelesai()
+    {
+        var backend = new FakeBackend(new[] { Kerja() });
+        var penghantar = new FakePenghantar(FakePenghantar.Disahkan()) { Jejak = backend };
+        var log = new List<string>();
+
+        var aliran = new AliranPenghantaranMoeis(
+            new BackendKerjaPenuhSource(backend), penghantar,
+            dihidupkan: () => true, jam: () => HariIni, log: log.Add,
+            backend: backend, pemilik: () => Pemilik);
+
+        await aliran.JalankanAsync();
+
+        Assert.Equal(new[]
+        {
+            "KLAIM_OK: id=job-1",
+            "PENGHANTARAN_MULA: kelas=PRASEKOLAH",
+            "PENGHANTARAN_TAMAT: kelas=PRASEKOLAH status=disahkan",
+            "SELESAI_OK: id=job-1 keputusan=berjaya",
+        }, log);
+    }
+
+    [Fact]
+    public async Task Log_KlaimDitolak_Dicatat_TanpaLangkahHantar()
+    {
+        var backend = new FakeBackend(new[] { Kerja() }) { KlaimPulangan = _ => null };
+        var penghantar = new FakePenghantar(FakePenghantar.Disahkan()) { Jejak = backend };
+        var log = new List<string>();
+
+        var aliran = new AliranPenghantaranMoeis(
+            new BackendKerjaPenuhSource(backend), penghantar,
+            dihidupkan: () => true, jam: () => HariIni, log: log.Add,
+            backend: backend, pemilik: () => Pemilik);
+
+        await aliran.JalankanAsync();
+
+        Assert.Equal(new[] { "KLAIM_DITOLAK: id=job-1" }, log);
+    }
+
+    [Fact]
+    public async Task Log_TiadaNamaMuridDalamMana_ManaMesej()
+    {
+        // Sempadan: log pembangun hanya menerima id tugasan / kelas / status.
+        var backend = new FakeBackend(new[] { Kerja() });
+        var penghantar = new FakePenghantar(FakePenghantar.Disahkan()) { Jejak = backend };
+        var log = new List<string>();
+
+        var aliran = new AliranPenghantaranMoeis(
+            new BackendKerjaPenuhSource(backend), penghantar,
+            dihidupkan: () => true, jam: () => HariIni, log: log.Add,
+            backend: backend, pemilik: () => Pemilik);
+
+        await aliran.JalankanAsync();
+
+        Assert.NotEmpty(log);
+        foreach (var baris in log)
+        {
+            Assert.DoesNotContain("AISYAH", baris, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(Pemilik, baris, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task TanpaLog_AliranTetapBerjalan()
+    {
+        // Callback log ialah PILIHAN: null = tingkah laku sedia ada.
+        var backend = new FakeBackend(new[] { Kerja() });
+        var penghantar = new FakePenghantar(FakePenghantar.Disahkan());
+
+        var hasil = await Aliran(backend, penghantar).JalankanAsync();
+
+        Assert.Equal(AliranPenghantaranMoeis.StatusDihantar, hasil.Status);
+    }
+
     // ---------- fakes ----------
 
     /// <summary>

@@ -1,5 +1,106 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Alat PEMBANGUN: `HADIR_DEV_AUTO_KITARAN` — satu kitaran automatik + log (2026-09-23, lalai MATI)
+
+Ujian hidup memerlukan klik menu dulang "Log masuk idMe (atas permintaan)"
+setiap kali aplikasi dimulakan semula, dan hasil kitaran itu hanya wujud pada
+bar status yang hilang sebaik kitaran seterusnya berjalan. Slice ini menutup
+kedua-duanya — untuk PEMBANGUN sahaja.
+
+### `HadirDesktop/DevAutoKitaran.cs` (baharu)
+
+Semuanya TULEN kecuali satu penulis fail:
+
+- `PatutAutoKitaran(string? nilai)` — keputusan env, corak pembacaan yang SAMA
+  seperti `RealPortalDevMode.IsTruthy` (trim + tidak peka huruf besar/kecil).
+  Truthy: `1`, `true`, `ya`, `yes`, `on`. **Segala yang lain — termasuk null
+  (tidak ditetapkan), kosong, ruang sahaja, `0`, `false`, `tidak` — MATI.**
+- `Cipta(bool, folderAsas?)` / `DariPersekitaran()` — kilang; `folderAsas`
+  membolehkan ujian menulis ke folder sementara, bukan `%LOCALAPPDATA%` sebenar.
+  MATI = `LaluanLog` ialah `null`, jadi `Tulis` menjadi no-op sepenuhnya (fail
+  log tidak pernah dicipta dalam pengeluaran).
+- `BarisKitaran(masa, keadaan, sebabKitaran, sebabPenghantaran)` dan
+  `BarisLangkah(masa, mesej)` — masa ISO dengan offset; medan kosong menjadi
+  `-`; `\r`/`\n` dalam mana-mana medan dikecilkan kepada ruang supaya satu
+  kitaran benar-benar satu baris.
+- `TulisKe(laluan, baris)` — append, cipta folder jika perlu, dan **gagal-
+  tertutup**: `IOException`/`UnauthorizedAccessException`/`NotSupported`/
+  `ArgumentException`/`SecurityException` ditelan. Log pembangun tidak boleh
+  menjatuhkan aplikasi.
+
+### Wayar dalam `MainForm.cs`
+
+- `_devAutoKitaran = DevAutoKitaran.DariPersekitaran()` dalam pembina.
+- `KitaranAutoDevAsync()` dipanggil pada PENGHUJUNG `MainForm_Load` — selepas
+  `EnsureCoreWebView2Async`, selepas `NavigateToFixture()`, selepas
+  `RefreshEngineStatusAsync()`. Ia memanggil `CubaLoginAutoAtasPermintaanAsync()`
+  — laluan PENGELUARAN yang sama, jadi setiap penjaga kekal terpakai (opt-in
+  `LoginAuto`, siasatan deman, pagar penolakan, allowlist navigasi). Pengawal
+  `_devKitaranSudahJalan` menjadikannya sekali sahaja; tiada pemasa di mana-mana.
+- Selepas kitaran tamat, satu baris ditulis: `LabelKeadaanPortal.Teks(
+  _lifecycle.Keadaan)`, `_lifecycle.Sebab`, dan `_sebabPenghantaranTerakhir`
+  (medan baharu yang diisi oleh lambda `selepasLoginSah` daripada
+  `HasilHantarKerja.Sebab`).
+- `log:` pada `AliranPenghantaranMoeis` diberi HANYA bila mod ini HIDUP
+  (`_devAutoKitaran.Dihidupkan ? LogLangkahDev : null`) — dalam pengeluaran ia
+  kekal `null` seperti sebelum ini.
+
+### `AliranPenghantaranMoeis.cs` — langkah klaim/selesai kini dilaporkan
+
+Callback `log` sudah wujud tetapi hanya melaporkan mula/tamat penghantaran.
+Ditambah `KLAIM_OK`, `KLAIM_DITOLAK`, `KLAIM_RALAT` (nama jenis pengecualian
+sahaja) dan `SELESAI_OK`. Setiap mesej membawa **id tugasan / nama kelas /
+status sahaja** — tiada nama murid, tiada IC, tiada id pemilik, tiada rahsia
+enjin, dan mesej adaptor TIDAK dilog pada laluan `selesai`.
+
+### Sempadan yang DIKEKALKAN
+
+- Env MATI atau tidak ditetapkan = tingkah laku pengeluaran tidak berubah
+  langsung: tiada kitaran automatik, tiada callback log, tiada fail ditulis.
+- Kitaran automatik bukan pintasan: ia tidak memintas `LoginAuto`, `HantarAuto`,
+  pagar penolakan, atau allowlist navigasi. Pada PC pengeluaran dengan tetapan
+  lalai ia menghasilkan SIFAR aktiviti portal, sama seperti klik dulang.
+- Log hanya menerima teks keadaan/sebab yang memang dipaparkan pada UI.
+
+### Ujian
+
+```
+dotnet build desktop/HadirDesktop.sln              # Build succeeded, 0 Error(s), 1 Warning(s)
+dotnet test  desktop/HadirDesktop.sln --no-build   # Passed! 504 / Failed: 0
+```
+
+504 lulus / 0 gagal (sebelum ini 469; **+35**):
+
+- `DevAutoKitaranTests` (31) — gating: 10 nilai truthy (termasuk huruf besar dan
+  bersela) HIDUP; 11 nilai lain MATI (null/kosong/ruang/`0`/`false`/`tidak`/
+  `no`/`off`/`11`/`truthy`/`1 ya`); MATI = tiada laluan log dan `Tulis` tidak
+  mencipta folder pun; HIDUP = laluan dalam `HadirDesktop/dev-kitaran.log`;
+  tulis mencipta folder dan MENAMBAH (dua baris berturutan dibaca kembali);
+  laluan tidak sah/pemacu tiada/aksara haram/null/ruang dan laluan yang
+  sebenarnya sebuah FOLDER tidak melontar; bentuk baris (ISO+offset, medan
+  kosong → `-`, `\r\n` dikecilkan jadi satu baris).
+- `KitaranPenghantaranTests` (+4) — jejak log tepat `KLAIM_OK →
+  PENGHANTARAN_MULA → PENGHANTARAN_TAMAT → SELESAI_OK`; klaim ditolak dicatat
+  tanpa sebarang langkah hantar; tiada nama murid dan tiada id pemilik dalam
+  mana-mana baris log; callback null = aliran tetap berjalan seperti dahulu.
+
+Bukti ujian tidak lompong: dengan `PatutAutoKitaran` dipaksa `true`,
+**11 daripada 11** kes MATI GAGAL; pembetulan dipulihkan dan `dotnet test`
+kembali 504/0.
+
+Amaran `CS8619` pada `MainForm.cs` masih yang sama seperti pada HEAD (9bce2dd) —
+hanya nombor barisnya berubah.
+
+### Disahkan vs tidak disahkan
+
+- DISAHKAN: build + 504 ujian, semuanya terhadap fungsi tulen dan fail
+  sementara. Tiada portal sebenar, tiada backend sebenar, tiada kredensial.
+- TIDAK DISAHKAN (langsung): `MainForm_Load` sendiri tidak diuji oleh xUnit
+  (WinForms + WebView2) — hanya fungsi tulen yang menjadi sumber keputusannya.
+  Larian hidup dengan `HADIR_DEV_AUTO_KITARAN=1` belum dijalankan oleh manusia
+  dalam slice ini, jadi kandungan sebenar `dev-kitaran.log` daripada larian
+  hidup belum pernah dilihat.
+
 ## Pepijat BLOK: langkah "pilih aplikasi" (handoff SSO idMe → MOEIS) hilang (2026-09-23)
 
 Ujian hidup (`HADIR_DEV_REAL_PORTAL=1`) menunjukkan gelung tanpa henti:
