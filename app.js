@@ -1354,9 +1354,14 @@
       }
       var hantarBtn = el('button', 'primary wide', 'Hantar');
       hantarBtn.type = 'button';
+      // Padanan tepat gate backend (Apps Script v118): dalam penerbangan
+      // (menunggu/sedang_dihantar/tersimpan) disekat; status siap BOLEH
+      // dihantar semula. Menyekat 'berjaya' di sini yang mematikan butang
+      // 1 BIJAK pada 23 Sep — backend sudah menerima cipta semula tetapi
+      // pelayar tidak pernah menghantar permintaan itu.
       hantarBtn.disabled = !lengkap || !k.bilTidakHadir ||
         k.statusPenghantaran === 'menunggu' || k.statusPenghantaran === 'sedang_dihantar' ||
-        k.statusPenghantaran === 'berjaya' || k.statusPenghantaran === 'tersimpan';
+        k.statusPenghantaran === 'tersimpan';
       hantarBtn.addEventListener('click', function () { hantarMoeis(k.nama); });
       badan.appendChild(hantarBtn);
 

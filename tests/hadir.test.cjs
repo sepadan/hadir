@@ -505,3 +505,14 @@ console.log('✓ Versi PWA v1.11.0 dan cache aset dinaikkan serentak');
 console.log('✓ Klaim atomik + lease + status tersimpan tersedia untuk giliran MOEIS berasingan');
 console.log('✓ Enjin PC (Companion) HADIR Admin: pengawal admin, sessionStorage lalai, tiada wildcard CORS di frontend');
 
+
+// Gate butang Hantar mesti sepadan dengan gate backend (Apps Script v118).
+// 23 Sep: butang 1 BIJAK dilumpuhkan kerana status 'berjaya', jadi walaupun
+// backend sudah menerima cipta semula, pelayar tidak pernah menghantar
+// permintaan itu — "tak boleh pun?".
+const ungkapanHantar = (app.match(/hantarBtn\.disabled = [\s\S]*?;/) || [''])[0];
+sah(ungkapanHantar.includes("'berjaya'") === false,
+  'Butang Hantar mesti BOLEH ditekan semula bagi tugasan berjaya: ' + ungkapanHantar);
+sah(ungkapanHantar.includes("'menunggu'") && ungkapanHantar.includes("'sedang_dihantar'")
+  && ungkapanHantar.includes("'tersimpan'"),
+  'Butang Hantar mesti kekal disekat bagi tugasan dalam penerbangan: ' + ungkapanHantar);
