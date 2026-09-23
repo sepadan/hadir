@@ -138,6 +138,28 @@ public class VersiAplikasiTests
         Assert.Contains(DemoLabel.SufiksDemo.Trim(), tajuk);
     }
 
+    /// <summary>
+    /// Label mesti jujur: dengan ciri sebenar dihidupkan (pemasangan sekolah),
+    /// aplikasi TIDAK boleh mengaku dirinya "MOD DEMO" — ia memang menulis ke
+    /// MOEIS. Versi mesti kekal kelihatan dalam kedua-dua mod.
+    /// </summary>
+    [Fact]
+    public void LabelMod_CiriSebenar_TiadaKataDemo()
+    {
+        var produksi = DemoLabel.TajukTetingkapDenganVersi(adaCiriSebenar: true);
+
+        Assert.DoesNotContain("DEMO", produksi);
+        Assert.Contains(VersiAplikasi.Versi, produksi);
+        Assert.Equal(DemoLabel.NamaApl + " " + VersiAplikasi.Versi, produksi);
+
+        // Tanpa ciri sebenar, penanda demo KEKAL (tidak pernah mengaku produksi).
+        Assert.Contains(DemoLabel.SufiksDemo.Trim(), DemoLabel.TajukTetingkapDenganVersi(adaCiriSebenar: false));
+
+        Assert.Equal(DemoLabel.BannerProduksi, DemoLabel.Banner(adaCiriSebenar: true));
+        Assert.Equal(DemoLabel.BannerText, DemoLabel.Banner(adaCiriSebenar: false));
+        Assert.DoesNotContain("Tiada tulisan MOEIS", DemoLabel.BannerProduksi);
+    }
+
     [Fact]
     public void NotaDulang_MengandungiVersi_DanKekalDalamHad()
     {

@@ -17,11 +17,22 @@ public static class DemoLabel
 
     /// <summary>
     /// Tajuk tetingkap dengan versi binaan, cth <c>HADIR Desktop 1.0.0 — MOD
-    /// DEMO</c>. Versi datang dari <see cref="VersiAplikasi"/> sahaja.
+    /// DEMO</c>. Penanda "MOD DEMO" muncul HANYA apabila tiada ciri sebenar
+    /// dihidupkan (lihat <paramref name="adaCiriSebenar"/>): memasang di sekolah
+    /// dengan tajuk yang mengaku "demo" adalah tidak jujur apabila aplikasi itu
+    /// memang menulis ke MOEIS. Versi datang dari <see cref="VersiAplikasi"/> sahaja.
     /// </summary>
-    public static string TajukTetingkapDenganVersi() =>
-        NamaApl + " " + VersiAplikasi.Versi + SufiksDemo;
+    public static string TajukTetingkapDenganVersi(bool adaCiriSebenar = false) =>
+        NamaApl + " " + VersiAplikasi.Versi + (adaCiriSebenar ? string.Empty : SufiksDemo);
+
     public const string BannerText = "MOD DEMO — bukan sistem pengeluaran. Tiada tulisan MOEIS, tiada log masuk idMe sebenar.";
+
+    /// <summary>Banner untuk pemasangan sebenar: kerja sebenar dihidupkan oleh pemilik.</summary>
+    public const string BannerProduksi = "SISTEM SEBENAR — log masuk idMe & tulisan MOEIS dihidupkan oleh pemilik.";
+
+    /// <summary>Banner yang jujur tentang mod semasa (demo lawan sebenar).</summary>
+    public static string Banner(bool adaCiriSebenar) => adaCiriSebenar ? BannerProduksi : BannerText;
+
     public const string SimulatedSourceLabel = "simulasi";
     public const string RealSourceLabel = "enjin sebenar 127.0.0.1:8747";
     public const string FixturePortalTitle = "Portal Palsu (Fixture) — bukan idMe/MOEIS sebenar";

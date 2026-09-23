@@ -24,6 +24,11 @@ public sealed class MainForm : Form
     // secara lalai; tiada kesan langsung pada pengeluaran.
     private readonly DevAutoKitaran _devAutoKitaran;
     private bool _devKitaranSudahJalan;
+    // Kitaran automatik PRODUKSI (lihat KitaranAuto): pemasa yang menjalankan
+    // kitaran deman yang SAMA seperti item dulang, hidup HANYA apabila pemilik
+    // menghidupkan auto-login/auto-hantar. MATI secara lalai = tiada denyutan.
+    private readonly System.Windows.Forms.Timer _pemasaKitaran = new();
+    private bool _kitaranAutoSedangJalan;
     /// <summary>Sebab aliran penghantaran terakhir dalam kitaran ini (untuk log pembangun).</summary>
     private string? _sebabPenghantaranTerakhir;
     private readonly HttpClient _deviceHttp = new();
@@ -188,10 +193,6 @@ public sealed class MainForm : Form
                 "HadirDesktop", "real-portal-observations.log")
             : null;
 
-        var tajuk = DemoLabel.TajukTetingkapDenganVersi();
-        Text = _realPortal.Enabled
-            ? tajuk + DemoLabel.RealPortalBannerSuffix
-            : _devDebug is null ? tajuk : tajuk + DemoLabel.DevDebugBannerSuffix;
         Width = 1100;
         Height = 750;
         StartPosition = FormStartPosition.CenterScreen;
@@ -208,7 +209,16 @@ public sealed class MainForm : Form
         _tray.CubaLagiRequested += async (_, _) => await CubaLagiPortalAsync();
         _tray.ExitRequested += (_, _) => ExitForReal();
 
+        // Pemasa kitaran produksi. Ia TIDAK dimulakan di sini: keputusan ada pada
+        // KemasKiniKitaranAuto(), yang membaca pilihan pemilik.
+        _pemasaKitaran.Interval = KitaranAuto.SelangMinit * 60 * 1000;
+        _pemasaKitaran.Tick += PemasaKitaran_Tick;
+
         BuildLayout();
+        // Tajuk + banner ditetapkan SELEPAS layout wujud, dan ia membaca tetapan
+        // pemilik: penanda "MOD DEMO" mesti hilang sebaik ciri sebenar dihidupkan.
+        KemasKiniLabelMod();
+        KemasKiniKitaranAuto();
 
         Load += MainForm_Load;
         FormClosing += MainForm_FormClosing;
@@ -224,9 +234,8 @@ public sealed class MainForm : Form
             ForeColor = System.Drawing.Color.White,
             TextAlign = System.Drawing.ContentAlignment.MiddleCenter,
             Font = new System.Drawing.Font(Font, System.Drawing.FontStyle.Bold),
-            Text = DemoLabel.BannerText + (_realPortal.Enabled
-                ? DemoLabel.RealPortalBannerSuffix
-                : _devDebug is null ? string.Empty : DemoLabel.DevDebugBannerSuffix),
+            // Teks dan warna sebenar ditetapkan oleh KemasKiniLabelMod().
+            Text = DemoLabel.BannerText,
         };
 
         _webView = new WebView2
@@ -316,9 +325,108 @@ public sealed class MainForm : Form
 
         await RefreshEngineStatusAsync();
 
-        // Borang siap DAN WebView2 bersedia — barulah kitaran pembangun (jika
+        // Skrip siap DAN WebView2 bersedia — barulah kitaran pembangun (jika
         // dihidupkan) dijalankan. Sekali sahaja, tiada pemasa.
         await KitaranAutoDevAsync();
+
+        // Kitaran automatik PRODUKSI (jika pemilik opt-in): satu kali sebaik
+        // WebView2 bersedia, kemudian berulang mengikut KitaranAuto.SelangMinit.
+        JadualKitaranAutoPertama();
+    }
+
+    /// <summary>
+    /// Menjadualkan kitaran automatik PERTAMA selepas tetingkap siap. Tundaan
+    /// pendek memberi WebView2 dan bacaan enjin masa untuk selesai; kitaran itu
+    /// sendiri tidak membuka portal apabila tiada kerja menunggu.
+    /// </summary>
+    private void JadualKitaranAutoPertama()
+    {
+        if (!AdaCiriSebenar)
+        {
+            return;
+        }
+
+        _ = KitaranAutoPertamaAsync();
+    }
+
+    private async Task KitaranAutoPertamaAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(KitaranAuto.TundaanMulaSaat), _cycleCts.Token);
+            await JalankanKitaranAutoAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // Aplikasi ditutup sebelum kitaran pertama — tiada apa perlu dibuat.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Tetingkap sudah dilupuskan semasa tundaan.
+        }
+    }
+
+    private async void PemasaKitaran_Tick(object? sender, EventArgs e) =>
+        await JalankanKitaranAutoAsync();
+
+    /// <summary>
+    /// Satu kitaran automatik produksi. Semua penjaga kekal terpakai: pemilik
+    /// mesti opt-in, kitaran sendiri TIDAK membuka portal apabila tiada kerja
+    /// menunggu, dan pagar penolakan kredensial tetap berkuat kuasa. Tiada
+    /// kitaran bertindan: satu pada satu masa.
+    /// </summary>
+    private async Task JalankanKitaranAutoAsync()
+    {
+        if (_kitaranAutoSedangJalan)
+        {
+            return;
+        }
+
+        try
+        {
+            var tetapan = _idMeSettingsStore.Baca();
+            if (!KitaranAuto.KenaJalan(tetapan.LoginAuto, tetapan.HantarAuto))
+            {
+                return;
+            }
+        }
+        catch
+        {
+            return;   // tetapan tidak boleh dibaca = jangan berdenyut
+        }
+
+        _kitaranAutoSedangJalan = true;
+        try
+        {
+            _sebabPenghantaranTerakhir = null;
+            await CubaLoginAutoAtasPermintaanAsync();
+
+            // Satu baris bagi satu kitaran, ke log produksi yang sama seperti
+            // baris versi — supaya penyelenggaraan boleh melihat aplikasi benar
+            // berjalan (bukan hanya dakwaan).
+            DevAutoKitaran.TulisKe(
+                KitaranAuto.LaluanLog(),
+                DevAutoKitaran.BarisKitaran(
+                    DateTimeOffset.Now,
+                    LabelKeadaanPortal.Teks(_lifecycle.Keadaan),
+                    _lifecycle.Sebab,
+                    _sebabPenghantaranTerakhir));
+        }
+        catch (OperationCanceledException)
+        {
+            // Kitaran dibatalkan kerana aplikasi ditutup.
+        }
+        catch (Exception ex)
+        {
+            // Pengecualian tak dijangka tidak boleh mematikan pemasa secara senyap.
+            DevAutoKitaran.TulisKe(
+                KitaranAuto.LaluanLog(),
+                DevAutoKitaran.BarisLangkah(DateTimeOffset.Now, "Ralat kitaran automatik: " + ex.GetType().Name));
+        }
+        finally
+        {
+            _kitaranAutoSedangJalan = false;
+        }
     }
 
     /// <summary>
@@ -547,6 +655,10 @@ public sealed class MainForm : Form
         var tetapan = _idMeSettingsStore.Baca();
         tetapan.HantarAuto = hidup;
         _idMeSettingsStore.Simpan(tetapan);
+        // Togol ini menukar mod sebenar: label DAN pemasa kitaran mesti berubah
+        // serta-merta, bukan hanya selepas aplikasi dimulakan semula.
+        KemasKiniLabelMod();
+        KemasKiniKitaranAuto();
     }
 
     /// <summary>
@@ -583,6 +695,86 @@ public sealed class MainForm : Form
             _realPortal.Enabled,
             _realPortal.AllowedOrigins,
             _idMeSettingsStore.Baca().LoginAuto));
+        KemasKiniLabelMod();
+        KemasKiniKitaranAuto();
+    }
+
+    /// <summary>
+    /// Benar apabila pemilik telah menghidupkan mana-mana ciri sebenar (auto-login
+    /// ATAU auto-hantar). Ini satu-satunya sumber kebenaran untuk pelabelan: kata
+    /// "MOD DEMO" hanya jujur apabila ini palsu.
+    /// </summary>
+    private bool AdaCiriSebenar
+    {
+        get
+        {
+            try
+            {
+                var tetapan = _idMeSettingsStore.Baca();
+                return tetapan.LoginAuto || tetapan.HantarAuto;
+            }
+            catch
+            {
+                // Tetapan tidak boleh dibaca: anggap TIADA ciri sebenar (pilihan
+                // selamat) — label demo kekal, tidak pernah mengaku produksi
+                // tanpa bukti.
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Menyegarkan tajuk tetingkap + banner supaya kedua-duanya sentiasa jujur
+    /// tentang mod semasa ("MOD DEMO" hilang sebaik ciri sebenar dihidupkan).
+    /// Dipanggil semasa mula, selepas dialog "Akaun idMe" ditutup, dan selepas
+    /// togol "Hantar ke MOEIS" diklik dari dulang.
+    /// </summary>
+    private void KemasKiniLabelMod()
+    {
+        var sebenar = AdaCiriSebenar;
+        var hiasan = _realPortal.Enabled
+            ? DemoLabel.RealPortalBannerSuffix
+            : _devDebug is null ? string.Empty : DemoLabel.DevDebugBannerSuffix;
+
+        Text = DemoLabel.TajukTetingkapDenganVersi(sebenar) + hiasan;
+
+        if (_banner is null)
+        {
+            return;   // dipanggil semasa mula, sebelum BuildLayout()
+        }
+
+        _banner.Text = DemoLabel.Banner(sebenar) + hiasan;
+        _banner.BackColor = sebenar ? System.Drawing.Color.DarkGreen : System.Drawing.Color.Firebrick;
+    }
+
+    /// <summary>
+    /// Menghidupkan atau mematikan pemasa kitaran produksi mengikut pilihan
+    /// pemilik. Dipanggil di tempat yang SAMA seperti KemasKiniLabelMod():
+    /// semasa mula, selepas dialog "Akaun idMe" ditutup, dan selepas togol
+    /// "Hantar ke MOEIS" diklik dari dulang — jadi menukar tetapan berkuat kuasa
+    /// serta-merta, tanpa memulakan semula aplikasi.
+    /// </summary>
+    private void KemasKiniKitaranAuto()
+    {
+        try
+        {
+            var tetapan = _idMeSettingsStore.Baca();
+            var kena = KitaranAuto.KenaJalan(tetapan.LoginAuto, tetapan.HantarAuto);
+
+            if (kena && !_pemasaKitaran.Enabled)
+            {
+                _pemasaKitaran.Start();
+            }
+            else if (!kena && _pemasaKitaran.Enabled)
+            {
+                _pemasaKitaran.Stop();
+            }
+        }
+        catch
+        {
+            // Ragu-ragu tentang pilihan pemilik = JANGAN berdenyut.
+            _pemasaKitaran.Stop();
+        }
     }
 
     /// <summary>
@@ -844,6 +1036,11 @@ public sealed class MainForm : Form
             // source; the process is exiting anyway.
             try { _cycleCts.Cancel(); }
             catch (ObjectDisposedException) { /* already cancelled */ }
+
+            // Hentikan denyutan kitaran automatik SEBELUM komponen yang dipandunya
+            // (WebView2, HttpClient) dilupuskan.
+            try { _pemasaKitaran.Stop(); _pemasaKitaran.Dispose(); }
+            catch (ObjectDisposedException) { /* already disposed */ }
 
             _devicePanel.Dispose();
             _portalServer.Dispose();
