@@ -327,7 +327,12 @@ public static class PadananDropdown
 /// </summary>
 public interface IDomMoeis
 {
-    Task NavigasiHarian();
+    /// <returns>
+    /// Klasifikasi NAVIGASI itu sendiri (sama bentuk dengan <c>MuatSemula</c>).
+    /// Kaedah seam tidak melontar — keputusan gagal/tamat masa dibawa balik
+    /// supaya aliran boleh menilainya SEBELUM membaca DOM.
+    /// </returns>
+    Task<HasilMuat> NavigasiHarian();
     Task<bool> KlikTabHarian();
     Task<bool> TungguKemaskiniKelihatan();
     Task<string?> BacaTarikhInput();
@@ -483,8 +488,20 @@ public static class PenghantaranMoeisFlow
         try
         {
             // ---- 2. Open the page and put it in the task's context. ----
-            await dom.NavigasiHarian();
+            // Navigasi gagal/tamat masa = halaman TIDAK diketahui → berhenti
+            // SEKARANG dengan status jujur (BUKAN terus membaca — itu punca
+            // "tidak-berubah" palsu 16:01/16:10: bacaan mendarat pada DOM lama).
+            var nav = await dom.NavigasiHarian();
             ct.ThrowIfCancellationRequested();
+            if (nav != HasilMuat.Selesai)
+            {
+                var sebabNav = nav == HasilMuat.TamatMasa
+                    ? "Navigasi ke halaman kehadiran MOEIS tamat masa."
+                    : "Navigasi ke halaman kehadiran MOEIS gagal.";
+                return Buat(tugasan, "halaman-tidak-sedia",
+                    sebabNav + " Halaman tidak dibaca, tiada apa-apa disimpan.",
+                    nav == HasilMuat.TamatMasa ? "navigasi-tamat-masa" : "navigasi-gagal");
+            }
 
             var sedia = await SediakanHalamanAsync(dom, tugasan, kelas, paparanTarikh, ct);
             if (sedia.Gagal != null) return sedia.Gagal;

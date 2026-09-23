@@ -226,6 +226,30 @@ public sealed class PelayarMuatCoreWebView2 : IPelayarMuat
         return new PemecahLangganan(() => _penunggu -= terima);
     }
 
+    public Task MulaNavigasiAsync(string url) => _ui.JalankanAsync(() =>
+    {
+        var wv = _getWebView();
+        if (wv == null)
+        {
+            // Pelayar tiada → klasifikasi GAGAL SEKARANG, bukan had masa sunyi.
+            Naikkan(new KeputusanNavigasi(false, "pelayar tiada"));
+            return Task.FromResult(false);
+        }
+        if (!ReferenceEquals(_dilangganPada, wv))
+        {
+            wv.NavigationCompleted += PadaNavigationCompleted;
+            _dilangganPada = wv;
+        }
+        try { wv.Navigate(url); }
+        catch (Exception ralat)
+        {
+            // Navigate gagal → tiada NavigationCompleted akan tiba → gagalkan
+            // SEKARANG, sama seperti Reload gagal di bawah.
+            Naikkan(new KeputusanNavigasi(false, ralat.Message));
+        }
+        return Task.FromResult(true);
+    });
+
     public Task MulaMuatSemulaAsync() => _ui.JalankanAsync(() =>
     {
         // Membaca harta WebView2 DI SINI, di luar cuba/tangkap — lihat nota kelas.
@@ -421,17 +445,28 @@ public sealed class WebView2DomMoeis : IDomMoeis
         return senarai;
     }
 
-    public async Task NavigasiHarian()
+    public async Task<HasilMuat> NavigasiHarian()
     {
-        // Navigate() thread-affine — dihantar ke benang UI seperti setiap
-        // sentuhan CoreWebView2 yang lain.
-        await _ui.JalankanAsync(() =>
-        {
-            var wv = _getWebView();
-            try { wv?.Navigate(IdMeLoginEndpoints.KehadiranUrl); } catch { /* transient navigation failure */ }
-            return Task.FromResult(true);
-        });
-        await Delay(_masaMuatMs);
+        // PUNCA positif palsu 16:01 dan 16:10 (23 Sep, "1 BIJAK"): kaedah ini
+        // dahulunya melepaskan Navigate() dan menunggu JEDA TETAP (_masaMuatMs,
+        // 4 s) — bukan NavigationCompleted. Bacaan seterusnya BERLUMBA dengan
+        // navigasi dan boleh mendarat pada DOM LAMA:
+        //   * 15:40 → tab Kehadiran Harian belum wujud → "halaman-tidak-sedia";
+        //   * 16:01/16:10 → sisa kotak tak-tanda → "tidak-berubah" PALSU →
+        //     berjaya, sementara MOEIS kosong.
+        // Ini kelas bug yang SAMA seperti MuatSemula() pagi tadi. Kini: langganan
+        // → navigasi → tunggu kejayaan SEBENAR (had masa tidak pernah menggantung),
+        // dan gagal/tamat masa DILEMPAR supaya aliran melabelnya "gagal" dengan
+        // sebenar (catch di hujung HantarAsync) — bukan membaca DOM yang tidak
+        // diketahui. Hanya dokumen yang benar-benar commit mendapat jeda AJAX.
+        var hasil = await PengendaliMuat.TungguNavigasiSelesaiAsync(
+            _pelayar,
+            mula: () => _pelayar.MulaNavigasiAsync(IdMeLoginEndpoints.KehadiranUrl));
+        // Pulangkan klasifikasi (BUKAN melontar): kontrak seam ialah "setiap
+        // kaedah tidak melontar" (sapuan refleksi). Aliran menilainya dan
+        // berhenti sebelum membaca DOM yang tidak diketahui.
+        if (hasil == HasilMuat.Selesai) await Delay(_jedaAjaxMs);
+        return hasil;
     }
 
     public Task<bool> KlikTabHarian() => EvalBoolAsync(SkripMoeis.KlikTabHarian());

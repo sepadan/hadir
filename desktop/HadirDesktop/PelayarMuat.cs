@@ -61,6 +61,14 @@ public interface IPelayarMuat
     Task MulaMuatSemulaAsync();
 
     /// <summary>
+    /// (a') Terbitkan NAVIGASI ke <paramref name="url"/> (berbeza dengan
+    /// <see cref="MulaMuatSemulaAsync"/> yang memuat semula dokumen semasa).
+    /// Seperti (a): hanya perlu pulang selepas navigasi DIISYAHKAN —
+    /// menunggu ialah tugas <see cref="PengendaliMuat"/>.
+    /// </summary>
+    Task MulaNavigasiAsync(string url);
+
+    /// <summary>
     /// (b) Langganan <c>NavigationCompleted</c> untuk SATU kitaran tunggu.
     /// Buang langganan selepas selesai supaya kejadian navigasi seterusnya
     /// tidak menyelesaikan kitaran yang sudah tamat.
@@ -82,7 +90,13 @@ public interface IPelayarMuat
 /// </summary>
 public static class PengendaliMuat
 {
-    public static async Task<HasilMuat> TungguNavigasiSelesaiAsync(IPelayarMuat pelayar)
+    /// <param name="mula">
+    /// Cara navigasi DIMULAKAN. Lalai = <see cref="IPelayarMuat.MulaMuatSemulaAsync"/>
+    /// (semula-muat dokumen semasa). <c>NavigasiHarian</c> memberikan
+    /// navigasi-ke-URL di sini supaya KESELURUHAN susunan langganan → mula →
+    /// tunggu kekal SATU salinan dikongsi, bukan dua.
+    /// </param>
+    public static async Task<HasilMuat> TungguNavigasiSelesaiAsync(IPelayarMuat pelayar, Func<Task>? mula = null)
     {
         if (pelayar == null) throw new ArgumentNullException(nameof(pelayar));
 
@@ -94,7 +108,8 @@ public static class PengendaliMuat
         {
             // Ralat benang (dan mana-mana ralat teknikal) BENAR-BENAR merambat
             // keluar — ia tidak boleh lebur menjadi "tamat masa" palsu.
-            await pelayar.MulaMuatSemulaAsync().ConfigureAwait(false);
+            if (mula != null) await mula().ConfigureAwait(false);
+            else await pelayar.MulaMuatSemulaAsync().ConfigureAwait(false);
 
             var had = pelayar.HadMasaMuatMs;
             if (had < 0) had = 0;

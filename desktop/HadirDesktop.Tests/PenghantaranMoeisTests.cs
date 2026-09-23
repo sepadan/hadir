@@ -792,7 +792,7 @@ public sealed class DomMoeisPalsu : IDomMoeis
 
     private Baris? Cari(string id) => Murid.FirstOrDefault(b => b.Id == id);
 
-    public Task NavigasiHarian() { Panggilan.Add("navigasi"); return Task.CompletedTask; }
+    public Task<HasilMuat> NavigasiHarian() { Panggilan.Add("navigasi"); return Task.FromResult(HasilMuat.Selesai); }
 
     public Task<bool> KlikTabHarian()
     {

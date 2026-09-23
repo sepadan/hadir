@@ -80,6 +80,19 @@ public class PelayarMuatTests
             _penunggu?.Invoke(Keputusan);
         }
 
+        /// <summary>URL terakhir yang diminta — membuktikan sasaran navigasi tidak hilang.</summary>
+        public string? UrlTerakhir { get; private set; }
+
+        public async Task MulaNavigasiAsync(string url)
+        {
+            Panggilan.Add("mula-navigasi");
+            UrlTerakhir = url;
+            if (Keputusan == null) return;
+
+            if (Kelewatan is { } d) await Task.Delay(d);
+            _penunggu?.Invoke(Keputusan);
+        }
+
         /// <summary>Fired by a test AFTER the wait finished — must reach nobody.</summary>
         public void ApiSelepasKitaran() => _penunggu?.Invoke(new KeputusanNavigasi(true, "terlambat"));
 
@@ -206,5 +219,62 @@ public class PelayarMuatTests
 
             Assert.Equal(jangka, await dom.MuatSemula());
         }
+    }
+
+    // ================================================================
+    // NAVIGASI (bukan semula-muat) — NavigasiHarian, 23 Sep 16:01/16:10
+    // ================================================================
+    // NavigasiHarian dahulunya melepaskan Navigate() dan menunggu JEDA TETAP
+    // (_masaMuatMs): bacaan BERLUMBA dengan navigasi dan boleh mendarat pada
+    // DOM LAMA — 15:40 (tab belum wujud -> halaman-tidak-sedia) dan
+    // 16:01/16:10 (sisa kotak tak-tanda -> "tidak-berubah" PALSU -> berjaya
+    // sementara MOEIS kosong). Susunan sama seperti semula-muat: langganan
+    // -> navigasi -> tunggu kejayaan SEBENAR.
+
+    [Fact]
+    public async Task Navigasi_LanggananMendahuluiMula_DanUrlKekal()
+    {
+        var p = new PelayarMuatPalsu { Keputusan = new KeputusanNavigasi(true) };
+
+        var hasil = await PengendaliMuat.TungguNavigasiSelesaiAsync(
+            p, mula: () => p.MulaNavigasiAsync("https://contoh/kehadiran"));
+
+        Assert.Equal(HasilMuat.Selesai, hasil);
+        Assert.Equal("langganan,mula-navigasi,buang-langganan", string.Join(",", p.Panggilan));
+        Assert.Equal("https://contoh/kehadiran", p.UrlTerakhir);
+    }
+
+    [Fact]
+    public async Task Navigasi_Gagal_BukanSenyapBerjaya()
+    {
+        var p = new PelayarMuatPalsu { Keputusan = new KeputusanNavigasi(false, "err") };
+
+        var hasil = await PengendaliMuat.TungguNavigasiSelesaiAsync(
+            p, mula: () => p.MulaNavigasiAsync("https://contoh/kehadiran"));
+
+        Assert.Equal(HasilMuat.Gagal, hasil);
+    }
+
+    [Fact]
+    public async Task Navigasi_TiadaKejadian_TamatMasa_TidakGantung()
+    {
+        var p = new PelayarMuatPalsu { Keputusan = null, HadMasaMuatMs = 40 };
+
+        var hasil = await PengendaliMuat.TungguNavigasiSelesaiAsync(
+            p, mula: () => p.MulaNavigasiAsync("https://contoh/kehadiran"));
+
+        Assert.Equal(HasilMuat.TamatMasa, hasil);
+        Assert.False(p.LanggananAktif);
+    }
+
+    [Fact]
+    public async Task LalaiTanpaCallback_MasihSemulaMuat()
+    {
+        var p = new PelayarMuatPalsu { Keputusan = new KeputusanNavigasi(true) };
+
+        var hasil = await PengendaliMuat.TungguNavigasiSelesaiAsync(p);
+
+        Assert.Equal(HasilMuat.Selesai, hasil);
+        Assert.Equal("langganan,mula,buang-langganan", string.Join(",", p.Panggilan));
     }
 }

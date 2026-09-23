@@ -621,6 +621,7 @@ function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
   // lama dibuat di bawah lock simpanan di bawah supaya satu tarikh tidak boleh
   // terhasil dua kali apabila dua guru menekan serentak.
   if (pilihan.iso === pilihan.hariIniIso) sediakanLajurSahaja();
+  var keputusan;
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     var s = ss.getSheetByName('kehadiran');
@@ -662,11 +663,30 @@ function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
     if (pilihan.iso === pilihan.hariIniIso) hadirPadamCacheInit_();
     hadirLog_('SIMPAN_KEHADIRAN', sesi.peranan, kelas,
       tkh + '; ' + jumlah + ' murid; ' + bilTiada + ' tidak hadir');
-    return { ok: true, jumlah: jumlah, tidakHadir: bilTiada,
+    keputusan = { ok: true, jumlah: jumlah, tidakHadir: bilTiada,
       rmtHadir: rmtHadir, rmtJumlah: rmtJumlah,
       tarikhIso: pilihan.iso,
       masa: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'HH:mm') };
   } finally { lock.releaseLock(); }
+
+  // AUTO-HANTAR KE MOEIS (23 Sep) — tidak perlu lagi menekan butang "Hantar".
+  // Sebaik sahaja kehadiran disimpan (kategori/sebab sudah disahkan sah di
+  // baris atas), cipta/refresh tugasan MOEIS supaya enjin desktop mengambilnya
+  // dalam kitaran seterusnya. Gate hadirMoeisBolehCiptaJob_ (v118) membenarkan
+  // status 'berjaya' dicipta semula, jadi simpanan baharu MEMULIHKAN tugasan
+  // yang dahulunya terkunci oleh positif palsu — itulah jalan pemulihan 1 BIJAK.
+  //
+  // DI LUAR lock simpanan: hadirMoeisJobBuatDalaman_ mengambil lock SENDIRI
+  // dan Apps Script lock tidak reentrable (waitLock akan tamat masa 20 saat).
+  // Best-effort: kegagalan mencipta tugasan TIDAK boleh menggagalkan simpanan
+  // kehadiran guru — ia hanya dilog.
+  try {
+    hadirMoeisJobBuatDalaman_(kelas, pilihan.iso, '', sesi.peranan);
+  } catch (e) {
+    hadirLog_('MOEIS_JOB_AUTO_GAGAL', sesi.peranan, kelas,
+      String((e && e.message) || e));
+  }
+  return keputusan;
 }
 
 /* Admin sahaja. Senarai kelas hari ini untuk skrin "Hantar ke MOEIS": bilangan
@@ -765,6 +785,15 @@ function hadirMoeisSimpanSebab_(payload, token) {
    berasingan moeis-bot). HADIR tidak menghubungi MOEIS secara langsung. */
 function hadirMoeisJobBuat_(kelas, tarikhIso, token, kelasMoeisId) {
   var sesi = hadirSesi_(token, true);
+  return hadirMoeisJobBuatDalaman_(kelas, tarikhIso, kelasMoeisId, sesi.peranan);
+}
+
+/* Teras cipta/refresh tugasan TANPA semakan sesi — dipanggil oleh auto-hantar
+   dalam hadirSimpanKehadiran_ (guru menyimpan kehadiran tidak memegang sesi
+   admin) dan oleh hadirMoeisJobBuat_ di atas selepas semakan sesi. Ia
+   mengambil lock SENDIRI, jadi pemanggil mesti berada DI LUAR mana-mana lock
+   lain — Apps Script lock tidak reentrable. */
+function hadirMoeisJobBuatDalaman_(kelas, tarikhIso, kelasMoeisId, peranan) {
   kelas = String(kelas || '').trim().toUpperCase();
   if (!kelas) throw new Error('Kelas tidak sah.');
   kelasMoeisId = String(kelasMoeisId || '').trim().slice(0, 100);
@@ -823,7 +852,7 @@ function hadirMoeisJobBuat_(kelas, tarikhIso, token, kelasMoeisId) {
     if (indeks >= 0) sJob.getRange(indeks + 2, 1, 1, HADIR_MOEIS_JOB_LEBAR).setValues([barisBaru]);
     else sJob.appendRow(barisBaru);
   } finally { lock.releaseLock(); }
-  hadirLog_('MOEIS_JOB_BUAT', sesi.peranan, kelas, murid.length + ' murid tidak hadir');
+  hadirLog_('MOEIS_JOB_BUAT', peranan, kelas, murid.length + ' murid tidak hadir');
   return {
     ok: true, kelas: kelas, jumlah: murid.length,
     mesej: 'Tugasan penghantaran MOEIS dicipta untuk ' + kelas + ' (' + murid.length + ' murid).'
