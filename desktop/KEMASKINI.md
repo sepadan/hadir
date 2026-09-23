@@ -12,9 +12,58 @@ Nombor versi tinggal di satu tempat sahaja: `<Version>` dalam
 & "$env:LOCALAPPDATA\HadirDesktop\HadirDesktop.exe" --versi
 ```
 
-Versi juga dipapar pada tajuk tetingkap (`HADIR Desktop 1.0.0 — MOD DEMO`),
-pada nota (tooltip) ikon dulang sistem, dan ditulis satu baris setiap lancaran
-ke `%LOCALAPPDATA%\HadirDesktop\hadir-desktop.log`.
+Versi juga dipapar pada tajuk tetingkap dan pada nota (tooltip) ikon dulang
+sistem, dan ditulis satu baris setiap lancaran ke
+`%LOCALAPPDATA%\HadirDesktop\hadir-desktop.log`.
+
+Tajuk itu JUJUR tentang mod semasa:
+
+- `HADIR Desktop 1.0.3` + banner hijau **SISTEM SEBENAR** — pemilik telah
+  menghidupkan auto-login atau auto-hantar; aplikasi menulis ke MOEIS.
+- `HADIR Desktop 1.0.3 — MOD DEMO` + banner merah — kedua-duanya MATI;
+  aplikasi tidak melakukan apa-apa terhadap MOEIS.
+
+Jika tajuk berkata MOD DEMO tetapi anda menjangka sebaliknya, buka menu dulang
+dan hidupkan "Akaun idMe…" / "Hantar ke MOEIS (automatik)".
+
+## Tetapan yang WAJIB dihidupkan (paling kerap tertinggal)
+
+Aplikasi ini **sengaja tidak melakukan apa-apa sehingga pemilik opt-in**. Ini
+sebab paling kerap seseorang menyangka ia "rosak":
+
+| Tetapan | Di mana | Apa yang berlaku jika MATI |
+|---|---|---|
+| `LoginAuto` | Menu dulang → "Akaun idMe…" | Allowlist navigasi tidak mengandungi idMe/MOEIS — halaman login TIDAK dapat dibuka langsung |
+| `HantarAuto` | Menu dulang → "Hantar ke MOEIS (automatik)" | Kitaran boleh log masuk, tetapi tidak pernah menghantar kehadiran |
+
+Kedua-duanya disimpan dalam `%LOCALAPPDATA%\HadirDesktop\idme-login.json`.
+Menukarnya berkuat kuasa **serta-merta** — tiada mula semula perlu.
+
+### Kitaran automatik (sejak 1.0.3)
+
+Apabila sekurang-kurangnya satu daripada dua tetapan itu HIDUP, aplikasi
+menjalankan kitaran sendiri:
+
+- satu kitaran **45 saat** selepas aplikasi dimulakan (PC yang baru dihidupkan
+  tidak menunggu lama untuk kerja yang sudah menunggu);
+- kemudian **setiap 10 minit** (`KitaranAuto.SelangMinit` dalam
+  `HadirDesktop\KitaranAuto.cs` — ubah di situ dan terbit semula jika perlu).
+
+Kitaran itu **tidak** membuka portal apabila tiada tugasan MOEIS yang belum
+siap: ia cuma membaca senarai tugasan (murah) dan berhenti. Ia juga tidak
+bertindan dengan dirinya sendiri.
+
+Setiap kitaran meninggalkan satu baris bukti dalam
+`%LOCALAPPDATA%\HadirDesktop\hadir-desktop.log`:
+
+```
+2026-09-23T13:07:27+08:00 keadaan=diam sebab=Tiada tugasan MOEIS belum siap untuk
+2026-09-23 … Tiada portal dibuka, tiada probe sesi, tiada log masuk dicuba.
+```
+
+Baris `keadaan=diam` bermaksud kitaran BERJALAN dan memutuskan tiada kerja —
+bukan bermakna pemasa mati. Jika tiada baris baharu selama lebih 10 minit
+sedangkan tetapan HIDUP, barulah ada masalah.
 
 ## Di mana data disimpan — dan apa yang KEKAL
 
