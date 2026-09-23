@@ -107,6 +107,10 @@ public class PenghantaranMoeisTests
         Assert.Equal(1, dom.BilSimpan);
         Assert.Equal(0, dom.BilSimpanSah);
         Assert.Equal(1, dom.BilMuatSemula);
+        // Tugasan ini tidak meminta pengesahan, jadi badge TIDAK dibaca — baik
+        // sebelum simpan mahupun semasa baca semula (litar pintas `Sahkan &&`).
+        Assert.DoesNotContain("badge", dom.Panggilan);
+        Assert.True(hasil.Verifikasi.PengesahanPelayan);   // tiada dakwaan pengesahan dibuat
     }
 
     [Fact]
@@ -156,10 +160,7 @@ public class PenghantaranMoeisTests
     {
         var dom = Dom("101", "102");
         // MOEIS already has 101 absent with the same category/reason.
-        var b = dom.Murid.First(m => m.Id == "101");
-        b.Hadir = false;
-        b.KategoriNilai = "S"; b.KategoriTeks = "SAKIT";
-        b.SebabNilai = "S1"; b.SebabTeks = "DEMAM";
+        dom.SudahTidakHadir("101", "S", "S1");
         dom.Simpan();
 
         var hasil = await new PenghantaranMoeis(dom).HantarAsync(Tugasan(Sakit("101"), Sakit("102")));
@@ -175,8 +176,7 @@ public class PenghantaranMoeisTests
     public async Task SemuaSudahTidakHadir_TiadaSimpanLangsung()
     {
         var dom = Dom("101");
-        var b = dom.Murid[0];
-        b.Hadir = false; b.KategoriNilai = "S"; b.SebabNilai = "S1";
+        dom.SudahTidakHadir("101", "S", "S1");
         dom.Simpan();
 
         var hasil = await new PenghantaranMoeis(dom).HantarAsync(Tugasan(Sakit("101")));
@@ -192,6 +192,9 @@ public class PenghantaranMoeisTests
         Assert.Equal(1, hasil.BilDilangkau);
         Assert.Equal(0, dom.BilKemaskini);
         Assert.Equal(0, dom.BilSimpan);
+        // Tugasan tidak meminta pengesahan, jadi badge TIDAK ditanya langsung
+        // (litar pintas `Sahkan &&` — satu sentuhan DOM kurang).
+        Assert.DoesNotContain("badge", dom.Panggilan);
     }
 
     [Fact]
@@ -256,8 +259,7 @@ public class PenghantaranMoeisTests
     public async Task Konflik_MoeisSudahTandaiMuridLuarTugasan_Berhenti_TiadaSimpan()
     {
         var dom = Dom("101", "102");
-        var lain = dom.Murid.First(m => m.Id == "102");
-        lain.Hadir = false; lain.KategoriNilai = "U"; lain.SebabNilai = "S2";
+        dom.SudahTidakHadir("102", "U", "S2");
         dom.Simpan();
 
         var hasil = await new PenghantaranMoeis(dom).HantarAsync(Tugasan(Sakit("101")));
@@ -573,6 +575,130 @@ public class PenghantaranMoeisTests
         Assert.Equal(0, dom.BilSimpan);
         Assert.DoesNotContain(dom.Panggilan, p => p.StartsWith("tanda:"));
     }
+
+    // ---------- pengesahan MOEIS (1.0.8): badge MENUNGGU PENGESAHAN ----------
+
+    [Fact]
+    public async Task SahkanHidup_TiadaPerubahan_TapiBadgeBelumSah_MengesahkanJuga()
+    {
+        var dom = Dom("101");
+        dom.SudahTidakHadir("101", "S", "S1");
+        dom.Simpan();
+        dom.BadgeDisahkan = false;   // badge "MENUNGGU PENGESAHAN" (data wujud, belum disahkan)
+
+        var tugasan = new TugasanPenghantaran
+        {
+            Kelas = "PRASEKOLAH", TarikhIso = "2026-09-22", Sahkan = true,
+            TidakHadir = new[] { Sakit("101") },
+        };
+
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(tugasan);
+
+        // Jangan potong ke "tidak-berubah": tanpa dialog langsung, pengesahan
+        // tidak akan pernah dihantar (persis laporan 23 Sep: "sudah terisi
+        // tetapi tak disahkan").
+        Assert.Equal("disahkan", hasil.Status);
+        Assert.True(hasil.Berjaya);
+        Assert.Equal("simpansah", hasil.TindakanSimpan);
+        Assert.Equal(1, dom.BilKemaskini);
+        Assert.Equal(1, dom.BilSimpanSah);
+        Assert.Equal(0, dom.BilSimpan);
+        // Langkah 4 ialah gelung atas senarai kosong — TIADA data disentuh.
+        Assert.Equal(0, hasil.BilPerubahan);
+        // "disahkan" di sini bermakna perkara yang sama seperti biasa: baca
+        // semula WAJIB berjalan dan mengesahkan identiti + kategori + sebab —
+        // DAN bendera pelayan mesti benar-benar bertukar.
+        Assert.Equal(1, dom.BilMuatSemula);
+        Assert.True(hasil.Verifikasi.Semua);
+        Assert.True(hasil.Verifikasi.PengesahanPelayan);
+        Assert.True(dom.BadgeDisahkan);   // pelayan menerima pengesahan
+    }
+
+    [Fact]
+    public async Task SahkanHidup_BadgeKekalBelumSahSelepasSimpanSah_BukanDisahkan()
+    {
+        var dom = Dom("101", "102");
+        dom.PengesahanPelayanGagal = true;   // simpanan diterima, pengesahan DITOLAK
+
+        var tugasan = new TugasanPenghantaran
+        {
+            Kelas = "PRASEKOLAH", TarikhIso = "2026-09-22", Sahkan = true,
+            TidakHadir = new[] { Sakit("101") },
+        };
+
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(tugasan);
+
+        // Baris ditulis dengan SEMPURNA — identiti, kategori dan sebab semua
+        // padan — tetapi `#statusBadge` kekal "MENUNGGU PENGESAHAN". Itu BUKAN
+        // `disahkan`: inti laporan pengguna 23 Sep ialah rekod yang betul tetapi
+        // tidak disahkan, jadi data yang betul tidak boleh menjadi buktinya.
+        Assert.Equal("tersimpan", hasil.Status);
+        Assert.False(hasil.Berjaya);
+        Assert.Equal("simpansah", hasil.TindakanSimpan);
+        Assert.True(hasil.Verifikasi.Murid);
+        Assert.True(hasil.Verifikasi.KategoriSebab);
+        Assert.False(hasil.Verifikasi.PengesahanPelayan);
+        Assert.False(hasil.Verifikasi.Semua);
+        Assert.Contains("statusBadge", hasil.Sebab);
+        Assert.Contains("pengesahan-pelayan-tiada", hasil.Bukti);
+        // Satu hantaran sahaja — tiada cubaan kedua secara automatik.
+        Assert.Equal(1, dom.BilSimpanSah);
+        Assert.Equal(1, dom.BilMuatSemula);
+    }
+
+    [Fact]
+    public async Task SahkanHidup_TiadaPerubahan_SebabSediaAdaSalah_BerhentiSebelumSimpanSah()
+    {
+        var dom = Dom("101");
+        // MOEIS sudah menanda 101 tidak hadir, tetapi dengan kategori/sebab yang
+        // BERBEZA daripada HADIR (urusan keluarga/selsema, bukan sakit/demam).
+        dom.SudahTidakHadir("101", "U", "S2");
+        dom.Simpan();
+        dom.BadgeDisahkan = false;
+
+        var tugasan = new TugasanPenghantaran
+        {
+            Kelas = "PRASEKOLAH", TarikhIso = "2026-09-22", Sahkan = true,
+            TidakHadir = new[] { Sakit("101") },
+        };
+
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(tugasan);
+
+        // Mengesahkan ialah dakwaan "rekod ini betul". Rekod ini TIDAK betul,
+        // jadi aliran berhenti SEBELUM butang simpan — bukan mengunci data salah
+        // dan menemuinya selepas pengesahan dihantar.
+        Assert.Equal("kategori-sebab-tidak-padan", hasil.Status);
+        Assert.False(hasil.Berjaya);
+        Assert.Equal(0, dom.BilKemaskini);
+        Assert.Equal(0, dom.BilSimpanSah);
+        Assert.Equal(0, dom.BilSimpan);
+        Assert.Equal(0, dom.BilMuatSemula);
+        Assert.False(dom.BadgeDisahkan);
+        Assert.DoesNotContain(dom.Panggilan, p => p.StartsWith("tanda:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SahkanHidup_TiadaPerubahan_DanBadgeSudahSah_TetapPendek()
+    {
+        var dom = Dom("101");
+        dom.SudahTidakHadir("101", "S", "S1");
+        dom.Simpan();
+        dom.BadgeDisahkan = true;    // badge "TELAH DISAHKAN" — tiada kerja lagi
+
+        var tugasan = new TugasanPenghantaran
+        {
+            Kelas = "PRASEKOLAH", TarikhIso = "2026-09-22", Sahkan = true,
+            TidakHadir = new[] { Sakit("101") },
+        };
+
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(tugasan);
+
+        // Sudah disahkan: kekal laluan pantas, JANGAN buka dialog tanpa sebab.
+        Assert.Equal("tidak-berubah", hasil.Status);
+        Assert.True(hasil.Berjaya);
+        Assert.Equal(0, dom.BilKemaskini);
+        Assert.Equal(0, dom.BilSimpanSah);
+    }
 }
 
 /// <summary>
@@ -773,6 +899,12 @@ public sealed class DomMoeisPalsu : IDomMoeis
     public bool KosongkanSebabSelepasMuatSemula;
     public bool RalatPadaSenarai;
     /// <summary>
+    /// Pelayan menerima simpanan tetapi MENOLAK pengesahan: baris dikemas kini,
+    /// `#statusBadge` kekal "MENUNGGU PENGESAHAN". Dialog tetap berkata
+    /// "Berjaya." — itulah sebabnya badge, bukan dialog, ialah buktinya.
+    /// </summary>
+    public bool PengesahanPelayanGagal;
+    /// <summary>
     /// Apa yang "pelayar" laporkan tentang navigasi semula-muat: Selesai
     /// (dokumen baharu sudah commit), Gagal (navigasi gagal), TamatMasa
     /// (tiada NavigationCompleted — DOM mungkin masih dokumen LAMA).
@@ -790,9 +922,37 @@ public sealed class DomMoeisPalsu : IDomMoeis
     /// <summary>Commit the current rows as the "saved" state (fixture setup + save).</summary>
     public void Simpan() => _tersimpan = Murid.Select(b => b.Salin()).ToList();
 
+    /// <summary>
+    /// Tetapkan satu baris sebagai SUDAH tidak hadir di MOEIS seperti borang
+    /// yang SUDAH DIISI merenderkannya: option yang dipilih membawa nilai DAN
+    /// labelnya bersama (<c>SkripMoeis.BacaSebabMurid</c> membaca
+    /// <c>option.value</c> + <c>option.textContent</c> daripada option yang SAMA).
+    /// Menetapkan nilai sahaja ("S" tanpa teks) memodelkan sesuatu yang lain
+    /// sama sekali — option tanpa label, atau pemilih yang belum siap dimuat —
+    /// dan <see cref="PadananDropdown.Padan"/> memang betul menolaknya, kerana
+    /// "S" bukan "SAKIT". Gunakan helper ini apabila yang dimaksudkan ialah
+    /// "baris ini sudah diisi dengan betul". Pilihan mesti wujud dalam senarai
+    /// dropdown fixture, jadi salah taip gagal dengan kuat.
+    /// </summary>
+    public void SudahTidakHadir(string id, string kategoriNilai, string sebabNilai)
+    {
+        var b = Cari(id) ?? throw new InvalidOperationException("baris tiada dalam fixture: " + id);
+        var k = PilihanKategori.FirstOrDefault(p => p.Nilai == kategoriNilai)
+            ?? throw new InvalidOperationException("kategori bukan pilihan MOEIS: " + kategoriNilai);
+        var s = PilihanSebab.FirstOrDefault(p => p.Nilai == sebabNilai)
+            ?? throw new InvalidOperationException("sebab bukan pilihan MOEIS: " + sebabNilai);
+        b.Hadir = false;
+        b.KategoriNilai = k.Nilai;
+        b.KategoriTeks = k.Teks;
+        b.SebabNilai = s.Nilai;
+        b.SebabTeks = s.Teks;
+    }
+
     private Baris? Cari(string id) => Murid.FirstOrDefault(b => b.Id == id);
 
     public Task<HasilMuat> NavigasiHarian() { Panggilan.Add("navigasi"); return Task.FromResult(HasilMuat.Selesai); }
+    public bool BadgeDisahkan { get; set; }
+    public Task<bool> StatusBadgeDisahkan() { Panggilan.Add("badge"); return Task.FromResult(BadgeDisahkan); }
 
     public Task<bool> KlikTabHarian()
     {
@@ -905,7 +1065,17 @@ public sealed class DomMoeisPalsu : IDomMoeis
     {
         Panggilan.Add("simpansah");
         BilSimpanSah++;
-        if (SimpanBerkesan) Simpan();
+        if (SimpanBerkesan)
+        {
+            Simpan();
+            // Pelayan yang menerima "Simpan & Sahkan" menetapkan
+            // `rekodSahHadirBulanan`, dan badge halaman memaparkannya selepas
+            // muat semula. Memodelkan ini ialah satu-satunya cara ujian boleh
+            // MEMBEZAKAN "data betul" daripada "pengesahan diterima" —
+            // sebelum ini fake tidak pernah menukarnya, jadi ujian `disahkan`
+            // lulus tanpa membuktikan apa-apa tentang bendera pelayan.
+            if (!PengesahanPelayanGagal) BadgeDisahkan = true;
+        }
         return Task.FromResult(true);
     }
 

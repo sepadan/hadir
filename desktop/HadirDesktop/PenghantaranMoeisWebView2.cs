@@ -155,6 +155,11 @@ public static class SkripMoeis
         "var k=pilih(elK);var s=pilih(elS);" +
         "return JSON.stringify({kategoriNilai:k.nilai,kategoriTeks:k.teks,sebabNilai:s.nilai,sebabTeks:s.teks});})()";
 
+    public static string StatusBadgeDisahkan() =>
+        "(function(){var b=document.querySelector('#statusBadge');" +
+        "if(!b)return false;var t=(b.textContent||'');" +
+        "return t.indexOf('TELAH DISAHKAN')>=0;})()";
+
     public static string TekanKemaskini() =>
         "(function(){var el=document.querySelector(" + Lit(SelektorKemaskini) + ");if(!el)return false;el.click();return true;})()";
 
@@ -583,6 +588,8 @@ public sealed class WebView2DomMoeis : IDomMoeis
     public Task<bool> KlikSimpan() => EvalBoolAsync(SkripMoeis.KlikButangDialog("simpan"));
 
     public Task<bool> KlikSimpanSahkan() => EvalBoolAsync(SkripMoeis.KlikButangDialog("simpansah"));
+
+    public Task<bool> StatusBadgeDisahkan() => EvalBoolAsync(SkripMoeis.StatusBadgeDisahkan());
 
     public Task<bool> DialogBerjayaKelihatan() => TungguBenarAsync(SkripMoeis.DialogBerjayaKelihatan());
 

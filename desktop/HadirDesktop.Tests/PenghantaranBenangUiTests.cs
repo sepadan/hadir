@@ -164,7 +164,7 @@ public class PenghantaranBenangUiTests
         var dom = Dom(benang, ui);
 
         var kaedah = typeof(IDomMoeis).GetMethods(BindingFlags.Public | BindingFlags.Instance);
-        Assert.Equal(21, kaedah.Length);   // seam berubah? ujian ini mesti dikemas kini secara sedar
+        Assert.Equal(22, kaedah.Length);   // seam berubah? ujian ini mesti dikemas kini secara sedar
 
         var sebelumSemua = 0;
         foreach (var m in kaedah)
@@ -186,7 +186,7 @@ public class PenghantaranBenangUiTests
             sebelumSemua++;
         }
 
-        Assert.Equal(21, sebelumSemua);
+        Assert.Equal(22, sebelumSemua);
     }
 
     /// <summary>

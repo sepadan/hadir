@@ -138,9 +138,17 @@ public sealed record VerifikasiPenghantaran(
     bool Tarikh = false,
     bool Kelas = false,
     bool Murid = false,
-    bool KategoriSebab = false)
+    bool KategoriSebab = false,
+    // Bendera pengesahan PELAYAN. Dua keadaan sahaja membenarkan `true`:
+    // (a) tugasan tidak pernah meminta pengesahan (`Sahkan == false`) — tiada
+    // apa-apa untuk dibuktikan; atau (b) `#statusBadge` dibaca SELEPAS muat
+    // semula dan berbunyi "TELAH DISAHKAN". Data yang padan TIDAK mencukupi:
+    // menekan "Simpan & Sahkan" boleh menyimpan baris dengan sempurna sambil
+    // pelayan menolak pengesahan — persis keadaan yang dilaporkan pengguna
+    // 23 Sep ("sudah terisi tetapi tak disahkan").
+    bool PengesahanPelayan = true)
 {
-    public bool Semua => Tarikh && Kelas && Murid && KategoriSebab;
+    public bool Semua => Tarikh && Kelas && Murid && KategoriSebab && PengesahanPelayan;
 }
 
 /// <summary>
@@ -353,6 +361,14 @@ public interface IDomMoeis
     Task<bool> DialogSimpanKelihatan();
     Task<bool> KlikSimpan();
     Task<bool> KlikSimpanSahkan();
+
+    /// <summary>
+    /// <c>#statusBadge</c> pada halaman harian MOEIS = "TELAH DISAHKAN".
+    /// Badge ini mencerminkan bendera pelayan (<c>rekodSahHadirBulanan</c>),
+    /// bukan kosmetik: "MENUNGGU PENGESAHAN" bermaksud data wujud tetapi
+    /// tiada siapa menekan "Simpan & Sahkan".
+    /// </summary>
+    Task<bool> StatusBadgeDisahkan();
     Task<bool> DialogBerjayaKelihatan();
     /// <summary>
     /// Reload halaman selepas simpan dan TUNGGU <c>NavigationCompleted</c>
@@ -388,7 +404,9 @@ public interface IPenghantaranMoeis
 ///      "Berjaya." dialog;
 ///   6. MANDATORY re-read (reload + re-open + re-select, READ ONLY — never a
 ///      second submit). Only a re-read that confirms every student counts as
-///      <c>Berjaya</c>.
+///      <c>Berjaya</c>; when the task asked to CONFIRM, that re-read must also
+///      find <c>#statusBadge</c> = "TELAH DISAHKAN" — correct rows prove the
+///      data, not the server's confirmation flag.
 /// </summary>
 public static class PenghantaranMoeisFlow
 {
@@ -587,7 +605,18 @@ public static class PenghantaranMoeisFlow
             // re-read; we never restore anyone to present.
             var praTidakHadir = muridAwal.Where(m => !m.Hadir).Select(m => m.Id).ToHashSet(StringComparer.Ordinal);
 
-            if (perluTanda.Count == 0)
+            // Sahkan-saun (1.0.8): data tiada perubahan TETAPI rekod MOEIS
+            // belum disahkan — badge "MENUNGGU PENGESAHAN", iaitu keadaan
+            // selepas seseorang menekan "Simpan" tanpa "Sahkan" (persis laporan
+            // pengguna 23 Sep: "sudah terisi tetapi tak disahkan"). Bila tugasan
+            // meminta pengesahan JANGAN potong di sini: jatuh ke langkah 5
+            // (kemaskini -> dialog -> "Simpan & Sahkan"). Langkah 4 ialah gelung
+            // atas senarai KOSONG, jadi ALIRAN INI tidak mengubah satu pun
+            // nilai borang — tetapi jangan silap: langkah 5 tetap menghantar
+            // SELURUH borang sedia ada, jadi langkah 3b dahulu membuktikan
+            // borang itu memang sepadan dengan tugasan sebelum ia dikunci.
+            var perluSahkan = tugasan.Sahkan && !(await dom.StatusBadgeDisahkan());
+            if (perluTanda.Count == 0 && !perluSahkan)
             {
                 // Nothing to change → nothing is saved. Not a failure, but not a
                 // submission either: never press save just to press it. The reload
@@ -609,6 +638,29 @@ public static class PenghantaranMoeisFlow
                 h.BilMurid = muridAwal.Count;
                 h.BilDilangkau = sudahTidakHadir.Count;
                 return h;
+            }
+
+            // ---- 3b. About to CONFIRM rows this run never filled. ----
+            // Mengesahkan ialah dakwaan kepada pelayan bahawa rekod itu BETUL.
+            // Baris yang sudah tidak hadir tidak melalui langkah 4/4b, jadi
+            // tanpa semakan ini aliran boleh mengunci kategori/sebab yang SALAH
+            // (dan baca-semula hanya mengesannya SELEPAS pengesahan dihantar —
+            // terlalu lewat). Baca borang dahulu; tidak padan = berhenti
+            // sebelum butang simpan disentuh. Laluan `Sahkan == false` tidak
+            // terjejas: ia tidak mendakwa apa-apa tentang baris ini.
+            if (perluSahkan && sudahTidakHadir.Count > 0)
+            {
+                var tidakPadan = await SemakKategoriSebabSediaAdaAsync(dom, dijangka, sudahTidakHadir);
+                if (tidakPadan != null)
+                {
+                    var h = Buat(tugasan, "kategori-sebab-tidak-padan",
+                        "Tidak mengesahkan rekod yang tidak sepadan: " + tidakPadan +
+                        ". Tiada apa-apa disimpan dan tiada pengesahan dihantar.",
+                        "kategori-sebab-tidak-padan");
+                    h.BilMurid = muridAwal.Count;
+                    h.BilDilangkau = sudahTidakHadir.Count;
+                    return h;
+                }
             }
 
             // ---- 4. Mark + fill category AND reason (both mandatory). ----
@@ -702,12 +754,21 @@ public static class PenghantaranMoeisFlow
                 return semak.Gagal;
             }
 
+            // Dua sebab berbeza untuk TIDAK mendapat 'disahkan', dan operator
+            // perlu membezakannya: data tidak dapat dibuktikan, ATAU data
+            // terbukti betul tetapi bendera pengesahan pelayan tidak bertukar.
+            var sebabTidakSah = !semak.Verifikasi.PengesahanPelayan
+                ? "Dialog simpan berjaya dan data padan, tetapi #statusBadge MOEIS masih bukan \"TELAH DISAHKAN\" "
+                  + "selepas muat semula; pengesahan pelayan TIDAK terbukti."
+                : "Dialog simpan berjaya tetapi baca semula tidak mengesahkan setiap murid; tidak dikira berjaya.";
+            var buktiTidakSah = !semak.Verifikasi.PengesahanPelayan ? "pengesahan-pelayan-tiada" : "tersimpan";
+
             var hasil = Buat(tugasan,
                 semak.Verifikasi.Semua ? "disahkan" : "tersimpan",
                 semak.Verifikasi.Semua
                     ? "Pengesahan selepas muat semula berjaya."
-                    : "Dialog simpan berjaya tetapi baca semula tidak mengesahkan setiap murid; tidak dikira berjaya.",
-                semak.Verifikasi.Semua ? "disahkan" : "tersimpan");
+                    : sebabTidakSah,
+                semak.Verifikasi.Semua ? "disahkan" : buktiTidakSah);
             hasil.Berjaya = semak.Verifikasi.Semua;
             hasil.BilMurid = semak.BilMurid;
             hasil.BilPerubahan = perluTanda.Count;
@@ -735,6 +796,39 @@ public static class PenghantaranMoeisFlow
         "nilai-kosong" => $"{apa} \"{label}\" padan dengan pilihan kosong MOEIS",
         _ => $"{apa} tidak dapat dipadankan: {label}",
     };
+
+    /// <summary>
+    /// Baca kategori/sebab yang SUDAH ada pada borang bagi baris yang aliran ini
+    /// tidak mengisi, dan bandingkan dengan tugasan menggunakan peraturan
+    /// padanan yang sama seperti baca-semula (<see cref="PadananDropdown.Padan"/>).
+    /// Baca sahaja — tiada dropdown disentuh.
+    /// </summary>
+    /// <returns>
+    /// <c>null</c> apabila setiap baris padan; jika tidak, sebab boleh baca yang
+    /// menamakan baris PERTAMA yang gagal (id halaman sahaja, tiada nama/IC).
+    /// </returns>
+    private static async Task<string?> SemakKategoriSebabSediaAdaAsync(
+        IDomMoeis dom, IReadOnlyDictionary<string, MuridTidakHadir> dijangka, IEnumerable<string> id)
+    {
+        foreach (var i in id)
+        {
+            if (!dijangka.TryGetValue(i, out var m)) continue;
+            var pada = await dom.BacaSebabMurid(i);
+            if (pada == null)
+            {
+                return $"kategori/sebab murid (id {i}) tidak dapat dibaca daripada borang MOEIS";
+            }
+            if (!PadananDropdown.Padan(pada.KategoriNilai, pada.KategoriTeks, m.Kategori))
+            {
+                return $"kategori murid (id {i}) pada MOEIS tidak sepadan dengan HADIR (HADIR: \"{m.Kategori}\")";
+            }
+            if (!PadananDropdown.Padan(pada.SebabNilai, pada.SebabTeks, m.Sebab))
+            {
+                return $"sebab murid (id {i}) pada MOEIS tidak sepadan dengan HADIR (HADIR: \"{m.Sebab}\")";
+            }
+        }
+        return null;
+    }
 
     private static HasilPenghantaran GagalIsi(TugasanPenghantaran t, int bilMurid, string id, string sebab)
     {
@@ -954,11 +1048,22 @@ public static class PenghantaranMoeisFlow
             }
         }
 
+        // Bendera PELAYAN, dibaca daripada dokumen yang baru dimuat semula.
+        // Baris yang betul membuktikan data sahaja; ia TIDAK membuktikan MOEIS
+        // menerima pengesahan. Hanya tugasan yang meminta pengesahan membaca
+        // badge — `Sahkan == false` tidak menyentuh DOM ini langsung.
+        var pengesahanPelayan = true;
+        if (tugasan.Sahkan)
+        {
+            pengesahanPelayan = await dom.StatusBadgeDisahkan();
+        }
+
         hasil.Verifikasi = new VerifikasiPenghantaran(
             Tarikh: sedia.TarikhSah,
             Kelas: true, // SediakanHalamanAsync already failed hard on a bad class
             Murid: identitiPadan,
-            KategoriSebab: kategoriSebabPadan);
+            KategoriSebab: kategoriSebabPadan,
+            PengesahanPelayan: pengesahanPelayan);
         return hasil;
     }
 }

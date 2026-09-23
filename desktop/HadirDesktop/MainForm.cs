@@ -151,6 +151,12 @@ public sealed class MainForm : Form
             _backendClient != null ? new BackendKerjaPenuhSource(_backendClient) : _kerjaPenuh,
             _penghantarMoeis,
             dihidupkan: () => _idMeSettingsStore.Baca().HantarAuto,
+            // Sahkan: pengguna 23 Sep — "sudah terisi tetapi tak disahkan.
+            // saya nak disahkan terus juga." Dialog MOEIS menawarkan
+            // "Simpan" dan "Simpan & Sahkan"; lalai lama (false) menekan
+            // "Simpan" sahaja, jadi data masuk tetapi badge kekal
+            // MENUNGGU PENGESAHAN. true = tekan "Simpan & Sahkan".
+            sahkan: true,
             // Log langkah klaim/hantar/selesai — HANYA dalam mod pembangun.
             log: LogLangkah,
             backend: _backendClient,
