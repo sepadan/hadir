@@ -105,7 +105,12 @@ public class SkripMoeisTests
             // ":visible" is jQuery/Playwright-only — it must never reach querySelector.
             Assert.DoesNotContain(":visible", js);
             Assert.Contains(".sweet-alert", js);
-            Assert.Contains("offsetParent", js);
+            // REGRESSION (23/09): the save dialog is position:fixed, and offsetParent
+            // is ALWAYS null for fixed elements — an offsetParent test reported the
+            // open dialog as hidden ("dialog simpan tidak muncul"). Visibility must
+            // come from the computed style + a non-empty bounding box.
+            Assert.DoesNotContain("offsetParent", js);
+            Assert.Contains("getBoundingClientRect", js);
         }
 
         Assert.Contains("button.simpan", SkripMoeis.KlikButangDialog("simpan"));

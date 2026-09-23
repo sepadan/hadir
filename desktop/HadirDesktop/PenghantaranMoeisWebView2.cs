@@ -68,9 +68,29 @@ public static class SkripMoeis
     public static string KlikTabHarian() =>
         "(function(){var a=document.querySelector(" + Lit(SelektorTabHarian) + ");if(!a)return false;a.click();return true;})()";
 
+    /// <summary>
+    /// "Is it actually on screen?" — the ONLY visibility test this file uses.
+    /// <para>
+    /// <c>offsetParent</c> is NEVER usable here: for <c>position:fixed</c>
+    /// elements it is ALWAYS <c>null</c>, so an <c>offsetParent!==null</c> test
+    /// reports a visible fixed overlay as hidden. Live proof (23/09): the MOEIS
+    /// save dialog (<c>.sweet-alert</c>, <c>position:fixed</c>, <c>display:block</c>,
+    /// both <c>button.simpan</c> and <c>button.simpansah</c> present) was rejected
+    /// by the old test, and the app reported "dialog simpan tidak muncul" while
+    /// the dialog was open on screen.
+    /// </para>
+    /// Uses computed style plus a non-empty bounding box instead.
+    /// </summary>
+    private static string JsNampak =>
+        "function nampak(el){if(!el)return false;" +
+        "var g=window.getComputedStyle?window.getComputedStyle(el):null;" +
+        "if(g&&(g.display==='none'||g.visibility==='hidden'||g.opacity==='0'))return false;" +
+        "if(el.getBoundingClientRect){var r=el.getBoundingClientRect();return r.width>0&&r.height>0;}" +
+        "return true;}";
+
     public static string KemaskiniKelihatan() =>
-        "(function(){var el=document.querySelector(" + Lit(SelektorKemaskini) + ");" +
-        "return !!(el&&el.offsetParent!==null);})()";
+        "(function(){" + JsNampak +
+        "return nampak(document.querySelector(" + Lit(SelektorKemaskini) + "));})()";
 
     public static string BacaTarikh() =>
         "(function(){var el=document.querySelector(" + Lit(SelektorTarikh) + ");return el?String(el.value||''):null;})()";
@@ -138,12 +158,14 @@ public static class SkripMoeis
     public static string TekanKemaskini() =>
         "(function(){var el=document.querySelector(" + Lit(SelektorKemaskini) + ");if(!el)return false;el.click();return true;})()";
 
-    /// <summary>Explicit <c>:visible</c> emulation over <c>.sweet-alert</c>.</summary>
+    /// <summary>
+    /// Explicit <c>:visible</c> emulation over <c>.sweet-alert</c>. The dialog is
+    /// <c>position:fixed</c>, so <see cref="JsNampak"/> (never <c>offsetParent</c>)
+    /// is what decides whether it is on screen.
+    /// </summary>
     private static string JsDialogKelihatan =>
-        "function kelihatan(el){if(!el)return false;if(el.offsetParent===null)return false;" +
-        "var g=window.getComputedStyle?window.getComputedStyle(el):null;" +
-        "if(g&&(g.display==='none'||g.visibility==='hidden'))return false;return true;}" +
-        "var dialog=Array.prototype.filter.call(document.querySelectorAll(" + Lit(SelektorDialog) + "),kelihatan);";
+        JsNampak +
+        "var dialog=Array.prototype.filter.call(document.querySelectorAll(" + Lit(SelektorDialog) + "),nampak);";
 
     public static string DialogSimpanKelihatan() =>
         "(function(){" + JsDialogKelihatan +
