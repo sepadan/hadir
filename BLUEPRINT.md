@@ -749,8 +749,8 @@ peraturan kehadiran, tulisan MOEIS dan auth idMe kekal eksklusif dalam
   `IdMeLoginFlow`: bila sesi sah tetapi hos masih idMe, buka senarai aplikasi,
   pilih pautan MOEIS dengan pemilih TULEN `AplikasiIdMe.PilihPautanAplikasiMoeis`
   (port setia companion — label "Pengurusan Murid/MOEIS" ialah keutamaan, hos
-  ialah kebenaran), ikut pautan itu, tunggu origin `moeispel.moe.gov.my`
-  benar-benar muncul, buka halaman kehadiran, BARU sahkan `#kehadiran`.
+  ialah kebenaran), ikut pautan itu, buka halaman kehadiran, BARU sahkan
+  `#kehadiran`.
   Sempadan keselamatan kekal: handoff ialah **navigasi sahaja** (tiada kredensial
   ditaip, tiada kotak semak, tiada borang dihantar), `PautanMoeisSah` menuntut
   HTTPS + hos TEPAT + tiada userinfo + port lalai (jadi anchor yang berlabel
@@ -760,6 +760,39 @@ peraturan kehadiran, tulisan MOEIS dan auth idMe kekal eksklusif dalam
   bukan henti-untuk-manusia) dan **tidak pernah** diakui sebagai sesi sah.
   **BELUM DISAHKAN HIDUP:** DOM sebenar `list_aplikasi` belum pernah dibaca dari
   aplikasi ini — pemilih diambil daripada companion, bukan diterbit semula.
+- **Handoff bergantung pada SESI, bukan pada URL penghubung.** Ujian hidup
+  kedua (23 Sep 2026) menunjukkan langkah handoff memang berjalan — pautan
+  aplikasi diikuti ke `https://moeispel.moe.gov.my/` — tetapi pelayan MOEIS
+  membalas **302 ke `http://moeispel.moe.gov.my/`** (HTTP tidak selamat). Pagar
+  navigasi menyekat lompatan itu, dan **itu betul; pagar TIDAK dilonggarkan.**
+  Pepijatnya ialah syarat yang salah di sebelah kita: adaptor menuntut tetingkap
+  utama KEKAL pada hos MOEIS sejurus selepas mengikut pautan, jadi sekatan yang
+  betul dilaporkan sebagai handoff gagal. Kini: ikut pautan bertoken **sekali
+  sahaja** (kuki sesi sudah ditetapkan oleh respons HTTPS yang pertama; token
+  `token_idms` sekali guna tidak diulang), tunggu rantaian pengalihan mereda,
+  kemudian navigasi TERUS ke `moeispel.../sahsiah/kehadiran/pkhem/tabguru` dan
+  sahkan di situ. Peraturan itu ialah fungsi tulen
+  `AplikasiIdMe.HandoffBerjaya(hosPenghubung, hosHalamanKehadiran)` yang
+  mengabaikan hos penghubung SECARA SENGAJA. Kalau halaman kehadiran melencong
+  balik ke hos idMe, barulah `handoff-moeis-gagal` (sementara). Bukti sesi MOEIS
+  kekal `#kehadiran`, disahkan berasingan di hulu.
+- **Sesi idMe yang SUDAH sah dikenali, bukan dianggap kegagalan.** Apabila profil
+  WebView2 masih memegang sesi idMe yang sah, idMe melencongkan `/login` ke
+  `/home`: borang IC tidak pernah muncul. Aliran dahulu membaca itu sebagai
+  "medan IC tiada" (sementara) dan mengulang tanpa henti — gelung
+  `/login → /home → /login → /home …` dalam ujian hidup 23 Sep 2026. Langkah 3b
+  yang baharu (selepas semakan hos ketat, sebelum apa-apa ditaip) mengklasifikasi
+  halaman permulaan dengan fungsi tulen `IdMeLoginSafety.TentukanKeadaanMasuk`
+  daripada penanda OBJEKTIF sahaja (boolean; tiada nilai, tiada teks halaman):
+  medan IC/kata laluan yang aktif dan kelihatan = **borang** (laluan menaip biasa,
+  keutamaan pertama); anchor `a[href*="list_aplikasi"]` atau laluan `/home` /
+  `/list_aplikasi` = **sesi sah** (langkah kredensial DILANGKAU sepenuhnya, terus
+  ke handoff SSO); selain itu **tidak jelas** = sementara, seperti dahulu.
+  Pagar tidak dilemahkan: sesi hanya boleh diakui pada HTTPS + hos idMe/MOEIS
+  yang dibenarkan (tiada userinfo, port lalai), laluan "sesi sedia ada" menggunakan
+  EKOR YANG SAMA seperti laluan menaip (`IdMeLoginFlow.SelepasSesiSahAsync`), jadi
+  ia tidak boleh melangkau handoff mahupun bukti `#kehadiran`, dan **tiada apa-apa
+  ditaip ke halaman yang tidak memintanya**.
 - **Fail-safe CAPTCHA/OTP tidak boleh dicapai (dibaiki 23 Sep 2026).**
   `WebView2IdMeLoginDom.SemakCaptchaOtp()` menghurai hasil `ExecuteScriptAsync`
   terus sebagai objek JSON, sedangkan skrip memulangkan RENTETAN JS — jadi

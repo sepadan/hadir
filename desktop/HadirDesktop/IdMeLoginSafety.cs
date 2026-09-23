@@ -67,6 +67,86 @@ public static class IdMeLoginSafety
     public enum KelasLogin { Berjaya, PenolakanKredensial, PerluManusia, Transient }
 
     /// <summary>
+    /// Keadaan halaman pada PERMULAAN cubaan (selepas navigasi ke
+    /// <c>/login</c>): halaman itu meminta kredensial, ia papan pemuka bagi sesi
+    /// yang SUDAH sah, atau ia tidak jelas.
+    /// </summary>
+    public enum KeadaanMasuk { BorangLogin, SesiSah, TidakJelas }
+
+    /// <summary>
+    /// Penanda OBJEKTIF yang dibaca dari halaman permulaan. Tiada nilai, tiada
+    /// teks halaman — boolean sahaja. Lalai (semua <c>false</c>) bermakna
+    /// <see cref="KeadaanMasuk.TidakJelas"/>: gagal-tertutup.
+    ///
+    /// <para><b>AdaMedanIc / AdaMedanKataLaluan</b> — halaman MEMINTA kredensial
+    /// (penanda kuat). <b>AdaMedanTeksUmum</b> ialah sandaran LEMAH yang sepadan
+    /// dengan pemilih terakhir <c>IsiPenggunaIdMe</c>, supaya halaman yang dulu
+    /// boleh diisi tidak tiba-tiba menjadi "tidak jelas".
+    /// <b>AdaPautanSenaraiAplikasi</b> — anchor <c>a[href*="list_aplikasi"]</c>,
+    /// iaitu papan pemuka idMe selepas log masuk.</para>
+    /// </summary>
+    public sealed record AmatanMasuk(
+        bool AdaMedanIc = false,
+        bool AdaMedanKataLaluan = false,
+        bool AdaMedanTeksUmum = false,
+        bool AdaPautanSenaraiAplikasi = false);
+
+    /// <summary>
+    /// Laluan yang HANYA wujud selepas log masuk idMe. Diambil terus daripada
+    /// jejak navigasi hidup 23/09/2026: <c>/login → /home</c> apabila profil
+    /// WebView2 sudah memegang sesi idMe yang sah.
+    /// </summary>
+    private static readonly IReadOnlySet<string> LALUAN_PAPAN_PEMUKA =
+        new HashSet<string>(StringComparer.Ordinal) { "/home", "/list_aplikasi" };
+
+    /// <summary>
+    /// PEPIJAT BLOK (hidup, 23/09/2026): apabila profil WebView2 sudah mempunyai
+    /// sesi idMe yang sah, idMe melencongkan <c>/login</c> ke <c>/home</c>.
+    /// Borang IC tidak pernah muncul, jadi aliran membaca "medan IC tiada" dan
+    /// mengulang tanpa henti. Fungsi ini memberi jawapan ketiga: sesi yang SUDAH
+    /// sah dikenali sebagai sah, bukan sebagai kegagalan.
+    ///
+    /// <para>Pagar KEKAL: sesi hanya boleh diakui pada HTTPS + hos idMe/MOEIS
+    /// yang dibenarkan (tiada userinfo, port lalai). Halaman yang bukan borang
+    /// dan bukan papan pemuka kekal <see cref="KeadaanMasuk.TidakJelas"/>
+    /// (transient), dan pengesahan sebenar sesi MOEIS tetap bergantung pada
+    /// <c>#kehadiran</c> di hulu — fungsi ini tidak pernah membuktikannya.</para>
+    /// </summary>
+    public static KeadaanMasuk TentukanKeadaanMasuk(string? url, AmatanMasuk? amatan)
+    {
+        if (amatan == null) return KeadaanMasuk.TidakJelas;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return KeadaanMasuk.TidakJelas;
+        if (u.Scheme != Uri.UriSchemeHttps) return KeadaanMasuk.TidakJelas;
+        if (!string.IsNullOrEmpty(u.UserInfo)) return KeadaanMasuk.TidakJelas;
+        if (!u.IsDefaultPort) return KeadaanMasuk.TidakJelas;
+
+        var hos = u.Host.ToLowerInvariant();
+        if (hos != HOS_IDME_SAH && hos != HOS_MOEIS_SAH) return KeadaanMasuk.TidakJelas;
+
+        // 1) Halaman yang MEMINTA kredensial menang dahulu: kalau medan IC atau
+        //    kata laluan ada, ini borang — teruskan aliran menaip yang biasa.
+        if (amatan.AdaMedanIc || amatan.AdaMedanKataLaluan) return KeadaanMasuk.BorangLogin;
+
+        // 2) Bukti sesi: pautan senarai aplikasi, atau laluan papan pemuka.
+        if (amatan.AdaPautanSenaraiAplikasi) return KeadaanMasuk.SesiSah;
+        if (LALUAN_PAPAN_PEMUKA.Contains(NormalLaluan(u.AbsolutePath))) return KeadaanMasuk.SesiSah;
+
+        // 3) Sandaran lemah — kekalkan tingkah laku lama bagi halaman borang yang
+        //    hanya mempunyai satu medan teks generik.
+        if (amatan.AdaMedanTeksUmum) return KeadaanMasuk.BorangLogin;
+
+        return KeadaanMasuk.TidakJelas;
+    }
+
+    private static string NormalLaluan(string? laluan)
+    {
+        var l = (laluan ?? "").Trim().ToLowerInvariant();
+        if (l.Length > 1 && l.EndsWith("/", StringComparison.Ordinal)) l = l.TrimEnd('/');
+        return l;
+    }
+
+    /// <summary>
     /// Anti-phishing host validation: HTTPS required, EXACT host
     /// <c>idme.moe.gov.my</c> (no subdomain trickery like
     /// <c>idme.moe.gov.my.evil.com</c>), no userinfo, default port only.

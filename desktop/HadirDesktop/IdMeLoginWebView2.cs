@@ -152,6 +152,49 @@ public sealed class WebView2IdMeLoginDom : IIdMeLoginDom
 
     public Task<string?> UrlHalaman() => EvalStringAsync("location.href");
 
+    /// <summary>
+    /// Penanda objektif halaman permulaan — boolean sahaja, tiada nilai dan
+    /// tiada teks halaman. PEMERHATIAN sahaja: tiada medan diisi, tiada kotak
+    /// ditanda, tiada borang dihantar.
+    ///
+    /// Pemilih medan IC/kata laluan SENGAJA sepadan dengan yang digunakan oleh
+    /// <see cref="IsiPenggunaIdMe"/> / <see cref="IsiKataLaluanIdMe"/> (termasuk
+    /// syarat "aktif dan kelihatan"), supaya halaman yang memang boleh diisi
+    /// tidak pernah tersalah baca sebagai papan pemuka. Gagal-tertutup: apa-apa
+    /// ralat memulangkan semua <c>false</c> (= tidak jelas = transient).
+    /// </summary>
+    public async Task<IdMeLoginSafety.AmatanMasuk> AmatiHalamanMasuk()
+    {
+        var json = await EvalStringAsync(
+            "(function(){" +
+            "function nampak(sel){var ls=document.querySelectorAll(sel);for(var i=0;i<ls.length;i++){var el=ls[i];if(!el.disabled&&el.offsetParent!==null)return true;}return false;}" +
+            "return JSON.stringify({" +
+            "ic:nampak('input[placeholder*=\"KAD PENGENALAN\" i],input[placeholder*=\"pengenalan\" i],input[name*=\"pengenalan\" i],input[name*=\"ic\" i],input[name=\"username\"]')," +
+            "kataLaluan:nampak('input[type=\"password\"]')," +
+            "teks:nampak('input[type=\"text\"]')," +
+            "aplikasi:!!document.querySelector('a[href*=\"list_aplikasi\"]')" +
+            "});})()");
+
+        if (string.IsNullOrEmpty(json)) return new IdMeLoginSafety.AmatanMasuk();
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return new IdMeLoginSafety.AmatanMasuk();
+            return new IdMeLoginSafety.AmatanMasuk(
+                Benar(doc.RootElement, "ic"),
+                Benar(doc.RootElement, "kataLaluan"),
+                Benar(doc.RootElement, "teks"),
+                Benar(doc.RootElement, "aplikasi"));
+        }
+        catch
+        {
+            return new IdMeLoginSafety.AmatanMasuk();
+        }
+    }
+
+    private static bool Benar(JsonElement objek, string nama) =>
+        objek.TryGetProperty(nama, out var v) && v.ValueKind == JsonValueKind.True;
+
     public async Task<KeputusanDom> IsiPenggunaIdMe(string pengguna)
     {
         var nilai = JsonSerializer.Serialize(pengguna);
@@ -307,10 +350,20 @@ public sealed class WebView2IdMeLoginDom : IIdMeLoginDom
     }
 
     /// <summary>
-    /// SSO handoff, part 2: follow the MOEIS application link, wait for the
-    /// moeispel origin to genuinely appear, and only THEN open the attendance
-    /// page. NAVIGATION only. The href is re-validated here so this method never
-    /// depends on its caller having done so.
+    /// SSO handoff, part 2: ikut pautan aplikasi MOEIS SEKALI, beri masa
+    /// rantaian pengalihan mereda, kemudian navigasi TERUS ke halaman kehadiran
+    /// dan sahkan di situ. NAVIGASI sahaja. Href disahkan semula di sini supaya
+    /// kaedah ini tidak pernah bergantung pada pemanggilnya sudah berbuat
+    /// demikian.
+    ///
+    /// <para>PEPIJAT BLOK (hidup, 23/09/2026): titik akhir SSO MOEIS membalas
+    /// <c>302</c> ke <c>http://moeispel.moe.gov.my/</c> — HTTP tidak selamat —
+    /// dan pagar navigasi menyekatnya. Pagar itu BETUL dan kekal. Versi lama
+    /// mensyaratkan tetingkap utama berada pada hos MOEIS sejurus selepas
+    /// mengikut pautan, jadi sekatan yang betul itu dilaporkan sebagai handoff
+    /// gagal. Kini keputusan bergantung pada SESI (halaman kehadiran boleh
+    /// dibuka pada hos MOEIS), bukan pada URL penghubung — lihat
+    /// <see cref="AplikasiIdMe.HandoffBerjaya"/>.</para>
     /// </summary>
     public async Task<KeputusanHandoff> IkutPautanAplikasiMoeis(string href)
     {
@@ -320,26 +373,27 @@ public sealed class WebView2IdMeLoginDom : IIdMeLoginDom
                 "Pautan aplikasi bukan HTTPS " + IdMeLoginSafety.HOS_MOEIS_SAH + " tepat; tiada navigasi dilakukan.");
         }
 
+        // SEKALI sahaja: token SSO (`token_idms=`) adalah sekali guna, dan kuki
+        // sesi MOEIS sudah ditetapkan oleh respons HTTPS yang pertama.
         await NavigateAsync(href);
-        var hos = await TungguHosAsync(IdMeLoginSafety.HOS_MOEIS_SAH);
-        if (hos != IdMeLoginSafety.HOS_MOEIS_SAH)
-        {
-            return new KeputusanHandoff(false, hos,
-                "Selepas mengikut pautan aplikasi MOEIS, hos ialah " + (hos.Length > 0 ? hos : "(tiada)") +
-                " — sesi MOEIS belum terbentuk (token SSO mungkin sudah luput/terpakai).");
-        }
+        var hosPenghubung = HosDari(await UrlHalaman());
 
-        // Only now is the attendance page reachable without a redirect back to idMe.
+        // Tunggu sekejap supaya rantaian pengalihan (termasuk lompatan HTTP yang
+        // disekat pagar) selesai sebelum navigasi seterusnya.
+        await Delay(_masaMuatMs);
+
+        // Sesi, bukan URL penghubung, yang menentukan.
         await NavigateAsync(IdMeLoginEndpoints.KehadiranUrl);
-        var hosAkhir = await TungguHosAsync(IdMeLoginSafety.HOS_MOEIS_SAH);
-        if (hosAkhir != IdMeLoginSafety.HOS_MOEIS_SAH)
+        var hosKehadiran = await TungguHosAsync(IdMeLoginSafety.HOS_MOEIS_SAH);
+
+        if (!AplikasiIdMe.HandoffBerjaya(hosPenghubung, hosKehadiran))
         {
-            return new KeputusanHandoff(false, hosAkhir,
-                "Halaman kehadiran MOEIS dilencongkan keluar ke " + (hosAkhir.Length > 0 ? hosAkhir : "(tiada)") +
-                " walaupun selepas aplikasi MOEIS dilancarkan.");
+            return new KeputusanHandoff(false, hosKehadiran,
+                "Halaman kehadiran MOEIS melencong keluar ke " + (hosKehadiran.Length > 0 ? hosKehadiran : "(tiada)") +
+                " selepas aplikasi MOEIS dilancarkan dari portal idMe — sesi MOEIS tidak terbentuk.");
         }
 
-        return new KeputusanHandoff(true, hosAkhir);
+        return new KeputusanHandoff(true, hosKehadiran);
     }
 
     /// <summary>Poll the current host until it matches, bounded. Returns the LAST host seen.</summary>

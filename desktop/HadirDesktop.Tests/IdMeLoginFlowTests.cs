@@ -158,6 +158,14 @@ public sealed class PalsuIdMeLoginDom : IIdMeLoginDom
     public AmatanCaptcha CaptchaAwal = new(false);
     public AmatanCaptcha CaptchaAkhir = new(false);
     public string Url = "https://idme.moe.gov.my/login";
+
+    /// <summary>
+    /// Halaman permulaan. Lalai = borang log masuk idMe sebenar (medan IC
+    /// kelihatan, tiada pautan papan pemuka) supaya setiap ujian sedia ada
+    /// mengikut laluan menaip kredensial yang sama seperti dahulu.
+    /// </summary>
+    public IdMeLoginSafety.AmatanMasuk Masuk = new(AdaMedanIc: true);
+
     public KeputusanDom IsiIc = new(true);
     public KeputusanDom Lanjut = new(true);
     public string? KunciSebenar = "BUNGA RAYA";
@@ -193,6 +201,7 @@ public sealed class PalsuIdMeLoginDom : IIdMeLoginDom
     public int IkutPautanDipanggil;
     public string? HrefDiterima;
     public int SahkanSesiDipanggil;
+    public int AmatiMasukDipanggil;
     private int _captchaDipanggil;
 
     public Task NavigasiLoginIdMe() { NavigasiDipanggil++; return Task.CompletedTask; }
@@ -204,6 +213,12 @@ public sealed class PalsuIdMeLoginDom : IIdMeLoginDom
     }
 
     public Task<string?> UrlHalaman() => Task.FromResult<string?>(Url);
+
+    public Task<IdMeLoginSafety.AmatanMasuk> AmatiHalamanMasuk()
+    {
+        AmatiMasukDipanggil++;
+        return Task.FromResult(Masuk);
+    }
 
     public Task<KeputusanDom> IsiPenggunaIdMe(string pengguna)
     {

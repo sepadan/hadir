@@ -45,6 +45,14 @@ public interface IIdMeLoginDom
     Task NavigasiLoginIdMe();
     Task<AmatanCaptcha> SemakCaptchaOtp();
     Task<string?> UrlHalaman();
+
+    /// <summary>
+    /// Baca penanda OBJEKTIF halaman permulaan (boolean sahaja): halaman ini
+    /// meminta kredensial, atau ia papan pemuka bagi sesi yang sudah sah.
+    /// PEMERHATIAN sahaja — tiada apa-apa ditaip, diklik atau dihantar.
+    /// </summary>
+    Task<IdMeLoginSafety.AmatanMasuk> AmatiHalamanMasuk();
+
     Task<KeputusanDom> IsiPenggunaIdMe(string pengguna);
     Task<KeputusanDom> LanjutkanPengesahan();
     Task<string?> BacaKunciKeselamatan();
@@ -128,6 +136,26 @@ public static class IdMeLoginFlow
             // never type, but retry the navigation. Anti-phishing holds because
             // no credential is ever typed before this check passes.
             return Buat("hos-tidak-sah", false, sah.Sebab + " Tiada kredensial ditaip; akan cuba semula.", "hos-tidak-sah");
+        }
+
+        // 3b. SESI YANG SUDAH SAH. idMe melencongkan /login ke /home apabila
+        //     profil WebView2 masih memegang sesi yang sah, jadi borang IC tidak
+        //     pernah muncul. Dahulu langkah 4 membaca itu sebagai "medan IC
+        //     tiada" (transient) dan aliran tersangkut dalam gelung tanpa henti
+        //     (bukti hidup 23/09/2026). Sesi yang sah kini DIKENALI: langkah
+        //     kredensial DILANGKAU sepenuhnya dan aliran terus ke handoff SSO.
+        //     Halaman yang tidak jelas kekal transient seperti sebelum ini —
+        //     tiada apa-apa ditaip ke halaman yang tidak memintanya.
+        var keadaanMasuk = IdMeLoginSafety.TentukanKeadaanMasuk(urlSemasa, await dom.AmatiHalamanMasuk());
+        if (keadaanMasuk == IdMeLoginSafety.KeadaanMasuk.SesiSah)
+        {
+            return await SelepasSesiSahAsync(dom, sah.Hos, modTanpaFrasa: false, sesiSediaAda: true, ct);
+        }
+        if (keadaanMasuk == IdMeLoginSafety.KeadaanMasuk.TidakJelas)
+        {
+            return Buat("halaman-tidak-sedia", false,
+                "Halaman idMe bukan borang log masuk dan bukan papan pemuka sesi sah (halaman belum sedia); tiada kredensial ditaip; akan cuba semula.",
+                "halaman-masuk-tidak-jelas");
         }
 
         // 4. Fill IC (user) ONLY — idMe needs it first to show the phrase.
@@ -216,42 +244,7 @@ public static class IdMeLoginFlow
         var sesi = await dom.SahkanSesiSelepasLogin();
         if (sesi.Status == "sesi-sah")
         {
-            // 13. SSO HANDOFF idMe -> MOEIS ("pilih aplikasi"). A successful idMe
-            //     login normally lands on the idMe DASHBOARD, and MOEIS still has
-            //     no session of its own: going straight to the attendance URL is
-            //     redirected back to idMe, which is exactly the endless
-            //     login->bounce->login loop observed live. So when only idMe is
-            //     authenticated, follow the MOEIS application link (single-use
-            //     SSO token) and re-verify. A failed handoff returns a
-            //     NON-VALID (transient) result — it is never reported as a valid
-            //     session, and it is never a credential strike.
-            if (sesi.Hos != IdMeLoginSafety.HOS_MOEIS_SAH)
-            {
-                var gagalHandoff = await HandoffMoeisAsync(dom, ct);
-                if (gagalHandoff != null) return gagalHandoff;
-
-                sesi = await dom.SahkanSesiSelepasLogin();
-                if (sesi.Status != "sesi-sah" || sesi.Hos != IdMeLoginSafety.HOS_MOEIS_SAH)
-                {
-                    return Buat("handoff-moeis-gagal", false,
-                        "Aplikasi MOEIS dilancarkan dari portal idMe tetapi sesi MOEIS masih tidak dapat disahkan (" +
-                        (sesi.Sebab.Length > 0 ? sesi.Sebab : "elemen #kehadiran tiada pada hos " + (sesi.Hos.Length > 0 ? sesi.Hos : "(tiada)")) +
-                        "); akan cuba semula.",
-                        "handoff-moeis-gagal", "kehadiran-tidak-disahkan");
-                }
-            }
-
-            if (modTanpaFrasa)
-            {
-                var h = Buat("kunci-tiada-dibenarkan", false,
-                    "Frasa \"Kata Kunci Keselamatan\" tidak dapat dibaca (imej/canvas) tetapi suis benarkanTerusTanpaFrasa HIDUP — log masuk diteruskan selepas semakan HTTPS + hos idMe dan kotak semak pengesahan ditanda; sesi kini sah.",
-                    "kunci-tiada-dibenarkan", "sesi-sah");
-                h.SesiSah = true;
-                return h;
-            }
-            var ok = Buat("sesi-sah", false, "Log masuk idMe automatik berjaya.", "sesi-sah");
-            ok.SesiSah = true;
-            return ok;
+            return await SelepasSesiSahAsync(dom, sesi.Hos, modTanpaFrasa, sesiSediaAda: false, ct);
         }
         if (sesi.Status == "kredensial-ditolak")
         {
@@ -262,6 +255,68 @@ public static class IdMeLoginFlow
         return Buat("sesi-tidak-dapat-disahkan", false,
             sesi.Sebab.Length > 0 ? sesi.Sebab : "Sesi tidak dapat disahkan selepas hantar; bukan bukti kredensial ditolak; akan cuba semula.",
             "sesi-tidak-dapat-disahkan");
+    }
+
+    /// <summary>
+    /// Ekor BERSAMA bagi SETIAP laluan yang mempunyai bukti jujur sesi idMe sah:
+    /// langkah 13 (handoff SSO "pilih aplikasi") diikuti bentuk kejayaan akhir.
+    /// Dua pemanggil — langkah 3b (sesi yang SUDAH wujud semasa aplikasi membuka
+    /// <c>/login</c>) dan langkah 12 (sesi yang baru terbentuk selepas kredensial
+    /// ditaip). Satu badan bermakna laluan "sesi sedia ada" tidak boleh melangkau
+    /// handoff mahupun bukti <c>#kehadiran</c>.
+    ///
+    /// Kejayaan hanya diakui apabila <see cref="IIdMeLoginDom.SahkanSesiSelepasLogin"/>
+    /// menjawab <c>sesi-sah</c> PADA hos MOEIS — iaitu <c>#kehadiran</c> terbukti.
+    /// </summary>
+    private static async Task<HasilLoginAuto> SelepasSesiSahAsync(
+        IIdMeLoginDom dom, string hos, bool modTanpaFrasa, bool sesiSediaAda, CancellationToken ct)
+    {
+        // 13. SSO HANDOFF idMe -> MOEIS ("pilih aplikasi"). A valid idMe login
+        //     normally lands on the idMe DASHBOARD, and MOEIS still has no
+        //     session of its own: going straight to the attendance URL is
+        //     redirected back to idMe, which is exactly the endless
+        //     login->bounce->login loop observed live. So when only idMe is
+        //     authenticated, follow the MOEIS application link (single-use SSO
+        //     token) and re-verify. A failed handoff returns a NON-VALID
+        //     (transient) result — it is never reported as a valid session, and
+        //     it is never a credential strike.
+        if (hos != IdMeLoginSafety.HOS_MOEIS_SAH)
+        {
+            var gagalHandoff = await HandoffMoeisAsync(dom, ct);
+            if (gagalHandoff != null) return gagalHandoff;
+
+            var sesi = await dom.SahkanSesiSelepasLogin();
+            if (sesi.Status != "sesi-sah" || sesi.Hos != IdMeLoginSafety.HOS_MOEIS_SAH)
+            {
+                return Buat("handoff-moeis-gagal", false,
+                    "Aplikasi MOEIS dilancarkan dari portal idMe tetapi sesi MOEIS masih tidak dapat disahkan (" +
+                    (sesi.Sebab.Length > 0 ? sesi.Sebab : "elemen #kehadiran tiada pada hos " + (sesi.Hos.Length > 0 ? sesi.Hos : "(tiada)")) +
+                    "); akan cuba semula.",
+                    "handoff-moeis-gagal", "kehadiran-tidak-disahkan");
+            }
+        }
+
+        if (modTanpaFrasa)
+        {
+            var h = Buat("kunci-tiada-dibenarkan", false,
+                "Frasa \"Kata Kunci Keselamatan\" tidak dapat dibaca (imej/canvas) tetapi suis benarkanTerusTanpaFrasa HIDUP — log masuk diteruskan selepas semakan HTTPS + hos idMe dan kotak semak pengesahan ditanda; sesi kini sah.",
+                "kunci-tiada-dibenarkan", "sesi-sah");
+            h.SesiSah = true;
+            return h;
+        }
+
+        if (sesiSediaAda)
+        {
+            var sedia = Buat("sesi-sah", false,
+                "Sesi idMe pada profil ini sudah sah (papan pemuka idMe, bukan borang log masuk) — tiada kredensial ditaip; handoff SSO ke MOEIS dijalankan dan halaman kehadiran disahkan.",
+                "sesi-sah", "sesi-sedia-ada");
+            sedia.SesiSah = true;
+            return sedia;
+        }
+
+        var ok = Buat("sesi-sah", false, "Log masuk idMe automatik berjaya.", "sesi-sah");
+        ok.SesiSah = true;
+        return ok;
     }
 
     /// <summary>

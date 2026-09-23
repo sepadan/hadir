@@ -78,6 +78,32 @@ public static class AplikasiIdMe
     }
 
     /// <summary>
+    /// Keputusan handoff. PERATURAN: <b>SESI yang menentukan, bukan URL
+    /// penghubung.</b>
+    ///
+    /// <para>Bukti hidup 23/09/2026: selepas pautan bertoken diikut, pelayan
+    /// MOEIS membalas <c>302</c> ke <c>http://moeispel.moe.gov.my/</c> — HTTP
+    /// tidak selamat. Pagar navigasi menyekatnya, dan itu BETUL; pagar tidak
+    /// dilonggarkan. Kesannya tetingkap utama mungkin tidak kekal pada hos
+    /// MOEIS ketika itu, jadi <paramref name="hosSelepasIkutPautan"/> SENGAJA
+    /// diabaikan: ia bukan bukti apa-apa ke arah mana pun. Kuki sesi sudah
+    /// ditetapkan oleh respons HTTPS yang PERTAMA, jadi pautan bertoken tidak
+    /// diikut lebih daripada sekali.</para>
+    ///
+    /// <para>Satu-satunya bukti ialah halaman kehadiran benar-benar terbuka pada
+    /// hos MOEIS. Kalau ia melencong balik ke hos idMe, handoff GAGAL
+    /// (transient). Kehadiran <c>#kehadiran</c> disahkan berasingan di hulu.</para>
+    /// </summary>
+    public static bool HandoffBerjaya(string? hosSelepasIkutPautan, string? hosHalamanKehadiran)
+    {
+        _ = hosSelepasIkutPautan;   // sengaja tidak digunakan — lihat ringkasan.
+        return string.Equals(
+            (hosHalamanKehadiran ?? "").Trim().ToLowerInvariant(),
+            IdMeLoginSafety.HOS_MOEIS_SAH,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Tolerant parse of the <c>[{teks,href}]</c> array the DOM bridge returns.
     /// Malformed JSON, a non-array, or an entry without a usable href yields an
     /// EMPTY list — never a throw, never a partial guess.
