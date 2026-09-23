@@ -51,7 +51,26 @@ public interface IIdMeLoginDom
     Task<bool> TandakanKunciKeselamatan();
     Task<KeputusanDom> IsiKataLaluanIdMe(string kataLaluan);
     Task<KeputusanDom> HantarBorangLogMasuk();
+
+    /// <summary>
+    /// Observe the page the browser is ALREADY on after submit and classify it.
+    /// This must NOT navigate to MOEIS: at this point MOEIS has no session, so a
+    /// direct visit is bounced back to idMe (the real bug this seam split fixes).
+    /// </summary>
     Task<IdMeLoginSafety.KeputusanSelepasHantar> SahkanSesiSelepasLogin();
+
+    /// <summary>
+    /// SSO handoff, part 1: open idMe's application list ("pilih aplikasi") and
+    /// read its anchors (label + href only). NAVIGATION only — nothing is typed.
+    /// </summary>
+    Task<IReadOnlyList<PautanAplikasi>> SenaraiAplikasiIdMe();
+
+    /// <summary>
+    /// SSO handoff, part 2: follow the chosen MOEIS application link (it carries
+    /// the single-use SSO token), wait for the moeispel origin to actually
+    /// appear, then open the attendance page. NAVIGATION only.
+    /// </summary>
+    Task<KeputusanHandoff> IkutPautanAplikasiMoeis(string href);
 }
 
 /// <summary>
@@ -197,6 +216,31 @@ public static class IdMeLoginFlow
         var sesi = await dom.SahkanSesiSelepasLogin();
         if (sesi.Status == "sesi-sah")
         {
+            // 13. SSO HANDOFF idMe -> MOEIS ("pilih aplikasi"). A successful idMe
+            //     login normally lands on the idMe DASHBOARD, and MOEIS still has
+            //     no session of its own: going straight to the attendance URL is
+            //     redirected back to idMe, which is exactly the endless
+            //     login->bounce->login loop observed live. So when only idMe is
+            //     authenticated, follow the MOEIS application link (single-use
+            //     SSO token) and re-verify. A failed handoff returns a
+            //     NON-VALID (transient) result — it is never reported as a valid
+            //     session, and it is never a credential strike.
+            if (sesi.Hos != IdMeLoginSafety.HOS_MOEIS_SAH)
+            {
+                var gagalHandoff = await HandoffMoeisAsync(dom, ct);
+                if (gagalHandoff != null) return gagalHandoff;
+
+                sesi = await dom.SahkanSesiSelepasLogin();
+                if (sesi.Status != "sesi-sah" || sesi.Hos != IdMeLoginSafety.HOS_MOEIS_SAH)
+                {
+                    return Buat("handoff-moeis-gagal", false,
+                        "Aplikasi MOEIS dilancarkan dari portal idMe tetapi sesi MOEIS masih tidak dapat disahkan (" +
+                        (sesi.Sebab.Length > 0 ? sesi.Sebab : "elemen #kehadiran tiada pada hos " + (sesi.Hos.Length > 0 ? sesi.Hos : "(tiada)")) +
+                        "); akan cuba semula.",
+                        "handoff-moeis-gagal", "kehadiran-tidak-disahkan");
+                }
+            }
+
             if (modTanpaFrasa)
             {
                 var h = Buat("kunci-tiada-dibenarkan", false,
@@ -218,6 +262,45 @@ public static class IdMeLoginFlow
         return Buat("sesi-tidak-dapat-disahkan", false,
             sesi.Sebab.Length > 0 ? sesi.Sebab : "Sesi tidak dapat disahkan selepas hantar; bukan bukti kredensial ditolak; akan cuba semula.",
             "sesi-tidak-dapat-disahkan");
+    }
+
+    /// <summary>
+    /// The "pilih aplikasi" step that was MISSING from this flow: open idMe's
+    /// application list, pick the MOEIS entry with the PURE selector
+    /// (<see cref="AplikasiIdMe.PilihPautanAplikasiMoeis"/>), and follow it so the
+    /// MOEIS session is actually created. NAVIGATION only — no credential is
+    /// typed here, no checkbox is ticked, no form is submitted, and the host
+    /// allowlist is re-checked inside the adapter before it navigates.
+    ///
+    /// Returns <c>null</c> when the handoff reached the MOEIS origin; otherwise a
+    /// TRANSIENT (<c>PerluManusia=false</c>) failure result. It can never return
+    /// a "session valid" result: that answer only ever comes from re-running
+    /// <see cref="IIdMeLoginDom.SahkanSesiSelepasLogin"/> afterwards.
+    /// </summary>
+    private static async Task<HasilLoginAuto?> HandoffMoeisAsync(IIdMeLoginDom dom, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var senarai = await dom.SenaraiAplikasiIdMe();
+        var pilih = AplikasiIdMe.PilihPautanAplikasiMoeis(senarai);
+        if (pilih == null)
+        {
+            return Buat("handoff-moeis-gagal", false,
+                "Log masuk idMe berjaya tetapi pautan aplikasi MOEIS tidak dijumpai pada senarai aplikasi idMe, jadi sesi MOEIS tidak terbentuk; akan cuba semula.",
+                "handoff-moeis-gagal", "pautan-aplikasi-tiada");
+        }
+
+        ct.ThrowIfCancellationRequested();
+        var ikut = await dom.IkutPautanAplikasiMoeis(pilih.Href);
+        if (!ikut.Ok)
+        {
+            return Buat("handoff-moeis-gagal", false,
+                ikut.Sebab.Length > 0
+                    ? ikut.Sebab + " Akan cuba semula."
+                    : "Mengikut pautan aplikasi MOEIS tidak membawa ke origin " + IdMeLoginSafety.HOS_MOEIS_SAH + "; akan cuba semula.",
+                "handoff-moeis-gagal", "origin-moeis-tiada");
+        }
+
+        return null;
     }
 }
 

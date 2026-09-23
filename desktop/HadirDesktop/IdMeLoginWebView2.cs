@@ -108,7 +108,14 @@ public sealed class WebView2IdMeLoginDom : IIdMeLoginDom
             // NOTE: this deliberately does NOT match the idMe security-phrase
             // canvas (id="captcha") — that is a NORMAL step. Only a real OTP/2FA
             // field or a reCAPTCHA iframe trips this fail-safe.
-            var raw = await wv.ExecuteScriptAsync(
+            //
+            // The script returns a JS STRING, so the result must go through
+            // EvalStringAsync (ExecuteScriptAsync hands back the JSON ENCODING of
+            // the result — a JSON-encoded string, not the object itself). Parsing
+            // the raw result directly made this whole guard unreachable: every
+            // page classified as JsonValueKind.String and returned "no CAPTCHA",
+            // i.e. an OTP/2FA challenge could never stop the flow.
+            var raw = await EvalStringAsync(
                 "(function(){var padanan=[];var url=location.href;document.querySelectorAll('.g-recaptcha, iframe[src*=\"recaptcha\"], input[name*=\"otp\" i], input[autocomplete=\"one-time-code\"]').forEach(function(el){var cls=el.className;if(cls&&cls.baseVal!==undefined)cls=cls.baseVal;padanan.push((el.tagName||'').toLowerCase()+'#'+(el.id||'')+'.'+String(cls||''));});return JSON.stringify({url:url,padanan:padanan.slice(0,8)});})()");
             if (string.IsNullOrEmpty(raw) || raw == "null") return new AmatanCaptcha(false);
             using var doc = JsonDocument.Parse(raw);
@@ -239,10 +246,121 @@ public sealed class WebView2IdMeLoginDom : IIdMeLoginDom
         return ok ? new KeputusanDom(true) : new KeputusanDom(false, sebabGagal);
     }
 
+    /// <summary>
+    /// Classify the page the browser is ALREADY on. This deliberately does NOT
+    /// navigate anywhere.
+    ///
+    /// It used to navigate straight to <see cref="IdMeLoginEndpoints.KehadiranUrl"/>
+    /// — that was the BLOCKING BUG (live, 2026-09-23): idMe accepted the
+    /// credential, but MOEIS had no session of its own yet, so the attendance URL
+    /// redirected to <c>idme.moe.gov.my/login</c> and the app re-logged-in
+    /// forever. The idMe -> MOEIS SSO handoff ("pilih aplikasi") is now an
+    /// explicit step in <see cref="IdMeLoginFlow"/>, and this method's only job is
+    /// to answer honestly about where we actually are.
+    /// </summary>
     public async Task<IdMeLoginSafety.KeputusanSelepasHantar> SahkanSesiSelepasLogin()
     {
-        await NavigateAsync(IdMeLoginEndpoints.KehadiranUrl);
+        // Give the post-submit navigation time to land, then poll until the page
+        // is DECISIVE (session valid / credential explicitly rejected). An
+        // indecisive page after the deadline stays indecisive — reported as-is,
+        // never upgraded to "valid".
+        await Delay(_masaMuatMs);
 
+        var mula = Environment.TickCount64;
+        IdMeLoginSafety.KeputusanSelepasHantar akhir;
+        while (true)
+        {
+            akhir = await AmatiSesiAsync();
+            if (akhir.Status != "sesi-tamat") return akhir;
+            if (Environment.TickCount64 - mula >= _masaSediaMs) return akhir;
+            await Delay(_jedaPollMs);
+        }
+    }
+
+    /// <summary>
+    /// SSO handoff, part 1: open idMe's application list and read its anchors.
+    /// NAVIGATION only — nothing is typed, clicked or submitted. Selectors are
+    /// taken from the companion's live-used <c>aplikasi.mjs</c>; the real
+    /// <c>list_aplikasi</c> DOM is BELUM DISAHKAN HIDUP from this app.
+    /// </summary>
+    public async Task<IReadOnlyList<PautanAplikasi>> SenaraiAplikasiIdMe()
+    {
+        await NavigateAsync(AplikasiIdMe.UrlSenaraiAplikasi);
+
+        // `a.href` (the resolved property, not the raw attribute) so a relative
+        // href is absolutised by the browser BEFORE the host allowlist decides.
+        const string js =
+            "(function(){return JSON.stringify(Array.from(document.querySelectorAll('a')).map(function(a){" +
+            "return {teks:(a.innerText||a.textContent||'').replace(/\\s+/g,' ').trim(),href:a.href||''};}).slice(0,400));})()";
+
+        var mula = Environment.TickCount64;
+        IReadOnlyList<PautanAplikasi> senarai;
+        while (true)
+        {
+            senarai = AplikasiIdMe.HuraiSenarai(await EvalStringAsync(js));
+            // Stop as soon as a usable MOEIS link exists — the dashboard shell can
+            // render its anchors before the application tiles arrive.
+            if (AplikasiIdMe.PilihPautanAplikasiMoeis(senarai) != null) return senarai;
+            if (Environment.TickCount64 - mula >= _masaSediaMs) return senarai;
+            await Delay(_jedaPollMs);
+        }
+    }
+
+    /// <summary>
+    /// SSO handoff, part 2: follow the MOEIS application link, wait for the
+    /// moeispel origin to genuinely appear, and only THEN open the attendance
+    /// page. NAVIGATION only. The href is re-validated here so this method never
+    /// depends on its caller having done so.
+    /// </summary>
+    public async Task<KeputusanHandoff> IkutPautanAplikasiMoeis(string href)
+    {
+        if (!AplikasiIdMe.PautanMoeisSah(href))
+        {
+            return new KeputusanHandoff(false, "",
+                "Pautan aplikasi bukan HTTPS " + IdMeLoginSafety.HOS_MOEIS_SAH + " tepat; tiada navigasi dilakukan.");
+        }
+
+        await NavigateAsync(href);
+        var hos = await TungguHosAsync(IdMeLoginSafety.HOS_MOEIS_SAH);
+        if (hos != IdMeLoginSafety.HOS_MOEIS_SAH)
+        {
+            return new KeputusanHandoff(false, hos,
+                "Selepas mengikut pautan aplikasi MOEIS, hos ialah " + (hos.Length > 0 ? hos : "(tiada)") +
+                " — sesi MOEIS belum terbentuk (token SSO mungkin sudah luput/terpakai).");
+        }
+
+        // Only now is the attendance page reachable without a redirect back to idMe.
+        await NavigateAsync(IdMeLoginEndpoints.KehadiranUrl);
+        var hosAkhir = await TungguHosAsync(IdMeLoginSafety.HOS_MOEIS_SAH);
+        if (hosAkhir != IdMeLoginSafety.HOS_MOEIS_SAH)
+        {
+            return new KeputusanHandoff(false, hosAkhir,
+                "Halaman kehadiran MOEIS dilencongkan keluar ke " + (hosAkhir.Length > 0 ? hosAkhir : "(tiada)") +
+                " walaupun selepas aplikasi MOEIS dilancarkan.");
+        }
+
+        return new KeputusanHandoff(true, hosAkhir);
+    }
+
+    /// <summary>Poll the current host until it matches, bounded. Returns the LAST host seen.</summary>
+    private async Task<string> TungguHosAsync(string hosDijangka)
+    {
+        var mula = Environment.TickCount64;
+        var hos = "";
+        while (true)
+        {
+            hos = HosDari(await UrlHalaman());
+            if (hos == hosDijangka) return hos;
+            if (Environment.TickCount64 - mula >= _masaSediaMs) return hos;
+            await Delay(_jedaPollMs);
+        }
+    }
+
+    private static string HosDari(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host.ToLowerInvariant() : "";
+
+    private async Task<IdMeLoginSafety.KeputusanSelepasHantar> AmatiSesiAsync()
+    {
         var amatanJson = await EvalStringAsync(
             "(function(){" +
             "var borangLogin=!!(document.querySelector('#check_log')||document.querySelector('#password')||document.querySelector('input[type=password], input[name*=\"kata\" i], input[name*=pass i], input[placeholder*=\"KAD PENGENALAN\" i], input[name*=\"pengenalan\" i]'));" +
@@ -251,9 +369,7 @@ public sealed class WebView2IdMeLoginDom : IIdMeLoginDom
             "var kredensialDitolak=borangLogin&&new RegExp(" + JsonSerializer.Serialize(IdMeLoginSafety.REGEX_PENOLAKAN_KREDENSIAL) + ",'i').test(teksBadan);" +
             "return JSON.stringify({borangLogin:borangLogin,dashboardIdMe:dashboardIdMe,kredensialDitolak:kredensialDitolak,adaKehadiran:!!document.querySelector('#kehadiran')});})()");
 
-        var hos = "";
-        var urlAkhir = await UrlHalaman();
-        if (Uri.TryCreate(urlAkhir, UriKind.Absolute, out var u)) hos = u.Host.ToLowerInvariant();
+        var hos = HosDari(await UrlHalaman());
 
         var borangLogin = false;
         var dashboardIdMe = false;

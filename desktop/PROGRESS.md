@@ -1,5 +1,137 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Pepijat BLOK: langkah "pilih aplikasi" (handoff SSO idMe → MOEIS) hilang (2026-09-23)
+
+Ujian hidup (`HADIR_DEV_REAL_PORTAL=1`) menunjukkan gelung tanpa henti:
+
+```
+/login
+-> POST /daftarawam/semakanverification
+-> /loginverification/$2y$10$...        (kredensial DITERIMA)
+-> (15s) https://moeispel.moe.gov.my/sahsiah/kehadiran/pkhem/tabguru
+-> https://idme.moe.gov.my/login        (MOEIS halau balik: tiada sesi SSO)
+-> ulang 3 kali, tiada henti
+```
+
+**Punca.** `WebView2IdMeLoginDom.SahkanSesiSelepasLogin()` (langkah 12
+`IdMeLoginFlow.JalankanAsync`) menavigasi TERUS ke
+`IdMeLoginEndpoints.KehadiranUrl`. Log masuk idMe yang sah tidak memberi sesi
+MOEIS: sesi itu hanya terbentuk apabila pautan aplikasi MOEIS pada
+`idme.moe.gov.my/list_aplikasi` diikuti (pautan itu membawa token SSO sekali
+guna `token_idms=...`). Enjin Node sudah memegang peraturan ini sejak awal
+(`companion/src/moeis/aplikasi.mjs` + `push.mjs`), tetapi ia TIDAK PERNAH
+diport ke shell desktop. Pemilik sistem menyatakan aliran betul dengan tepat:
+"kena masuk idme dulu. login. lepastu pilih aplikasi."
+
+### Pembetulan
+
+**1. `SahkanSesiSelepasLogin()` tidak lagi menavigasi** (`IdMeLoginWebView2.cs`).
+Ia kini hanya MENGAMATI halaman yang sedang dibuka dan mengklasifikasinya
+dengan `IdMeLoginSafety.TentukanStatusSelepasHantar` yang sedia ada, dengan
+tinjauan bersempadan (`_masaMuatMs` kemudian poll sehingga `_masaSediaMs`)
+sehingga halaman menjadi muktamad (`sesi-sah` / `kredensial-ditolak`). Halaman
+yang kekal tidak muktamad dilaporkan apa adanya — tidak pernah dinaik taraf
+kepada "sah".
+
+**2. `AplikasiIdMe.cs` (baharu) — port TULEN `companion/src/moeis/aplikasi.mjs`.**
+`PautanMoeisSah(href)` menuntut HTTPS + hos **TEPAT** `moeispel.moe.gov.my` +
+tiada userinfo + port lalai (lebih ketat sedikit daripada companion, sejajar
+dengan `IdMeLoginSafety.SahkanHos`). `PilihPautanAplikasiMoeis` mengutamakan
+label "Pengurusan Murid"/"MOEIS" tetapi label ialah KEUTAMAAN sahaja — hos
+ialah KEBENARAN, jadi anchor penyerang berlabel "Pengurusan Murid" tidak boleh
+dipilih. `HuraiSenarai` menghurai `[{teks,href}]` secara toleran: JSON rosak,
+bukan-array atau entri tanpa href = senarai KOSONG, tidak pernah melontar,
+tidak pernah meneka separuh.
+
+**3. Dua kaedah handoff pada seam `IIdMeLoginDom`** — `SenaraiAplikasiIdMe()`
+(navigasi ke `list_aplikasi`, baca anchor `teks`+`a.href` **yang diselesaikan**
+supaya href relatif dimutlakkan oleh pelayar SEBELUM allowlist hos memutuskan)
+dan `IkutPautanAplikasiMoeis(href)` (sahkan semula href, ikut, tunggu origin
+`moeispel` benar-benar muncul, BARU buka halaman kehadiran).
+
+**4. Langkah 13 EKSPLISIT dalam `IdMeLoginFlow`.** Apabila sesi dilaporkan sah
+tetapi hos masih idMe (papan pemuka), flow menjalankan handoff dan kemudian
+mengesahkan sesi SEKALI LAGI; ia hanya mengaku berjaya bila status `sesi-sah`
+DAN hos `moeispel.moe.gov.my` (iaitu `#kehadiran` terbukti). Apa-apa kegagalan
+handoff = `handoff-moeis-gagal`, `PerluManusia=false`,
+`KlasifikasiHasilLogin` → **Transient**: dicuba semula tanpa had dengan
+backoff, BUKAN strike terhadap penjaga penolakan kredensial, dan **tidak
+pernah** dilaporkan sebagai sesi sah.
+
+**5. Fail-safe CAPTCHA/OTP yang tidak boleh dicapai — dibaiki.**
+`SemakCaptchaOtp()` menghurai hasil `ExecuteScriptAsync` terus sebagai objek
+JSON, sedangkan skripnya memulangkan RENTETAN JS. `ExecuteScriptAsync`
+memulangkan pengekodan JSON bagi hasil itu, jadi setiap halaman diklasifikasi
+`JsonValueKind.String` dan fungsi ini sentiasa menjawab "tiada CAPTCHA" —
+cabaran OTP/2FA sebenar tidak akan pernah menghentikan aliran. Kini ia melalui
+`EvalStringAsync` (corak sama seperti pengamatan sesi). Ini di luar punca
+pepijat blok, tetapi ia ialah sempadan keselamatan "tiada pintas OTP/2FA" yang
+arahan slice ini menuntut dikekalkan.
+
+### Sempadan keselamatan yang DIKEKALKAN
+
+- Handoff ialah **navigasi sahaja**: tiada kredensial ditaip, tiada kotak semak
+  ditanda, tiada borang dihantar (dibuktikan oleh ujian yang mengira panggilan
+  `IsiPenggunaIdMe`/`IsiKataLaluanIdMe`/`TandakanKunciKeselamatan`/
+  `HantarBorangLogMasuk` — tepat SATU setiap satu bagi seluruh cubaan).
+- Semakan hos ketat sebelum menaip, peraturan frasa + kotak semak, dan fail-safe
+  OTP/2FA kekal tidak berubah (yang terakhir kini benar-benar berfungsi).
+- Adaptor mengesahkan semula href dalam `IkutPautanAplikasiMoeis` — ia tidak
+  bergantung pada pemanggilnya sudah berbuat demikian.
+- Href pautan MOEIS membawa token SSO: ia tidak pernah dilog, tidak pernah
+  dipaparkan, tidak pernah disimpan (`KeputusanHandoff` membawa NAMA HOS sahaja).
+
+### Ujian
+
+```
+dotnet build desktop/HadirDesktop.sln   # Build succeeded, 0 Error(s), 1 Warning(s)
+dotnet test  desktop/HadirDesktop.sln   # Passed! 469 / Failed: 0
+```
+
+469 lulus / 0 gagal (sebelum ini 430; **+39**):
+
+- `AplikasiIdMePemilihTests` (29) — URL senarai aplikasi sama seperti companion;
+  hos tepat HTTPS diterima (termasuk huruf besar dan href bertoken); `http://`,
+  subdomain-tipu `moeispel.moe.gov.my.evil.com`, substring dalam query, substring
+  dalam laluan, awalan `xmoeispel...`, userinfo, port bukan lalai, hos idMe
+  sendiri, href relatif, `javascript:`, kosong dan null DITOLAK; label
+  diutamakan; tanpa label ambil pautan MOEIS pertama; label "Pengurusan Murid"
+  pada hos penyerang TIDAK dipilih; JSON rosak/bukan-array/entri bukan-objek/
+  tanpa href = senarai kosong.
+- `HandoffAplikasiMoeisTests` (10) — papan pemuka idMe → handoff dijalankan TEPAT
+  sekali dengan href MOEIS yang betul dan sesi disahkan SEMULA selepasnya;
+  handoff tidak menaip apa-apa; sudah di MOEIS = SIFAR handoff; pautan tiada →
+  `handoff-moeis-gagal` tanpa sebarang navigasi; handoff dilencongkan →
+  transient; handoff "ok" tetapi `#kehadiran` tidak terbukti → transient;
+  pengesahan semula yang kekal di papan pemuka idMe → transient (regresi
+  langsung bagi gelung hidup); `KlasifikasiHasilLogin` mengesahkan Transient;
+  mod tanpa frasa masih perlu handoff sebelum diakui berjaya; kredensial ditolak
+  = SIFAR handoff.
+
+Bukti ujian tidak lompong: dengan syarat langkah 13 dilumpuhkan (`if (false)`),
+**6 daripada 10** ujian aliran GAGAL; pembetulan dipulihkan selepas itu dan
+`dotnet test` kembali 469/0.
+
+Amaran `CS8619` pada `MainForm.cs` masih yang sama seperti pada HEAD (bf31a19).
+
+### Disahkan vs tidak disahkan
+
+- DISAHKAN: build + 469 ujian, semuanya terhadap DOM palsu. Tiada portal sebenar
+  disentuh, tiada kredensial sebenar ditaip, tiada token SSO sebenar wujud dalam
+  mana-mana ujian.
+- **TIDAK DISAHKAN HIDUP (perlu pemilik sahkan):** DOM sebenar
+  `idme.moe.gov.my/list_aplikasi` belum pernah dibaca dari aplikasi ini. Pemilih
+  (`a` anchors, label "Pengurusan Murid", hos `moeispel.moe.gov.my`) diambil
+  daripada `companion/src/moeis/aplikasi.mjs` yang sudah digunakan enjin Node —
+  BUKAN diterbit semula daripada halaman sebenar. Jika label atau struktur
+  berbeza, kegagalan adalah SELAMAT (`handoff-moeis-gagal` sementara, tiada
+  tuntutan sesi sah), bukan senyap. Larian hidup berulang untuk mengesahkan
+  gelung benar-benar terputus belum dijalankan oleh manusia dalam slice ini.
+- TIDAK DISAHKAN: sama ada `Navigate(href)` mencukupi berbanding klik sebenar
+  pada anchor itu. Companion menggunakan `page.goto(pilih.href)` (navigasi) dan
+  itulah corak yang diport di sini; jika MOEIS memeriksa `Referer`, langkah ini
+  perlu ditukar kepada klik sebenar.
+
 ## Dua pepijat dari ujian hidup: penjaga navigasi + HantarAuto senyap (2026-09-23)
 
 Kedua-duanya ditemui semasa ujian hidup, kedua-duanya senyap.

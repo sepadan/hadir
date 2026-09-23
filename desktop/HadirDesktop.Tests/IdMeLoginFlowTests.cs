@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using HadirDesktop;
 using Xunit;
@@ -165,6 +166,22 @@ public sealed class PalsuIdMeLoginDom : IIdMeLoginDom
     public KeputusanDom Hantar = new(true);
     public IdMeLoginSafety.KeputusanSelepasHantar Sesi = new("sesi-sah", "moeispel.moe.gov.my", "");
 
+    /// <summary>
+    /// Scripted answers for consecutive <see cref="SahkanSesiSelepasLogin"/> calls.
+    /// When set it takes precedence over <see cref="Sesi"/>; the LAST entry repeats.
+    /// Lets a test model the real sequence "idMe dashboard first, MOEIS only after
+    /// the SSO handoff".
+    /// </summary>
+    public List<IdMeLoginSafety.KeputusanSelepasHantar>? SesiBerurutan;
+
+    /// <summary>Anchors the fake idMe application list returns.</summary>
+    public List<PautanAplikasi> PautanAplikasi = new()
+    {
+        new PautanAplikasi("Pengurusan Murid", "https://moeispel.moe.gov.my/?token_idms=fixture&t=1&u=x"),
+    };
+
+    public KeputusanHandoff Handoff = new(true, "moeispel.moe.gov.my");
+
     public int NavigasiDipanggil;
     public int IsiPenggunaDipanggil;
     public string? PenggunaDiterima;
@@ -172,6 +189,10 @@ public sealed class PalsuIdMeLoginDom : IIdMeLoginDom
     public int IsiKataLaluanDipanggil;
     public string? KataLaluanDiterima;
     public int HantarDipanggil;
+    public int SenaraiAplikasiDipanggil;
+    public int IkutPautanDipanggil;
+    public string? HrefDiterima;
+    public int SahkanSesiDipanggil;
     private int _captchaDipanggil;
 
     public Task NavigasiLoginIdMe() { NavigasiDipanggil++; return Task.CompletedTask; }
@@ -219,6 +240,25 @@ public sealed class PalsuIdMeLoginDom : IIdMeLoginDom
 
     public Task<IdMeLoginSafety.KeputusanSelepasHantar> SahkanSesiSelepasLogin()
     {
+        SahkanSesiDipanggil++;
+        if (SesiBerurutan is { Count: > 0 })
+        {
+            var i = System.Math.Min(SahkanSesiDipanggil - 1, SesiBerurutan.Count - 1);
+            return Task.FromResult(SesiBerurutan[i]);
+        }
         return Task.FromResult(Sesi);
+    }
+
+    public Task<IReadOnlyList<PautanAplikasi>> SenaraiAplikasiIdMe()
+    {
+        SenaraiAplikasiDipanggil++;
+        return Task.FromResult<IReadOnlyList<PautanAplikasi>>(PautanAplikasi);
+    }
+
+    public Task<KeputusanHandoff> IkutPautanAplikasiMoeis(string href)
+    {
+        IkutPautanDipanggil++;
+        HrefDiterima = href;
+        return Task.FromResult(Handoff);
     }
 }
