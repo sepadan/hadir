@@ -169,23 +169,39 @@ public static class SkripMoeis
 ///
 /// NOT verified against the live MOEIS portal (same posture as the companion's
 /// "BELUM disahkan hidup"): live verification is an owner-attended step.
+///
+/// BENANG. WebView2 ialah thread-affine dan pemanggil aliran penghantaran tiba
+/// di sini dari benang KOLAM (lihat <see cref="IMarshalUi"/>). Kelas ini tidak
+/// mengandaikan benang pemanggil: SETIAP sentuhan CoreWebView2 — membaca harta
+/// itu sendiri, <c>Navigate</c>, <c>Reload</c>, <c>ExecuteScriptAsync</c> —
+/// dihantar ke benang UI melalui <see cref="IMarshalUi"/>. Hanya TIGA primitif
+/// di bawah (<see cref="EvalRawAsync"/>, <see cref="NavigasiHarian"/>,
+/// <see cref="MuatSemula"/>) menyentuh CoreWebView2, jadi kaedah baharu yang
+/// dibina di atasnya mewarisi jaminan ini secara automatik.
 /// </summary>
 public sealed class WebView2DomMoeis : IDomMoeis
 {
     private readonly Func<CoreWebView2?> _getWebView;
+    private readonly IMarshalUi _ui;
     private readonly int _masaSediaMs;
     private readonly int _jedaPollMs;
     private readonly int _masaMuatMs;
     private readonly int _jedaSelepasPilihMs;
 
+    /// <param name="ui">
+    /// Penghantar benang UI — WAJIB, tiada lalai. Lalai senyap di sini bermakna
+    /// satu tapak binaan yang terlupa akan gagal hanya semasa ujian HIDUP.
+    /// </param>
     public WebView2DomMoeis(
         Func<CoreWebView2?> getWebView,
+        IMarshalUi ui,
         int masaSediaMs = 15000,
         int jedaPollMs = 250,
         int masaMuatMs = 4000,
         int jedaSelepasPilihMs = 2500)
     {
-        _getWebView = getWebView;
+        _getWebView = getWebView ?? throw new ArgumentNullException(nameof(getWebView));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
         _masaSediaMs = masaSediaMs;
         _jedaPollMs = jedaPollMs;
         _masaMuatMs = masaMuatMs;
@@ -197,7 +213,16 @@ public sealed class WebView2DomMoeis : IDomMoeis
         try { await Task.Delay(ms); } catch (OperationCanceledException) { }
     }
 
-    private async Task<string?> EvalRawAsync(string js)
+    /// <summary>
+    /// Satu-satunya tempat skrip disuntik ke halaman — sentiasa di benang UI.
+    ///
+    /// <c>_getWebView()</c> sengaja TIDAK dibalut cuba/tangkap: ia membaca
+    /// <c>WebView2.CoreWebView2</c>, dan jika suatu hari nanti ia tetap melontar
+    /// "can only be accessed from the UI thread", kegagalan itu mesti KELIHATAN
+    /// sebagai ralat teknikal, bukan merosot menjadi "halaman belum sedia" yang
+    /// dicuba semula tanpa henti. Hanya kegagalan skrip sebenar ditelan.
+    /// </summary>
+    private Task<string?> EvalRawAsync(string js) => _ui.JalankanAsync<string?>(async () =>
     {
         var wv = _getWebView();
         if (wv == null) return null;
@@ -211,7 +236,7 @@ public sealed class WebView2DomMoeis : IDomMoeis
         {
             return null;
         }
-    }
+    });
 
     private async Task<bool> EvalBoolAsync(string js) => await EvalRawAsync(js) == "true";
 
@@ -260,8 +285,14 @@ public sealed class WebView2DomMoeis : IDomMoeis
 
     public async Task NavigasiHarian()
     {
-        var wv = _getWebView();
-        try { wv?.Navigate(IdMeLoginEndpoints.KehadiranUrl); } catch { /* transient navigation failure */ }
+        // Navigate() thread-affine — dihantar ke benang UI seperti setiap
+        // sentuhan CoreWebView2 yang lain.
+        await _ui.JalankanAsync(() =>
+        {
+            var wv = _getWebView();
+            try { wv?.Navigate(IdMeLoginEndpoints.KehadiranUrl); } catch { /* transient navigation failure */ }
+            return Task.FromResult(true);
+        });
         await Delay(_masaMuatMs);
     }
 
@@ -384,8 +415,12 @@ public sealed class WebView2DomMoeis : IDomMoeis
 
     public async Task MuatSemula()
     {
-        var wv = _getWebView();
-        try { wv?.Reload(); } catch { /* transient reload failure */ }
+        await _ui.JalankanAsync(() =>
+        {
+            var wv = _getWebView();
+            try { wv?.Reload(); } catch { /* transient reload failure */ }
+            return Task.FromResult(true);
+        });
         await Delay(_masaMuatMs);
     }
 }
@@ -399,8 +434,14 @@ public sealed class PenghantaranMoeisWebView2 : IPenghantaranMoeis
 {
     private readonly PenghantaranMoeis _teras;
 
-    public PenghantaranMoeisWebView2(Func<CoreWebView2?> getWebView)
-        : this(new WebView2DomMoeis(getWebView))
+    /// <param name="ui">
+    /// Penghantar benang UI — WAJIB. Aliran penghantaran tiba di sini dari
+    /// benang kolam (ConfigureAwait(false) selepas I/O backend), jadi tanpa ini
+    /// panggilan CoreWebView2 pertama melontar dan seluruh penghantaran gagal
+    /// dalam &lt;1 s.
+    /// </param>
+    public PenghantaranMoeisWebView2(Func<CoreWebView2?> getWebView, IMarshalUi ui)
+        : this(new WebView2DomMoeis(getWebView, ui))
     {
     }
 

@@ -1,5 +1,119 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Pepijat BLOK: penghantaran MOEIS di benang KOLAM, bukan benang UI (2026-09-23)
+
+Bukti ujian hidup 11:59 (`dev-kitaran.log`):
+
+```
+langkah=PENGHANTARAN_MULA: kelas=1 BIJAK
+langkah=PENGHANTARAN_TAMAT: kelas=1 BIJAK status=gagal
+sebab=Ralat teknikal semasa penghantaran MOEIS:
+      CoreWebView2 can only be accessed from the UI thread.
+```
+
+Log masuk berjaya PENUH (aplikasi sampai `.../pkhem/tabguru` dengan sesi sah);
+penghantaran gagal dalam &lt;1 s. Jadi bukan rangkaian, bukan sesi, bukan pemilih
+DOM.
+
+**Punca (disahkan dengan membaca kod, bukan andaian).** `MainForm` memang
+memanggil laluan penghantaran melalui `PadaUiAsync`, tetapi itu hanya menjamin
+benang TITIK MASUK. `AliranPenghantaranMoeis` menunggu I/O backend sebenar
+dengan `ConfigureAwait(false)` (`_sumber.SemakAsync`, `KlaimAsync`), jadi
+SynchronizationContext UI digugurkan dan kesinambungan yang akhirnya memanggil
+`_penghantar.HantarAsync` berjalan di benang kolam. `WebView2DomMoeis` pula
+menyentuh `CoreWebView2` tanpa marshalling sendiri. Perhatian penting: yang
+melontar bukan `ExecuteScriptAsync` (ia dibalut cuba/tangkap yang menelan), tetapi
+`_getWebView()` — iaitu membaca harta `WebView2.CoreWebView2` — yang berada DI LUAR
+`try` dan memang thread-affine. Itulah sebabnya kegagalan muncul sebagai
+"ralat teknikal" serta-merta dan bukan sebagai gelung "halaman belum sedia".
+Laluan log masuk selamat kerana rantaiannya tidak pernah menggugurkan konteks UI.
+
+### `HadirDesktop/MarshalUi.cs` (baharu)
+
+`IMarshalUi.JalankanAsync<T>(Func<Task<T>>)` — seam penghantar benang UI, plus
+`MarshalUiTerus` (pass-through) untuk ujian/fixture sahaja.
+
+### `HadirDesktop/PenghantaranMoeisWebView2.cs` (diubah)
+
+- `WebView2DomMoeis(getWebView, ui, ...)` dan
+  `PenghantaranMoeisWebView2(getWebView, ui)` — marshaller **WAJIB**, tiada lalai
+  senyap (`ArgumentNullException`). Lalai di sini bermakna satu tapak binaan yang
+  terlupa hanya akan gagal semasa ujian HIDUP.
+- Hanya TIGA primitif menyentuh CoreWebView2 — `EvalRawAsync`
+  (`ExecuteScriptAsync`), `NavigasiHarian` (`Navigate`), `MuatSemula` (`Reload`)
+  — dan ketiga-tiganya kini dibalut dengan marshaller. Kesemua 21 kaedah
+  `IDomMoeis` dibina di atas tiga primitif itu, jadi kaedah baharu kelak
+  mewarisi jaminan benang secara automatik.
+- `_getWebView()` sengaja kekal TIDAK ditelan: jika akses silang-benang berlaku
+  lagi, ia mesti KELIHATAN sebagai ralat teknikal, bukan merosot menjadi
+  "halaman belum sedia" yang dicuba semula tanpa henti.
+
+### `HadirDesktop/MainForm.cs` (diubah)
+
+Kelas bersarang `MarshalUiBorang` menghantar semula ke `PadaUiAsync` sedia ada —
+peraturan benang kekal di SATU tempat — dan diberi kepada `_penghantarMoeis`.
+
+### Apa yang TIDAK diubah
+
+- `ConfigureAwait(false)` tidak dibuang di mana-mana. Membuangnya secara
+  menyeluruh bermakna satu `await` baharu tanpanya akan menghidupkan semula
+  pepijat yang sama, senyap; sempadan modul yang menyentuh WebView2 kini
+  menjamin benangnya sendiri.
+- Pemilih DOM: TIADA perubahan langsung (`#tkh_HH`, `#kehadiran`,
+  `input.case-hadir[data-idpelajar]`, `td.sebabthadir`, `.selectkategori`,
+  `select[name="sebabcuti[]"].selectsebab`, `#kemaskiniKehadiran`, `#txtThnting`,
+  `#txtNamakelas`, `button.simpan` / `button.simpansah`).
+- Suis lalai MATI, allowlist navigasi, pagar penolakan kredensial, fail-safe
+  OTP/CAPTCHA, tiada taip kredensial — semua kekal.
+
+### Ujian
+
+```
+dotnet build desktop/HadirDesktop.sln   # Build succeeded, 0 Error(s), 1 Warning(s)
+dotnet test  desktop/HadirDesktop.sln   # Passed! 564 / Failed: 0
+```
+
+564 lulus / 0 gagal (sebelum ini 558; **+6**), semuanya dalam
+`PenghantaranBenangUiTests` (baharu). Ujian menggunakan benang "UI" palsu (satu
+benang + giliran + `SynchronizationContext` sendiri) dan stub
+`Func<CoreWebView2?>` TERIKAT-BENANG yang melontar mesej yang SAMA seperti
+WebView2 sebenar bila dibaca dari benang lain:
+
+- sapuan REFLEKSI ke atas kesemua 21 kaedah `IDomMoeis`: dipanggil dari benang
+  kolam, setiap satu tidak melontar DAN menambah kiraan marshaller (kaedah seam
+  baharu kelak diuji secara automatik — satu sentuhan CoreWebView2 yang tidak
+  dibalut tidak boleh menyelinap masuk);
+- setiap sentuhan seam benar-benar berlaku pada id benang UI, bukan sekadar
+  "marshaller dipanggil";
+- marshaller WAJIB pada kedua-dua pembina;
+- marshalling dilumpuhkan (`MarshalUiTerus`) → kesemua 21 kaedah melontar dengan
+  mesej ujian hidup yang TEPAT;
+- kitaran penuh `AliranPenghantaranMoeis` dimulakan dari benang UI dengan sumber
+  yang benar-benar tak segerak: dengan marshaller, baris `PENGHANTARAN_TAMAT`
+  tidak lagi menyebut benang UI; tanpa marshaller, baris ujian hidup terhasil
+  semula perkataan demi perkataan.
+
+Bukti ujian tidak lompong: dengan marshalling dilumpuhkan dalam pembina
+`WebView2DomMoeis`, **3 daripada 6** ujian baharu GAGAL (tiga yang lain ialah
+ujian negatif/pembina yang memang mesti kekal lulus); pembetulan dipulihkan dan
+`dotnet test` kembali 564/0.
+
+Amaran `CS8619` pada `MainForm.cs` masih yang sama seperti pada HEAD (72b1429) —
+hanya nombor barisnya berubah.
+
+### Disahkan vs tidak disahkan
+
+- DISAHKAN: build + 564 ujian terhadap benang palsu dan stub. Tiada WebView2
+  sebenar, tiada pelayar, tiada portal, tiada backend, tiada kredensial.
+- TIDAK DISAHKAN HIDUP: larian sebenar `HADIR_DEV_AUTO_KITARAN=1` selepas
+  pembetulan ini belum dijalankan oleh manusia, jadi kita belum melihat
+  `PENGHANTARAN_TAMAT` melepasi peringkat benang pada MOEIS sebenar. Kegagalan
+  seterusnya (jika ada) akan datang daripada halaman — pemilih, tarikh, dialog —
+  dan itu ialah kelas pepijat yang BERBEZA.
+- TIDAK DISAHKAN: `MainForm.MarshalUiBorang` sendiri tidak diuji oleh xUnit
+  (WinForms), sama seperti `PadaUiAsync` yang dibungkusnya; ia hanya penghantar
+  satu baris. Bentuk yang sama diuji melalui `MarshalUiPalsu`.
+
 ## Cuba semula baca backend + had masa 60 s + sebab kegagalan bertingkat (2026-09-23)
 
 Bukti ujian hidup 10:43: kitaran dev berhenti pada langkah pertama —

@@ -135,7 +135,13 @@ public sealed class MainForm : Form
         _kerjaHariIni = _backendClient != null
             ? new BackendKerjaHariIniSource(_backendClient)
             : new LoopbackKerjaHariIniSource();
-        _penghantarMoeis = new PenghantaranMoeisWebView2(() => _webView.CoreWebView2);
+        // Adaptor MOEIS mesti menyentuh WebView2 di BENANG UI. Membungkus
+        // panggilan JalankanAsync di bawah dengan PadaUiAsync tidak mencukupi:
+        // aliran menunggu I/O backend sebenar dengan ConfigureAwait(false), jadi
+        // kesinambungan yang akhirnya memanggil adaptor berjalan di benang
+        // kolam. Marshaller diberi kepada adaptor supaya SETIAP sentuhan
+        // CoreWebView2 dihantar semula ke benang UI, bukan hanya titik masuk.
+        _penghantarMoeis = new PenghantaranMoeisWebView2(() => _webView.CoreWebView2, new MarshalUiBorang(this));
         _aliranPenghantaran = new AliranPenghantaranMoeis(
             _backendClient != null ? new BackendKerjaPenuhSource(_backendClient) : _kerjaPenuh,
             _penghantarMoeis,
@@ -642,6 +648,21 @@ public sealed class MainForm : Form
 
     private async Task PadaUiAsync(Func<Task> kerja) =>
         await PadaUiAsync<bool>(async () => { await kerja(); return true; });
+
+    /// <summary>
+    /// <see cref="IMarshalUi"/> borang ini: satu-satunya jambatan yang diberi
+    /// kepada modul yang menyentuh WebView2 (adaptor MOEIS). Ia hanya
+    /// menghantar semula ke <see cref="PadaUiAsync{T}"/>, jadi peraturan benang
+    /// kekal di SATU tempat.
+    /// </summary>
+    private sealed class MarshalUiBorang : IMarshalUi
+    {
+        private readonly MainForm _borang;
+
+        public MarshalUiBorang(MainForm borang) => _borang = borang;
+
+        public Task<T> JalankanAsync<T>(Func<Task<T>> kerja) => _borang.PadaUiAsync(kerja);
+    }
 
     /// <summary>Status-strip text from any thread (text only, never a credential).</summary>
     private void SetNavLabel(string teks)

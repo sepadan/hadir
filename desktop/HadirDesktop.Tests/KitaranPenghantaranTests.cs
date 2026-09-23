@@ -379,7 +379,9 @@ public class KitaranPenghantaranTests
         {
             "KLAIM_OK: id=job-1",
             "PENGHANTARAN_MULA: kelas=PRASEKOLAH",
-            "PENGHANTARAN_TAMAT: kelas=PRASEKOLAH status=disahkan",
+            // `sebab=` ditambah supaya log pembangun membawa sebab kegagalan
+            // adaptor — itulah yang mendedahkan pepijat benang UI 23 Sep 2026.
+            "PENGHANTARAN_TAMAT: kelas=PRASEKOLAH status=disahkan sebab=" + FakePenghantar.SebabDisahkan,
             "SELESAI_OK: id=job-1 keputusan=berjaya",
         }, log);
     }
@@ -520,11 +522,13 @@ public class KitaranPenghantaranTests
             return Task.FromResult(_jawab(tugasan));
         }
 
+        public const string SebabDisahkan = "Pengesahan selepas muat semula berjaya.";
+
         public static Func<TugasanPenghantaran, HasilPenghantaran> Disahkan() => t => new HasilPenghantaran
         {
             Status = "disahkan",
             Berjaya = true,
-            Sebab = "Pengesahan selepas muat semula berjaya.",
+            Sebab = SebabDisahkan,
             Kelas = t.Kelas,
             TarikhIso = t.TarikhIso,
         };

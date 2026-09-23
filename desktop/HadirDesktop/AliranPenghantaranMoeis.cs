@@ -279,7 +279,7 @@ public sealed class AliranPenghantaranMoeis
             }
 
             hasil.Add(satu);
-            _log?.Invoke("PENGHANTARAN_TAMAT: kelas=" + kelas + " status=" + satu.Status);
+            _log?.Invoke("PENGHANTARAN_TAMAT: kelas=" + kelas + " status=" + satu.Status + " sebab=" + satu.Sebab);
 
             // ---- SELESAI / LEPAS. Only reached while holding the claim. ----
             if (memegangKlaim)
