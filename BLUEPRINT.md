@@ -607,22 +607,55 @@ laluan boleh-pilih jauh/tidak selamat.
 ### 5.3 Shell desktop (desktop/)
 
 `desktop/` ialah shell Windows tray (WinForms `net8.0-windows` + WebView2)
-yang mengehoskan pandangan portal enjin dalam satu permukaan WebView2 terbenam
-(bukan tetingkap Edge pop-out). Ia ialah **penyesuai pengangkutan/cecangkerang**:
-peraturan kehadiran, tulisan MOEIS dan auth idMe kekal eksklusif dalam
-`companion/`, bukan di sini.
+yang mengehoskan pandangan portal dalam satu permukaan WebView2 terbenam
+(bukan tetingkap Edge pop-out). Dahulu ia digelar penyesuai pengangkutan
+kerana tulisan MOEIS dan auth idMe konon eksklusif dalam `companion/` —
+**kini tidak lagi (disemak 1.0.9)**: penghantaran MOEIS
+(`AliranPenghantaranMoeis` + `PenghantaranMoeisWebView2`, dirujuk terus
+dari `MainForm:200`) dan aliran log masuk idMe (`IdMeLoginFlow.JalankanAsync`
+pada `MainForm:166`, kredensial DPAPI kongsi dalam
+`%LOCALAPPDATA%\HADIR-MOEIS-Companion\kredensial.dat`) berjalan DALAM
+desktop; `companion/` kekal sebagai tuan enjin loopback pilihan — bukan
+lalauan wajib (lihat butiran jaluran di bawah).
 
-- **Baca sahaja, ber-autentikasi.** Status enjin dibaca melalui
-  `LoopbackEngineStatusSource` yang melakukan jabat tangan nonce sebenar
-  (`GET /` → `302 /?n=<nonce>`), sahkan redirect kekal pada **origin loopback
-  yang sama** (skim+hos+port), kemudian `GET /api/lokal/status` dengan
-  `X-HADIR-Lokal: <nonce>` + `Origin` loopback tepat. Nonce **tidak pernah**
-  dilog/diikuti. Hasil diklasifikasi berasingan: `Ok / Offline / Unauthorized /
-  Timeout / Malformed` — tidak diruntuhkan kepada satu "tidak berjalan".
-- **Tiada kawalan enjin.** Tiada start/stop/restart, tiada tulisan tetapan,
-  tiada log masuk/idMe sebenar — DEMO memuatkan fixture tempatan sahaja.
-- **Tetapan tempatan** membuka UI tetapan enjin sebenar (ber-nonce) dalam
-  WebView2 terbenam — navigasi sahaja, tiada tulisan dari pihak shell.
+- **Jaluran sebenar: Apps Script terus; loopback hanya fallback (disemak
+  1.0.9).** `MainForm` membina `HadirBackendClient(ApiUrl, RahsiaEnjin)`
+  daripada `RahsiaEnjinStore` (blob DPAPI `rahsiaEnjin` + `apiUrl` —
+  gagal-tertutup) dan memilih `BackendKerjaHariIniSource` /
+  `BackendKerjaPenuhSource`; komen sumber: *"loopback is only a fallback
+  for a PC that has no engine secret configured yet"* — `LoopbackKerja*`
+  dan `LoopbackEngineStatusSource` (klien bergred-nonce: `GET /` → `302
+  /?n=<nonce>`, sahkan redirect kekal pada origin loopback sama, header
+  `X-HADIR-Lokal`, nonce tidak pernah dilog — digunakan
+  `TryGetNonceFromRedirect` dalam `KerjaHariIni.cs`/`KerjaPenuh.cs`)
+  hanya dipakai apabila tiada rahsia pada PC itu. Port 8747 TIDAK berjalan
+  secara lalai (diuji mati 23 Sep). Tiga label jalur status menunjukkan
+  fakta — bukan nadi enjin: `_stateLabel` (`Keadaan: … · portal: …` daripada
+  `LabelKeadaanPortal`), `_backendLabel` (`LabelBackend.Teks(klienSedia,
+  konfigSediaSekarang, cap-SHA-256-sepadan, sebab)` — sama ada klien AKTIF
+  sepadan dengan konfigurasi cakera SEKARANG) dan `_kitaranLabel`
+  (`LabelKitaran.Teks` — masa kitaran seterusnya, **baharu 1.0.9**:
+  one-shot 45 s dahulu, kemudian Timer 10 min; "sedang berjalan"
+  didahulukan). Tiada label mendakwa "enjin aktif" daripada sumber mati.
+- **Tiada kawalan enjin; tetapi log masuk idMe + penghantaran MOEIS kini
+  SEBENAR dalam desktop (1.0.7-1.0.9).** Tiada butang start/stop/restart
+  enjin dan tiada tulisan tetapan enjin dari shell — kekal. Dakwaan lama
+  "tiada log masuk/idMe sebenar — DEMO memuatkan fixture tempatan sahaja"
+  kini separa lapuk: `IdMeLoginFlow.JalankanAsync` (suis `LoginAuto`)
+  menjalankan log masuk idMe sebenar daripada kredensial DPAPI, dan
+  `AliranPenghantaranMoeis` menekan butang `.simpansah` + membaca
+  `#statusBadge` pada portal MOEIS sebenar melalui WebView2 (terbukti
+  hidup 23 Sep: `18:29:41 5 tugasan … semua disahkan`). Paparan demo
+  DIBUANG dalam 1.0.9: butang "Portal Fixture", label "Sumber: …" dan
+  paparan `DevicePanel` (`Controls.Add(_devicePanel)` tiada — hanya
+  `_webView`/`_banner`/`_statusStrip`); `FixturePortalServer` kekal
+  sebagai laman rumah WebView2 (pilihan dev `HADIR_DEV_REAL_PORTAL=1`
+  memuat idMe sebenar — baca sahaja).
+- **Tetapan tempatan** membuka UI tetapan enjin (ber-nonce) dalam WebView2
+  terbenam — navigasi sahaja, tiada tulisan dari pihak shell. URLnya
+  `EngineEndpoints.BaseUrl` = `http://127.0.0.1:8747/`; dengan enjin
+  loopback mati (keadaan pemasangan semasa), navigasi itu gagal dengan
+  jujur — bukan dipalsukan.
 - **CDP hanya mod dev opt-in, dengan get pintu masuk asal ketat.**
   `--remote-debugging-port` (loopback, port rawak, profil `webview2-dev-*`
   terasing) dihidupkan **hanya** bila `HADIR_DEV_DEBUG=1`; mod normal tidak
@@ -1261,6 +1294,7 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 23 September 2026 | desktop 1.0.9 | **Bersih UI + masa kitaran seterusnya; `BuangKomen` diperkukuh selepas 13 pusingan semakan GPT-6-SOL.** (1) **Sisa demo dibuang**: butang "Portal Fixture", label "Sumber: …" dan paparan `DevicePanel` (`Controls.Add(_devicePanel)` tiada — jalur hanya `_webView`/`_banner`/`_statusStrip`); kelas `DevicePanel`/`FixtureEngineStatusSource` KEKAL kerana ada ujian wiring sendiri. (2) **Masa kitaran seterusnya** (`LabelKitaran.cs` + `LabelKitaranTests.cs`, baharu): `_kitaranLabel` menunjukkan bila kitaran berikutnya (kitaran pertama = one-shot 45 s, selepas itu Timer 10 min; anggaran berasas jadual tick, bukan masa tamat kerja; "sedang berjalan" didahulukan; togol mati = "tiada kitaran seterusnya dijadualkan"), dan `_backendLabel` = `LabelBackend.Teks(klienSedia, konfigSedia, cap-SHA-256, sebab)` — menyatakan **konfigurasi rahsia enjin → Apps Script terus** (8747 mati), bukan dakwaan enjin aktif. (3) **Semakan bebas berlapis**: Claude `claude-opus-5` 3 fasa laksana (sesi terhad kuota pada fasa 4 — koordinator ambil alih), Codex GPT-6-SOL read-only **13 pusingan TOLAK**; T13 ditutup secara gagal-tertutup (bukan sokongan penuh sintaks C#): pengira `#if` bebas-konfigurasi (SEMUA identiti gugur, literal `true`/`false` sahaja dipercayai, arah gagal = merah-jujur), kemudian `BuangKomen` ditulis semula sebagai **lexer merentas baris** (mod bertindan kod/komen/rentetan normal-verbatim-mentah-interpolasi+lubang/aksara; direktif hanya-dalam-mod-kod-pada-baris-mula → `#endif` sebagai teks di dalam `@"…"`/`"""…"""` tidak menutup bingkai; komen hujung direktif dipotong), kemudian **seksyen #if tak-aktif = hanya-direktif** (pusingan 9: kompilator C# TIDAK meleksis rentetan dalam seksyen dilangkau — lexer lama menyembunyikan "#if" bersarang dalam contoh @"…" lalu #endif pertama menutup bingkai LUAR awal = hijau senyap) + **5 ujian pengecut**; 3 XML-doc dibaiki. **Ujian 754/754.** Pusingan 10-12 menutup `# if`, pemisah baris C# dan awalan `@`-verbatim. Pusingan 13: rentetan mentah berinterpolasi (`$"""`) ditolak secara eksplisit oleh guard (`FormatException`) kerana lubang bersarang belum dimodelkan — tiada lulus senyap; pengekodan itu tidak ada dalam `MainForm.cs`. | Tiada perubahan data/endpoint (kod desktop + ujian sahaja; web/Apps Script tidak disentuh). BLUEPRINT §5.3 diperbetulkan dalam commit sama — 4 dakwaan lapuk: tulisan MOEIS + auth idMe kini DALAM desktop (bukan eksklusif `companion/`), jaluran sebenar = Apps Script terus (loopback hanya fallback), status strip = 3 label fakta, tetapan loopback gagal jujur apabila 8747 mati. |
 | 23 September 2026 | desktop 1.0.8 (SEMAKAN BEBAS) | **Semakan bebas keluarga model berbeza (GPT-6-SOL/Codex) mula-mula TOLAK 1.0.8; dua penyekat dibetulkan.** (1) **`disahkan` tidak membuktikan bendera pelayan.** Selepas `.simpansah`, baca-semula memeriksa murid + kategori + sebab tetapi BUKAN `#statusBadge`, jadi rekod yang betul dengan pengesahan pelayan yang GAGAL tetap dilaporkan `disahkan` — iaitu tepat keadaan yang dilaporkan pengguna. Fake juga tidak pernah menukar `BadgeDisahkan`, jadi ujian `disahkan` lulus tanpa membuktikan apa-apa. Kini `VerifikasiPenghantaran.PengesahanPelayan` (ahli ke-5, masuk ke dalam `Semua`) hanya `true` apabila tugasan tidak meminta pengesahan ATAU badge berbunyi "TELAH DISAHKAN" pada dokumen yang baru dimuat semula; data padan + badge tidak bertukar ⇒ `tersimpan` dengan bukti `pengesahan-pelayan-tiada` (direkod, TIDAK dilepaskan, tiada hantar semula automatik). `DomMoeisPalsu.KlikSimpanSahkan` kini meniru pelayan (menetapkan badge), dengan suis `PengesahanPelayanGagal` untuk memodel penolakan. (2) **Langkah 3b baharu — jangan sahkan data yang tidak pernah diperiksa.** Pada laluan jatuh (tiada murid baharu untuk ditanda), langkah 4/4b dilangkau sepenuhnya, jadi `.simpansah` dahulunya mengunci kategori/sebab sedia ada tanpa membacanya. Kini apabila `perluSahkan` dan ada murid tugasan yang sudah tidak hadir, borang dibaca (`BacaSebabMurid` + `PadananDropdown.Padan`) SEBELUM butang simpan; tidak sepadan ⇒ `kategori-sebab-tidak-padan`, tiada tulisan, tiada pengesahan. Invarian kekal: `Sahkan=false` tidak membaca badge pada KEDUA-DUA titik (dikunci ujian), seam tidak melontar, sapuan refleksi kekal 22 kaedah. **Dakwaan yang diperbetulkan:** catatan asal berkata baris fixture "nilai tanpa teks" ialah keadaan DOM yang *mustahil* — itu terlalu kuat. Yang benar: borang yang SUDAH DIISI merender option terpilih bersama labelnya, jadi "S" tanpa teks memodelkan sesuatu yang lain (option tanpa label, atau pemilih belum siap dimuat) dan `Padan` betul menolaknya kerana "S" bukan "SAKIT". Begitu juga "tiada data disentuh" hanya benar bagi langkah 4 — langkah 5 tetap menghantar SELURUH borang, yang justeru sebabnya langkah 3b wujud. | Tiada data murid; stub dalam-memori sahaja. `dotnet test desktop/HadirDesktop.sln` **666 / 666 lulus, 0 gagal** (664 → 666: badge kekal belum sah selepas `simpansah` ⇒ bukan `disahkan`; sebab sedia ada salah ⇒ berhenti sebelum `simpansah`). **BELUM DIBUKTIKAN tanpa portal sebenar** (wajib sebelum pasang): MOEIS menerima "Simpan & Sahkan" pada borang yang tidak berubah; `#statusBadge` benar-benar bertukar selepas muat semula; sama ada rekod yang sudah disahkan masih boleh dibetulkan kemudian. |
 | 23 September 2026 | desktop 1.0.8 | **Data MOEIS "sudah terisi tetapi tak disahkan" — aliran menekan butang yang salah.** Laporan pemilik: rekod masuk ke MOEIS tetapi kekal **MENUNGGU PENGESAHAN**. Punca: `MainForm` membina `AliranPenghantaranMoeis` dengan `Sahkan` lalai `false`, jadi dialog simpan ditekan pada `.simpan` dan bukan `.simpansah`. Pembetulan: (a) `sahkan: true` pada laluan produksi (`MainForm.cs:159`); (b) seam baharu `IDomMoeis.StatusBadgeDisahkan()` (+ `SkripMoeis.StatusBadgeDisahkan`, `WebView2DomMoeis`) membaca `#statusBadge` == "TELAH DISAHKAN" — badge itu mencerminkan bendera pelayan `rekodSahHadirBulanan`, bukan kosmetik; (c) laluan pantas `tidak-berubah` tidak lagi memintas pengesahan: `perluSahkan = tugasan.Sahkan && !(await dom.StatusBadgeDisahkan())`, jadi data yang sudah padan tetapi belum disahkan JATUH ke langkah 5 (kemaskini → dialog → `.simpansah` → baca-semula wajib) dengan langkah 4 sebagai gelung atas senarai KOSONG — tiada data disentuh. Badge hanya dibaca apabila `Sahkan` HIDUP (litar pintas `&&`, dikunci ujian). Makna `disahkan` TIDAK dilonggarkan: ia masih memerlukan baca-semula portal hidup yang mengesahkan identiti + kategori + sebab setiap murid. **Kecacatan fixture yang ditemui semasa menutup kerja ini:** ujian baharu menetapkan baris "sudah tidak hadir" dengan `KategoriNilai="S"` tetapi teks kosong, sedangkan borang yang SUDAH DIISI merender option terpilih bersama labelnya (`SkripMoeis.BacaSebabMurid` membaca `value` + `textContent` daripada option yang SAMA) — jadi `PadananDropdown.Padan("S","","SAKIT")` menolak dengan betul ("S" bukan "SAKIT") dan hasil jatuh ke `tersimpan`. Aliran tidak dilonggarkan; sebaliknya `DomMoeisPalsu.SudahTidakHadir(id, kategori, sebab)` baharu menetapkan nilai DAN teks daripada senarai dropdown fixture (gagal kuat pada pilihan tidak wujud) dan kesemua empat fixture "sudah tidak hadir" menggunakannya. | Tiada data murid; stub dalam-memori sahaja — tiada WebView2, pelayar, portal, rangkaian atau backend sebenar. `dotnet test desktop/HadirDesktop.sln` **664 / 664 lulus, 0 gagal** (662 → 664: dua ujian badge baharu; sapuan refleksi seam 21 → 22 kaedah). Tertunggak: belum disahkan terhadap MOEIS hidup — pemilik perlu mengesahkan badge bertukar "TELAH DISAHKAN" pada larian sebenar. |
 | 23 September 2026 | desktop 1.0.8 (BUKTI HIDUP) | **Ujian terkawal di portal sebenar: kedua-dua cabang laluan terbukti. (a) 1 BIJAK 18:07:54-18:08:10 pulang `tidak-berubah` KERANA pemilik sudah menekan butang hijau lebih awal (pengesahan pemilik: "1 bijak memang dah disahkan dari awal tadi") - potong pendek TEPAT apabila badge sudah `TELAH DISAHKAN`. (b) Badge masih KUNING bagi 5 kelas yang disimpan pemilik ~18:0x (simpanan 17:00-17:03 berjalan di 1.0.7 dengan `sahkan=false`, jadi hanya `.simpan` ditekan) -> laluan penuh: 3b semak sebab -> kemaskini -> dialog -> butang hijau `.simpansah` -> baca semula. 2 CERDIK 18:27:07->18:27:35; 3 BIJAK 18:27:40->18:28:06; 5 CERDIK 18:28:11->18:28:37; 6 BIJAK 18:28:42->18:29:07; PRASEKOLAH 18:29:13->18:29:39 - SEMUA `disahkan`. | `18:29:41 5 tugasan dihantar (5 dicuba, 0 dilangkau); semua disahkan`. Membuktikan dua penyekat Claude secara HIDUP: (i) dialog MEMANG muncul untuk data sedia ada (jika tidak -> `gagal-dialog`, bukan `disahkan`); (ii) ejaan badge betul - dalam 1.0.8 `disahkan` menuntut `PengesahanPelayan == true` (bacaan `#statusBadge` selepas muat semula), jadi ejaan tersasar -> `Semua` jatuh -> `tersimpan`. Kegagalan 404 sementara 18:18:55 ditangani dengan enggan membuka portal (tiada log masuk dicuba) -> pulih pada kitaran 18:27. Item Claude #3 SELESAI: pemilik menguji sendiri di MOEIS dan mengesahkan "ya ia masih boleh disimpan dan disahkan" - rekaod yang sudah disahkan KEBAL boleh dipinda semula, jadi `sahkan: true` global SELAMAT; tiada togol diperlukan. |

@@ -16,8 +16,6 @@ public sealed class MainForm : Form
     private readonly TrayHost _tray;
     private readonly FixturePortalServer _portalServer = new();
     private NavigationGuard _navigationGuard = null!;
-    private readonly FixtureEngineStatusSource _fixtureSource = new();
-    private readonly LoopbackEngineStatusSource _loopbackSource = new();
     private readonly DevDebugTransport? _devDebug;
     private readonly RealPortalDevMode _realPortal;
     // Alat PEMBANGUN sahaja: satu kitaran automatik + log diagnostik. MATI
@@ -28,7 +26,52 @@ public sealed class MainForm : Form
     // kitaran deman yang SAMA seperti item dulang, hidup HANYA apabila pemilik
     // menghidupkan auto-login/auto-hantar. MATI secara lalai = tiada denyutan.
     private readonly System.Windows.Forms.Timer _pemasaKitaran = new();
+    /// <summary>
+    /// Pemasa PAPARAN sahaja: satu tick di sini menulis semula teks label
+    /// "Kitaran" dan tidak melakukan apa-apa lagi — tiada kitaran, tiada
+    /// rangkaian, tiada portal. Tanpanya, label yang hanya disegarkan pada
+    /// peralihan akan mengekalkan waktu LAMPAU di skrin apabila tick tertangguh.
+    /// </summary>
+    private readonly System.Windows.Forms.Timer _pemasaLabelKitaran = new();
     private bool _kitaranAutoSedangJalan;
+    /// <summary>
+    /// Titik rujukan jadual pemasa: saat pemasa DIMULAKAN, kemudian saat setiap
+    /// tick BERMULA. Tick berikutnya tiba kira-kira satu selang selepasnya.
+    ///
+    /// Sengaja BUKAN "saat kitaran tamat": pemasa WinForms tidak bermula semula
+    /// selepas pengendalinya selesai, jadi kitaran yang mengambil dua minit
+    /// diikuti tick lapan minit kemudian, bukan sepuluh. Mengira dari masa tamat
+    /// akan sentiasa menjanjikan waktu yang terlalu lewat.
+    /// </summary>
+    private DateTime? _asasJadualTick;
+    /// <summary>
+    /// Bila one-shot kitaran pertama (45 saat selepas lancar) akan berjalan, atau
+    /// <c>null</c> apabila tiada yang tertunda. Ia TIDAK dikosongkan apabila
+    /// pemilik mematikan togol: <c>Task.Delay</c> itu masih berjalan, jadi
+    /// menghidupkan semula togol sebelum 45 saat tamat memang akan menjalankannya
+    /// lebih awal daripada slot pemasa — dan label mesti masih tahu itu.
+    /// </summary>
+    private DateTime? _oneShotPada;
+    /// <summary>
+    /// Keputusan PAGAR kitaran yang terakhir dinilai (semasa tick atau semasa
+    /// pilihan pemilik dibaca), atau <c>null</c> apabila ia belum pernah dinilai.
+    ///
+    /// Pemasa yang hidup sahaja tidak cukup untuk berkata kitaran akan berjalan:
+    /// tetapan boleh bertukar di LUAR aplikasi, dan pagar akan menolak setiap
+    /// tick sementara pemasa terus berdenyut. Ini paparan semata-mata — pagar,
+    /// syaratnya, dan tingkah laku mula/henti pemasa tidak berubah.
+    ///
+    /// Tiada cap masa disimpan bersamanya: nilai ini ditulis semula pada setiap
+    /// tick DAN pada setiap perubahan tetapan, jadi cap masa akan direkodkan
+    /// tanpa pernah dirujuk.
+    /// </summary>
+    private bool? _gateTerakhirLulus;
+    /// <summary>
+    /// Sebab kitaran mati apabila ia lebih tepat daripada "pemilik belum
+    /// menghidupkannya" (cth tetapan tidak dapat dibaca, aplikasi sedang
+    /// ditutup). Teks sahaja — tiada rahsia, tiada PII.
+    /// </summary>
+    private string? _kitaranSebabMati;
     /// <summary>Sebab aliran penghantaran terakhir dalam kitaran ini (untuk log pembangun).</summary>
     private string? _sebabPenghantaranTerakhir;
     private readonly HttpClient _deviceHttp = new();
@@ -54,6 +97,13 @@ public sealed class MainForm : Form
     private readonly DpapiRahsiaEnjinStore _rahsiaStore = new();
     private readonly PemilikTugasanStore _pemilikStore = new();
     private readonly HadirBackendClient? _backendClient;
+    /// <summary>
+    /// Cap jari konfigurasi yang dipegang oleh <see cref="_backendClient"/> ketika
+    /// ia dibina. DALAM MEMORI SAHAJA: dibandingkan dengan cap konfigurasi semasa
+    /// supaya label dapat mengesan pertukaran kepada nilai LAIN yang tetap sah.
+    /// Tidak pernah dilog, dipaparkan, atau dimasukkan ke dalam pengecualian.
+    /// </summary>
+    private readonly string? _capKonfigurasiKlien;
     private readonly PenghantaranMoeisWebView2 _penghantarMoeis;
     private readonly AliranPenghantaranMoeis _aliranPenghantaran;
 
@@ -68,16 +118,14 @@ public sealed class MainForm : Form
     /// </summary>
     private readonly CancellationTokenSource _cycleCts = new();
 
-    private IEngineStatusSource _statusSource;
     private WebView2 _webView = null!;
     private Label _banner = null!;
     private StatusStrip _statusStrip = null!;
     private ToolStripStatusLabel _stateLabel = null!;
-    private ToolStripStatusLabel _engineLabel = null!;
+    private ToolStripStatusLabel _backendLabel = null!;
+    private ToolStripStatusLabel _kitaranLabel = null!;
     private ToolStripStatusLabel _navLabel = null!;
     private ToolStripButton _refreshButton = null!;
-    private ToolStripButton _portalButton = null!;
-    private ToolStripDropDownButton _sourceButton = null!;
     private bool _allowClose;
     private KeadaanPortal _keadaanPortal = KeadaanPortal.Diam;
 
@@ -91,7 +139,6 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
-        _statusSource = _fixtureSource;
         _realPortal = RealPortalDevMode.FromEnvironment();
         _devAutoKitaran = DevAutoKitaran.DariPersekitaran();
         // Bina penjaga navigasi DARI TETAPAN TERSIMPAN semasa mula, bukan hanya
@@ -134,6 +181,10 @@ public sealed class MainForm : Form
         if (tetapanBackend != null)
         {
             _backendClient = new HadirBackendClient(_deviceHttp, tetapanBackend.ApiUrl, tetapanBackend.RahsiaEnjin);
+            // Cap jari NILAI yang klien ini pegang, dirakam pada saat yang sama
+            // ia dibina — supaya label kemudian dapat membezakan "konfigurasi
+            // masih sama" daripada "bertukar kepada nilai lain yang juga sah".
+            _capKonfigurasiKlien = CapKonfigurasiBackend.Kira(tetapanBackend.ApiUrl, tetapanBackend.RahsiaEnjin);
         }
         // Demand probe also backend-direct when the secret is readable; loopback
         // is only a fallback for a PC that has no engine secret configured yet.
@@ -220,6 +271,12 @@ public sealed class MainForm : Form
         _pemasaKitaran.Interval = KitaranAuto.SelangMinit * 60 * 1000;
         _pemasaKitaran.Tick += PemasaKitaran_Tick;
 
+        // Pemasa paparan: HANYA menulis teks label. Ia sengaja tidak memanggil
+        // JalankanKitaranAutoAsync — menggandakan kitaran di sini bermakna
+        // aktiviti portal yang tidak pernah diminta pemilik.
+        _pemasaLabelKitaran.Interval = JadualKitaran.SelangSegarLabelSaat * 1000;
+        _pemasaLabelKitaran.Tick += PemasaLabelKitaran_Tick;
+
         BuildLayout();
         // Tajuk + banner ditetapkan SELEPAS layout wujud, dan ia membaca tetapan
         // pemilik: penanda "MOD DEMO" mesti hilang sebaik ciri sebenar dihidupkan.
@@ -250,52 +307,38 @@ public sealed class MainForm : Form
         };
 
         _stateLabel = new ToolStripStatusLabel { Text = "Keadaan: -" };
-        _engineLabel = new ToolStripStatusLabel { Text = "Enjin: -" };
+        _backendLabel = new ToolStripStatusLabel { Text = LabelBackend.Awalan + "-" };
+        _kitaranLabel = new ToolStripStatusLabel { Text = LabelKitaran.Awalan + "-" };
         _navLabel = new ToolStripStatusLabel { Text = string.Empty, Spring = true, TextAlign = System.Drawing.ContentAlignment.MiddleRight };
 
         _refreshButton = new ToolStripButton { Text = "Segar semula status" };
-        _refreshButton.Click += async (_, _) => await RefreshEngineStatusAsync();
+        _refreshButton.Click += (_, _) => KemasKiniStatus();
 
-        _portalButton = new ToolStripButton { Text = "Portal Fixture" };
-        _portalButton.Click += (_, _) => NavigateToFixture();
-
-        _sourceButton = new ToolStripDropDownButton { Text = "Sumber: " + CurrentSourceName() };
-        _sourceButton.DropDownItems.Add(SourceItem(DemoLabel.SimulatedSourceLabel, _fixtureSource));
-        _sourceButton.DropDownItems.Add(SourceItem(DemoLabel.RealSourceLabel, _loopbackSource));
-
+        // Bar status pemilik: hanya apa yang dia benar-benar guna. Butang portal
+        // ujian, pemilih sumber status dan label enjin bersimulasi dibuang pada
+        // 1.0.9 — ketiga-tiganya memaparkan data rekaan pada pemasangan yang
+        // MENULIS ke MOEIS, dan tiada satu pun daripadanya tugas seorang guru.
         _statusStrip = new StatusStrip();
         _statusStrip.Items.Add(_refreshButton);
-        _statusStrip.Items.Add(_portalButton);
-        _statusStrip.Items.Add(new ToolStripSeparator());
-        _statusStrip.Items.Add(_sourceButton);
         _statusStrip.Items.Add(new ToolStripSeparator());
         _statusStrip.Items.Add(_stateLabel);
         _statusStrip.Items.Add(new ToolStripSeparator());
-        _statusStrip.Items.Add(_engineLabel);
+        _statusStrip.Items.Add(_backendLabel);
+        _statusStrip.Items.Add(new ToolStripSeparator());
+        _statusStrip.Items.Add(_kitaranLabel);
         _statusStrip.Items.Add(_navLabel);
 
         Controls.Add(_webView);
         Controls.Add(_banner);
         Controls.Add(_statusStrip);
-        Controls.Add(_devicePanel);
+        // Panel "Pendaftaran PC" TIDAK ditambah: backend pc* tidak wujud pada
+        // pelayan, jadi setiap butangnya mati. Kelasnya kekal (ciri berbilang PC
+        // akan datang) dan masih dilupuskan semasa tutup — melupuskan kawalan
+        // yang tidak pernah ditambah adalah selamat.
 
         UpdateStateLabel();
+        KemasKiniLabelKitaran();
     }
-
-    private ToolStripMenuItem SourceItem(string label, IEngineStatusSource source)
-    {
-        var item = new ToolStripMenuItem(label);
-        item.Click += async (_, _) =>
-        {
-            _statusSource = source;
-            _sourceButton.Text = "Sumber: " + CurrentSourceName();
-            await RefreshEngineStatusAsync();
-        };
-        return item;
-    }
-
-    private string CurrentSourceName() =>
-        ReferenceEquals(_statusSource, _loopbackSource) ? DemoLabel.RealSourceLabel : DemoLabel.SimulatedSourceLabel;
 
     private async void MainForm_Load(object? sender, EventArgs e)
     {
@@ -305,6 +348,10 @@ public sealed class MainForm : Form
         DevAutoKitaran.TulisKe(
             VersiAplikasi.LaluanLog(),
             VersiAplikasi.BarisLog(DateTimeOffset.Now, VersiAplikasi.Versi));
+
+        // Pemasa paparan label bermula sebaik borang dimuatkan: ia hanya menulis
+        // teks, jadi ia selamat berjalan walaupun kitaran automatik mati.
+        _pemasaLabelKitaran.Start();
 
         _portalServer.Start();
 
@@ -329,7 +376,7 @@ public sealed class MainForm : Form
 
         NavigateToFixture();
 
-        await RefreshEngineStatusAsync();
+        KemasKiniStatus();
 
         // Skrip siap DAN WebView2 bersedia — barulah kitaran pembangun (jika
         // dihidupkan) dijalankan. Sekali sahaja, tiada pemasa.
@@ -352,6 +399,12 @@ public sealed class MainForm : Form
             return;
         }
 
+        // Kitaran pertama ialah one-shot yang BERBEZA daripada pemasa 10 minit,
+        // jadi label mesti mengatakannya begitu — bukan menunjukkan slot pemasa
+        // biasa yang sebenarnya tidak akan datang dahulu.
+        _oneShotPada = DateTime.Now.AddSeconds(KitaranAuto.TundaanMulaSaat);
+        KemasKiniLabelKitaran();
+
         _ = KitaranAutoPertamaAsync();
     }
 
@@ -360,20 +413,40 @@ public sealed class MainForm : Form
         try
         {
             await Task.Delay(TimeSpan.FromSeconds(KitaranAuto.TundaanMulaSaat), _cycleCts.Token);
+            // One-shot tidak lagi tertunda — dari sini jadual datang daripada
+            // pemasa sahaja. Dikosongkan SEBELUM kitaran dijalankan supaya label
+            // "sedang berjalan" tidak masih mendakwa ada one-shot menunggu.
+            _oneShotPada = null;
             await JalankanKitaranAutoAsync();
         }
         catch (OperationCanceledException)
         {
             // Aplikasi ditutup sebelum kitaran pertama — tiada apa perlu dibuat.
+            _oneShotPada = null;
+            KemasKiniLabelKitaran();
         }
         catch (ObjectDisposedException)
         {
             // Tetingkap sudah dilupuskan semasa tundaan.
+            _oneShotPada = null;
         }
     }
 
-    private async void PemasaKitaran_Tick(object? sender, EventArgs e) =>
+    private async void PemasaKitaran_Tick(object? sender, EventArgs e)
+    {
+        // Titik rujukan jadual bergerak apabila tick BERMULA, bukan apabila kerja
+        // tamat — dan ia ditulis sebelum sebarang pagar, supaya anggaran tetap
+        // betul walaupun kitaran ini ditolak oleh gate.
+        _asasJadualTick = DateTime.Now;
         await JalankanKitaranAutoAsync();
+    }
+
+    /// <summary>
+    /// Pemasa PAPARAN: satu baris, satu tugas — tulis semula teks label supaya
+    /// anggaran yang sudah lepas bertukar menjadi "sebentar lagi" tanpa menunggu
+    /// peralihan. TIDAK menjalankan kitaran.
+    /// </summary>
+    private void PemasaLabelKitaran_Tick(object? sender, EventArgs e) => KemasKiniLabelKitaran();
 
     /// <summary>
     /// Satu kitaran automatik produksi. Semua penjaga kekal terpakai: pemilik
@@ -393,15 +466,29 @@ public sealed class MainForm : Form
             var tetapan = _idMeSettingsStore.Baca();
             if (!KitaranAuto.KenaJalan(tetapan.LoginAuto, tetapan.HantarAuto))
             {
+                // Pagar menolak walaupun pemasa masih hidup (tetapan bertukar di
+                // luar aplikasi). Rekod itu supaya label berhenti menjanjikan
+                // kitaran yang pagar akan tolak lagi. Syarat pagar sendiri, dan
+                // keputusan untuk pulang di sini, tidak berubah.
+                _gateTerakhirLulus = false;
+                _kitaranSebabMati = "tetapan automatik dibaca sebagai mati";
+                KemasKiniLabelKitaran();
                 return;
             }
+
+            _gateTerakhirLulus = true;
+            _kitaranSebabMati = null;
         }
         catch
         {
+            _gateTerakhirLulus = false;
+            _kitaranSebabMati = "tetapan tidak dapat dibaca";
+            KemasKiniLabelKitaran();
             return;   // tetapan tidak boleh dibaca = jangan berdenyut
         }
 
         _kitaranAutoSedangJalan = true;
+        KemasKiniLabelKitaran();
         try
         {
             _sebabPenghantaranTerakhir = null;
@@ -432,6 +519,10 @@ public sealed class MainForm : Form
         finally
         {
             _kitaranAutoSedangJalan = false;
+            // Tiada anggaran ditulis di sini: jadual milik pemasa, dan pemasa
+            // tidak bermula semula kerana kerja ini tamat. Label mengiranya
+            // semula daripada _asasJadualTick.
+            KemasKiniLabelKitaran();
         }
     }
 
@@ -616,14 +707,125 @@ public sealed class MainForm : Form
         _navLabel.Text = $"Navigasi disekat: {uri}";
     }
 
-    private async System.Threading.Tasks.Task RefreshEngineStatusAsync()
+    /// <summary>
+    /// Menyegarkan label bar status yang benar-benar memandu kerja: keadaan
+    /// backend (laluan penghantaran SEBENAR aplikasi ini) dan kitaran automatik.
+    ///
+    /// Label backend membaca <see cref="IRahsiaEnjinStore.Status()"/>, bukan
+    /// enjin loopback: klaim/hantar bercakap TERUS dengan Apps Script memakai
+    /// rahsia enjin DPAPI, jadi "ada rahsia + apiUrl sah" ialah satu-satunya
+    /// soalan yang menentukan sama ada apa-apa boleh dihantar langsung. Status()
+    /// memulangkan boolean + sebab sahaja — tiada rahsia dan tiada URL pernah
+    /// sampai ke skrin.
+    /// </summary>
+    private void KemasKiniStatus()
     {
-        var status = await _statusSource.GetStatusAsync();
-        var kind = status.IsSimulated ? DemoLabel.SimulatedSourceLabel : status.SourceLabel;
-        var detail = status.Kind == EngineStatusKind.Ok
-            ? $"ok={status.Ok} versi={status.Versi} giliran={(status.GiliranAktif ? "aktif" : "pasif")}"
-            : status.Catatan;
-        _engineLabel.Text = $"Enjin ({kind}): {detail}";
+        var status = _rahsiaStore.Status();
+        // Fakta pertama ialah klien yang BENAR-BENAR digunakan oleh klaim/hantar
+        // (dibina sekali semasa lancar); fakta kedua ialah konfigurasi pada cakera
+        // sekarang; fakta ketiga membandingkan NILAInya melalui cap jari, supaya
+        // pertukaran kepada apiUrl/rahsia lain yang tetap sah tidak lulus sebagai
+        // "masih sama". Apabila mereka tidak sepadan, label mengatakannya dan
+        // bukan mendakwa keupayaan yang tidak dipegang oleh klien sebenar.
+        _backendLabel.Text = LabelBackend.Teks(
+            klienSedia: _backendClient != null,
+            konfigSediaSekarang: status.Sedia,
+            samaDenganKlien: CapKonfigurasiBackend.Sepadan(_capKonfigurasiKlien, CapKonfigurasiSekarang()),
+            sebab: status.Sebab);
+        KemasKiniLabelKitaran();
+    }
+
+    /// <summary>
+    /// Cap jari konfigurasi pada cakera SEKARANG, atau <c>null</c> apabila tiada
+    /// konfigurasi yang boleh dibaca. Nilai yang dibaca tidak disimpan di
+    /// mana-mana: ia dicincang dan dilepaskan.
+    /// </summary>
+    private string? CapKonfigurasiSekarang()
+    {
+        try
+        {
+            var tetapan = _rahsiaStore.Baca();
+            return tetapan is null ? null : CapKonfigurasiBackend.Kira(tetapan.ApiUrl, tetapan.RahsiaEnjin);
+        }
+        catch
+        {
+            // Baca() sudah gagal-tertutup; ini hanya jaring keselamatan supaya
+            // satu label tidak boleh menjatuhkan borang.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Fakta kitaran SEMASA. Dibaca pada benang UI sahaja (lihat
+    /// <see cref="KemasKiniLabelKitaran"/>) kerana ia menyentuh keadaan pemasa
+    /// dan kawalan borang.
+    /// </summary>
+    private FaktaKitaran FaktaKitaranSekarang()
+    {
+        bool hidup;
+        try { hidup = _pemasaKitaran.Enabled; }
+        catch (ObjectDisposedException) { hidup = false; }
+
+        var tick = JadualKitaran.TickSeterusnya(hidup, _asasJadualTick, KitaranAuto.SelangMinit);
+        var (seterusnya, pertama) = JadualKitaran.Pilih(tick, _oneShotPada);
+
+        return new FaktaKitaran(
+            // Pemasa yang hidup TAMBAH pagar yang tidak menolaknya: tetapan yang
+            // bertukar di luar aplikasi mematikan kerja tanpa mematikan pemasa.
+            Aktif: JadualKitaran.KitaranBenarBenarAktif(hidup, _gateTerakhirLulus),
+            SedangJalan: _kitaranAutoSedangJalan,
+            Seterusnya: seterusnya,
+            Pertama: pertama,
+            SebabMati: _kitaranSebabMati);
+    }
+
+    /// <summary>
+    /// Menulis semula label "Kitaran" daripada fakta SEMASA. Dipanggil pada
+    /// setiap peralihan (mula/henti pemasa, tick, kitaran pertama one-shot, mula
+    /// dan tutup aplikasi) DAN mengikut jam oleh pemasa paparan, supaya waktu
+    /// yang dipaparkan tidak pernah basi.
+    ///
+    /// Marshal DAHULU, baca kemudian: fakta dibina daripada keadaan pemasa dan
+    /// kawalan, jadi membinanya di benang kolam adalah bacaan silang-benang yang
+    /// sama seperti menulis label itu sendiri.
+    ///
+    /// Direka supaya tidak melontar pada laluan biasa: kegagalan yang DIJANGKA
+    /// semasa penutupan (borang dilupuskan, handle dirobohkan) ditangkap secara
+    /// eksplisit di sini dan dalam <see cref="TulisLabelKitaran"/>. Itu bukan
+    /// jaminan mutlak — ia liputan bagi kegagalan yang diketahui, kerana satu
+    /// label status tidak sepatutnya menjatuhkan aplikasi.
+    /// </summary>
+    private void KemasKiniLabelKitaran()
+    {
+        if (_kitaranLabel is null) return;   // dipanggil sebelum BuildLayout()
+
+        if (Environment.CurrentManagedThreadId == _uiThreadId)
+        {
+            TulisLabelKitaran();
+            return;
+        }
+
+        if (!IsHandleCreated) return;   // tiada handle untuk marshal; peralihan seterusnya menyegarkannya
+
+        // ObjectDisposedException DIDAHULUKAN kerana ia mewarisi
+        // InvalidOperationException: perlumbaan lupus semasa penutupan dan handle
+        // yang dirobohkan kedua-duanya ditangkap, dan susunan ini menyatakannya.
+        try { BeginInvoke(new Action(TulisLabelKitaran)); }
+        catch (ObjectDisposedException) { /* borang dilupuskan dalam perlumbaan dengan penutupan */ }
+        catch (InvalidOperationException) { /* handle dirobohkan semasa keluar */ }
+    }
+
+    /// <summary>Benang UI SAHAJA: membaca fakta dan menulis teks label.</summary>
+    private void TulisLabelKitaran()
+    {
+        try
+        {
+            _kitaranLabel.Text = LabelKitaran.Teks(FaktaKitaranSekarang(), DateTime.Now);
+        }
+        catch (ObjectDisposedException)
+        {
+            // Borang dilupuskan antara marshal dan penulisan.
+        }
     }
 
     /// <summary>
@@ -782,21 +984,37 @@ public sealed class MainForm : Form
         {
             var tetapan = _idMeSettingsStore.Baca();
             var kena = KitaranAuto.KenaJalan(tetapan.LoginAuto, tetapan.HantarAuto);
+            // Bacaan pagar yang SEGAR: label mengikutnya, bukan hanya keadaan
+            // pemasa. Tiada kesan pada syarat mula/henti di bawah.
+            _gateTerakhirLulus = kena;
 
             if (kena && !_pemasaKitaran.Enabled)
             {
                 _pemasaKitaran.Start();
+                _asasJadualTick = DateTime.Now;   // tick pertama ≈ satu selang dari sini
+                _kitaranSebabMati = null;
             }
             else if (!kena && _pemasaKitaran.Enabled)
             {
                 _pemasaKitaran.Stop();
+                _asasJadualTick = null;
+                // _oneShotPada SENGAJA dikekalkan: Task.Delay one-shot masih
+                // berjalan, jadi menghidupkan semula togol sebelum ia tamat akan
+                // menjalankan kitaran itu lebih awal daripada slot pemasa baharu.
             }
+
+            if (!kena) _kitaranSebabMati = null;   // sebab biasa: pemilik belum opt-in
         }
         catch
         {
             // Ragu-ragu tentang pilihan pemilik = JANGAN berdenyut.
             _pemasaKitaran.Stop();
+            _asasJadualTick = null;
+            _gateTerakhirLulus = false;
+            _kitaranSebabMati = "tetapan tidak dapat dibaca";
         }
+
+        KemasKiniLabelKitaran();
     }
 
     /// <summary>
@@ -1061,12 +1279,25 @@ public sealed class MainForm : Form
 
             // Hentikan denyutan kitaran automatik SEBELUM komponen yang dipandunya
             // (WebView2, HttpClient) dilupuskan.
-            try { _pemasaKitaran.Stop(); _pemasaKitaran.Dispose(); }
+            try
+            {
+                _pemasaKitaran.Stop();
+                // Label disegarkan SEBELUM Dispose: selepas itu tiada lagi kitaran
+                // dijadualkan, dan pemasa yang dilupuskan bukan tempat untuk
+                // bertanya.
+                _asasJadualTick = null;
+                _oneShotPada = null;
+                _kitaranSebabMati = "aplikasi sedang ditutup";
+                KemasKiniLabelKitaran();
+                _pemasaKitaran.Dispose();
+
+                _pemasaLabelKitaran.Stop();
+                _pemasaLabelKitaran.Dispose();
+            }
             catch (ObjectDisposedException) { /* already disposed */ }
 
             _devicePanel.Dispose();
             _portalServer.Dispose();
-            _loopbackSource.Dispose();
             (_kerjaHariIni as IDisposable)?.Dispose();
             _kerjaPenuh.Dispose();
             _deviceHttp.Dispose();
