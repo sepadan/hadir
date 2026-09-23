@@ -165,9 +165,9 @@ dikemas kini bersama jika MOEIS menukar senarainya.
   tugasan sebelumnya berstatus `gagal` (`hadirMoeisBolehCiptaJob_`), yang mana
   ia boleh dicuba semula.
 - HADIR **tidak pernah** menghubungi MOEIS. `moeisJobBuat` hanya menulis
-  baris tugasan; enjin Playwright berasingan pada PC guru (kini **Enjin PC
-  (Companion)** rasmi dalam `companion/` — lihat bahagian 5.2 — gantian
-  prototaip `moeis-bot`) mengambil tugasan menerusi `moeisJobSenarai` dan
+  baris tugasan; enjin pada PC guru — **shell desktop** `desktop/` (bahagian
+  5.3), dengan `companion/` Node sebagai enjin lama (bahagian 5.2), berikutan
+  prototaip `moeis-bot` — mengambil tugasan menerusi `moeisJobSenarai` dan
   melaporkan keputusan menerusi `moeisJobSelesai`, kedua-duanya disahkan
   dengan rahsia Script Properties `HADIR_MOEIS_ENGINE_SECRET` (corak sama
   seperti `SEPADAN_SYNC_SECRET`) — bukan token admin, kerana enjin berjalan
@@ -207,9 +207,11 @@ Jawapan: `{ok:true, hasil:...}` atau `{ok:false, ralat:"..."}`.
 `companion/` ialah komponen Node (ESM, Node ≥ 20) yang menggantikan
 penggunaan manual prototaip `moeis-bot` di terminal. Ia berjalan pada satu PC
 guru Windows (Edge sistem, `playwright-core`, **headed** — MOEIS menolak
-pelayar headless) dan dikawal daripada kad **Enjin PC (Companion)** dalam
-menu admin **Hantar ke MOEIS**. Pemasangan penuh, aliran pemasangan mudah
-alih dan had keupayaan yang diuji: [`companion/docs/PEMASANGAN.md`](companion/docs/PEMASANGAN.md).
+pelayar headless). **Enjin rasmi kini shell desktop `desktop/` (bahagian
+5.3); kad kawalan web companion dan butang "Jalankan sekarang (Companion)"
+sudah DIBUANG (23/09/2026)** — PC sekolah tidak lagi menyambung ke loopback
+8747, jadi kad itu hanya menghasilkan `Failed to fetch`. Pemasangan penuh,
+aliran pemasangan mudah alih dan had keupayaan yang diuji: [`companion/docs/PEMASANGAN.md`](companion/docs/PEMASANGAN.md).
 
 **Sempadan keselamatan (fail-closed):**
 - `server.listen(port, '127.0.0.1')` sahaja — tiada sambungan luar PC.
@@ -895,7 +897,11 @@ Selepas audit hujung-ke-hujung (22 Sep 2026), hiris ini kini merangkumi laluan
 lengkap — bukan lagi sekadar "probe baca sahaja" — tetapi **masih OFF secara
 lalai dan tidak pernah dideploy / dihidupkan dalam produksi**:
 
-- **UI admin (`app.js` + `index.html`, pane `Peranti PC`)**: admin (dengan
+- **DIBUANG daripada frontend pada 23/09/2026** — pane `Peranti PC` dan item
+  menunya sudah tiada dalam `app.js`/`index.html` (ciri masih OFF lalai dan
+  tidak pernah dideploy). Fungsi backend `pc*` kekal dan masih diuji di bawah.
+  Rekod reka bentuk asal: **UI admin (`app.js` + `index.html`, pane
+  `Peranti PC`)**: admin (dengan
   token sesi) boleh menerbitkan kod daftar sekali guna (`pcTerbitKodDaftar`)
   dan menyahaktifkan peranti aktif (`pcNyahaktifPeranti`). Setiap butang ialah
   aksi sebenar, bukannya placeholder; gated oleh `state.token`; Bahasa Melayu
@@ -992,7 +998,7 @@ lalai dan tidak pernah dideploy / dihidupkan dalam produksi**:
 
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.11.0`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.11.34`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -1226,6 +1232,7 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 23 September 2026 | 1.11.34 | **PWA admin: panel enjin lama dibuang — punca sebenar `Failed to fetch` ialah kad "Enjin PC (Companion)" yang menunggu enjin Node loopback `127.0.0.1:8747` yang tidak lagi berjalan.** Enjin PC kini aplikasi `desktop/` yang membaca backend terus dan tidak membuka sebarang port, jadi kad Companion (7 butang: Sambung PC, Uji sambungan, Uji log masuk, Mula/Hentikan giliran, Buka tetapan tempatan, Putuskan pasangan) dan butang "Jalankan sekarang (Companion)" pada setiap kad kelas sentiasa gagal. Semuanya dibuang daripada `index.html`/`app.js`, bersama pane `Peranti PC` dan item menunya (ciri berbilang PC masih OFF lalai dan tidak pernah dideploy; fungsi backend `pc*` kekal). Diganti dengan satu nota jujur dalam skrin Hantar ke MOEIS: "Tugasan diambil secara automatik oleh aplikasi HADIR Desktop pada PC sekolah dalam masa kira-kira 10 minit; HADIR tidak pernah bersambung terus ke MOEIS." Laluan yang digunakan kekal: kad kelas + Hantar (`moeisJobBuat`) + Lengkapkan. Penjaga regresi frontend DITERBALIKKAN, bukan dibuang — ujian kini mengesahkan KETIADAAN `companionPanggil`, `KUNCI_COMPANION_SESI`, port `8747`, `companionSambungBtn`/`companionPairDialog`/`companionPane`, dan seluruh UI `devicePc*`. Ujian versi kini invarian (semua aset mesti seragam dengan `versi` dalam `config.js`) dan bukan nombor mati yang perlu disunting setiap kali naik versi. | Tiada data murid. `node tests/hadir.test.cjs` exit 0; `node tests/hadir-pc-vm.test.cjs` 29/29 lulus; `node --check` lulus pada ketiga-tiga fail JS; halaman dimuatkan dalam pelayar sebenar dengan SIFAR ralat konsol pada lebar 375 px (tiada skrol mendatar, nota bergaya betul). Aset dinaikkan serentak: `?v=1.11.34` di keempat-empat fail HTML, `CACHE_VERSION = 'hadir-shell-v1.11.34-20260923-1'` dan APP_SHELL service worker |
 | 23 September 2026 | 1.11.33 | **Shell desktop: versi satu-sumber-kebenaran + kemas kini yang selamat.** Sebelum ini tiada cara mengetahui binaan mana yang terpasang, dan `setup.ps1` menyalin exe TANPA menghentikan aplikasi — aplikasi yang hidup mengunci exe, jadi kemas kini gagal atau separuh tulis. Kini: `<Version>1.0.0</Version>` dalam `HadirDesktop.csproj` ialah satu-satunya nombor versi; `VersiAplikasi.cs` membacanya semula daripada assembly untuk tajuk tetingkap (`HADIR Desktop 1.0.0 — MOD DEMO`), nota dulang, satu baris log setiap lancaran (`hadir-desktop.log`), dan bendera `--versi` yang diperiksa SEBELUM mutex satu-tika (cetak + keluar 0; tiada tetingkap, tiada WebView2). `desktop/update.ps1` + `desktop/hentikan-hadir.ps1` (fungsi kongsi, dipakai `setup.ps1` juga): henti sopan → had masa 20 s → `Stop-Process` → tunggu kunci fail; baca versi sebelum; sandar `.bak-<versi>`; salin; **sahkan SHA256** (tidak sepadan = pulihkan sandaran + keluar bukan-sifar); lapor `sebelum -> selepas` (termasuk amaran "binaan TIDAK berubah"); lancar semula HANYA jika tadinya berjalan. **Dua pepijat ditemui semasa larian sebenar dan dibaiki:** (a) membaca versi menjalankan exe itu sendiri dan Windows melepaskan kunci imej LEWAT sedikit selepas proses mati — salinan seterusnya gagal `file is being used by another process`; kini ada pagar `Wait-ExeBolehTulis` antara bacaan versi dan salinan; (b) Windows PowerShell 5.1 membaca `.ps1` tanpa BOM sebagai ANSI, dan bait ketiga sengkang panjang (`—`) menjadi petikan pintar CP1252 yang MENAMATKAN rentetan berpetikan dua — skrip gagal huraian; ketiga-tiga skrip kini ber-BOM UTF-8 (dikunci oleh ujian). Panduan pengguna + rollback: `desktop/KEMASKINI.md`. | Tiada data murid. Folder pemasangan berkongsi dengan fail data pengguna, jadi skrip menulis `HadirDesktop.exe` + sandarannya SAHAJA — tiada padam rekursif, tiada nama fail data dalam arahan, `HADIR-MOEIS-Companion/profil-pelayar/` (sesi MOEIS) tidak disentuh. Disahkan dengan larian sebenar dalam `LOCALAPPDATA` sandbox berisi fail data umpan: fail umpan utuh, kod keluar 0 |
 | 23 September 2026 | 1.11.32 | **Shell desktop: pepijat BLOK benang UI — penghantaran MOEIS gagal dalam &lt;1 s dengan `CoreWebView2 can only be accessed from the UI thread`.** Ujian hidup 11:59 (`dev-kitaran.log`): `PENGHANTARAN_MULA kelas=1 BIJAK` → `PENGHANTARAN_TAMAT status=gagal`. Log masuk berjaya penuh, jadi bukan rangkaian/sesi/pemilih DOM. Punca: `AliranPenghantaranMoeis` menunggu I/O backend dengan `ConfigureAwait(false)`, jadi kesinambungan yang memanggil adaptor berjalan di benang KOLAM, dan `WebView2DomMoeis` menyentuh `CoreWebView2` tanpa marshalling sendiri — membaca harta `WebView2.CoreWebView2` itu sendiri sudah melontar di luar benang UI. Pembetulan: seam `IMarshalUi` baharu (`desktop/HadirDesktop/MarshalUi.cs`) disuntik ke `WebView2DomMoeis`/`PenghantaranMoeisWebView2` sebagai parameter **WAJIB** (tiada lalai senyap), dan KETIGA-TIGA primitif yang menyentuh CoreWebView2 (`ExecuteScriptAsync`, `Navigate`, `Reload`) dibalut dengannya — jadi setiap kaedah seam, termasuk kaedah baharu kelak, mewarisi jaminan benang. `MainForm` membekalkan `MarshalUiBorang` yang hanya menghantar semula ke `PadaUiAsync` sedia ada. `ConfigureAwait(false)` TIDAK dibuang di mana-mana: sempadan modul yang menyentuh WebView2 menjamin benangnya sendiri. Pemilih DOM tidak disentuh; lalai MATI, allowlist navigasi, dan pagar kredensial kekal. | Tiada data murid. Ujian menggunakan stub `Func<CoreWebView2?>` terikat-benang — tiada WebView2, pelayar, portal atau backend sebenar. |
 | 23 September 2026 | 1.11.31 | **Shell desktop: alat PEMBANGUN `HADIR_DEV_AUTO_KITARAN` (lalai MATI) — satu kitaran automatik + log diagnostik.** `desktop/HadirDesktop/DevAutoKitaran.cs` (baharu): keputusan env TULEN `PatutAutoKitaran` (truthy `1`/`true`/`ya`/`yes`/`on`; null/kosong/apa-apa lain = MATI), laluan log, pembentuk baris, dan penulis append gagal-tertutup. Bila HIDUP, `MainForm_Load` menjalankan SATU `CubaLoginAutoAtasPermintaanAsync()` selepas WebView2 bersedia (laluan pengeluaran yang sama; semua penjaga kekal) dan menulis `%LOCALAPPDATA%/HadirDesktop/dev-kitaran.log`: satu baris per kitaran (masa ISO + keadaan portal + sebab + hasil aliran penghantaran) + satu baris per langkah klaim/hantar/selesai. `AliranPenghantaranMoeis` kini melaporkan `KLAIM_OK`/`KLAIM_DITOLAK`/`KLAIM_RALAT`/`SELESAI_OK` melalui callback `log` pilihan yang sedia ada (id tugasan/kelas/status sahaja). MATI = tiada perubahan langsung pada pengeluaran. | Tiada data murid. Log pembangun hanya menerima teks keadaan/sebab yang sudah dipaparkan pada UI — tiada kredensial, IC, token atau URL bertoken. |

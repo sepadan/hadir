@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.11.0">
+  <link rel="manifest" href="manifest.webmanifest?v=1.11.34">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.11.0">
+  <link rel="stylesheet" href="styles.css?v=1.11.34">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -41,7 +41,6 @@
           <button class="menu-link" data-pane="studentsPane"><span>♙</span><div><strong>Data Murid</strong><small>Tambah dan kemas kini</small></div></button>
           <button class="menu-link" data-pane="moeisPane"><span>✉</span><div><strong>Hantar ke MOEIS</strong><small>Kategori, sebab dan giliran tugasan</small></div></button>
           <button class="menu-link" data-pane="syncPane"><span>↻</span><div><strong>Penyelarasan</strong><small>AKSI dan SEMAK</small></div></button>
-          <button class="menu-link" data-pane="devicePcPane"><span>🖥</span><div><strong>Peranti PC</strong><small>Ciri berbilang PC (pendaftaran &amp; kepimpinan)</small></div></button>
         </div>
       </nav>
       <div class="side-foot">
@@ -140,28 +139,7 @@
         </div>
         <div id="moeisStatus" class="status" aria-live="polite"></div>
 
-        <div class="companion-card">
-          <div class="page-head"><div><span class="eyebrow">ADMIN</span><h2>Enjin PC (Companion)</h2>
-            <p>Enjin Playwright berjalan pada satu PC guru (Windows), disambung melalui loopback sahaja. HADIR tidak pernah menerima kata laluan atau rahsia enjin — rahsia dimasukkan <b>hanya</b> dalam tetapan tempatan pada PC itu.</p></div></div>
-          <div id="companionRingkasan" class="status" aria-live="polite">Tiada PC disambung.</div>
-          <div class="companion-actions">
-            <button id="companionSambungBtn" class="soft">Sambung PC</button>
-            <button id="companionUjiSambunganBtn" class="soft" disabled>Uji sambungan</button>
-            <button id="companionUjiLoginBtn" class="soft" disabled>Uji log masuk (tanpa tulis)</button>
-            <button id="companionMulaBtn" class="soft" disabled>Mula giliran</button>
-            <button id="companionHentiBtn" class="soft" disabled>Hentikan giliran</button>
-            <button id="companionTetapanLokalBtn" class="soft" disabled>Buka tetapan tempatan</button>
-            <button id="companionPutuskanBtn" class="soft danger" disabled>Putuskan pasangan</button>
-          </div>
-          <div id="companionButiran" class="companion-butiran" hidden></div>
-          <ul class="companion-nota">
-            <li>Rahsia enjin dimasukkan hanya dalam UI tetapan tempatan pada PC itu (butang "Buka tetapan tempatan"); HADIR tidak pernah menerima kata laluan.</li>
-            <li>Giliran penghantaran MATI secara lalai. Guru/admin mesti tekan "Mula giliran" secara eksplisit.</li>
-            <li>Sesi idMe tamat = perlu log masuk manual pada PC itu. Tiada dakwaan log masuk tanpa pengawasan.</li>
-            <li>Pelayar mungkin memaparkan gesaan kebenaran "akses rangkaian tempatan" sekali sahaja — ini normal.</li>
-          </ul>
-        </div>
-
+        <p class="moeis-nota">Tugasan diambil secara automatik oleh aplikasi <b>HADIR Desktop</b> pada PC sekolah dalam masa kira-kira 10 minit; HADIR tidak pernah bersambung terus ke MOEIS.</p>
         <div id="moeisList" class="review-list moeis-list"></div>
       </section>
 
@@ -174,34 +152,6 @@
         </div>
       </section>
 
-      <section id="devicePcPane" class="pane" hidden>
-        <div class="page-head">
-          <div><span class="eyebrow">ADMIN</span><h2>Peranti PC</h2>
-            <p>Ciri berbilang PC (pendaftaran peranti + kepimpinan berpagar generasi). Status pemimpin/peranti hanya dimuatkan apabila skrin ini dibuka — tiada permintaan automatik. Tiada serial, akaun, PII atau rahsia dipaparkan; tiada dakwaan "PC online" — hanya cap masa nampak kali terakhir dan keadaan lease.</p></div>
-        </div>
-
-        <div id="devicePcAdmin" class="companion-card" hidden>
-          <div class="page-head"><div><span class="eyebrow">ADMIN</span><h3>Terbit Kod Daftar Peranti</h3>
-            <p>Kod daftar adalah <b>sekali guna</b> dan luput selepas tempoh sah ditetapkan. Berikan kod ini terus kepada PC yang hendak didaftarkan — ia tidak boleh digunakan semula selepas satu pendaftaran berjaya atau selepas luput.</p></div></div>
-          <form id="devicePcIssueForm" class="form-grid">
-            <label>Akaun<input id="devicePcAkaunInput" required placeholder="cth. GURU1"></label>
-            <label>Tempoh sah (minit)<input id="devicePcTtlInput" type="number" min="1" value="15" required></label>
-            <button id="devicePcIssueBtn" type="submit" class="primary full">Terbit Kod Daftar</button>
-          </form>
-          <div id="devicePcIssueStatus" class="status" aria-live="polite"></div>
-          <div id="devicePcKodResult" class="admin-item" hidden>
-            <span>
-              <strong>Kod daftar</strong>
-              <input id="devicePcKodOutput" readonly>
-              <small id="devicePcKodLuput"></small>
-            </span>
-            <button id="devicePcSalinBtn" type="button" class="soft">Salin</button>
-          </div>
-        </div>
-
-        <div id="devicePcStatus" class="status" aria-live="polite"></div>
-        <div id="devicePcList" class="admin-list"></div>
-      </section>
     </main>
   </div>
 
@@ -328,24 +278,7 @@
     </form>
   </dialog>
 
-  <dialog id="companionPairDialog" class="settings-dialog">
-    <form id="companionPairForm" method="dialog">
-      <div class="dialog-head"><div><span class="eyebrow">COMPANION</span><h2>Sambung PC</h2><p>Kod pasangan dijana pada tetapan tempatan PC itu (sah 10 minit).</p></div><button type="button" class="icon-btn cancel-companion-pair">×</button></div>
-      <div class="dialog-body settings-form">
-        <label>Port companion<input id="companionPortInput" type="text" inputmode="numeric" value="8747" required></label>
-        <label>Kod pasangan (8 aksara)<input id="companionKodInput" type="text" maxlength="8" autocomplete="off" required></label>
-        <label>Label PC ini<input id="companionLabelInput" type="text" placeholder="Contoh: PC Bilik Guru" autocomplete="off"></label>
-        <label class="checkbox-line"><input id="companionIngatCheckbox" type="checkbox"> Ingat pada PC ini (localStorage)</label>
-        <div id="companionPairStatus" class="status" aria-live="polite"></div>
-      </div>
-      <div class="dialog-actions">
-        <button type="button" class="soft cancel-companion-pair">Batal</button>
-        <button id="companionPairSubmitBtn" type="submit" class="primary">Sambung</button>
-      </div>
-    </form>
-  </dialog>
-
-  <script src="config.js?v=1.11.0"></script>
-  <script src="app.js?v=1.11.0"></script>
+  <script src="config.js?v=1.11.34"></script>
+  <script src="app.js?v=1.11.34"></script>
 </body>
 </html>

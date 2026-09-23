@@ -293,10 +293,15 @@ sah(konteksMoeis.hadirMoeisBolehCiptaJob_('menunggu') === false, 'Tugasan menung
 sah(konteksMoeis.hadirMoeisBolehCiptaJob_('berjaya') === false, 'Tugasan berjaya mesti mengelak pendua');
 
 const cfg = baca('config.js');
-sah(cfg.includes("versi: 'HADIR v1.11.0'"), 'Versi paparan bukan v1.11.0');
+const versiPadanan = cfg.match(/versi: 'HADIR v([0-9.]+)'/);
+sah(versiPadanan, 'config.js mesti menyatakan versi paparan dalam bentuk HADIR v<versi>');
+const versiPaparan = versiPadanan[1];
 sah(!cfg.includes('PWA'), 'Config versi tidak perlu menulis PWA');
-sah(html.includes('styles.css?v=1.11.0') && html.includes('app.js?v=1.11.0') && html.includes('config.js?v=1.11.0'), 'Versi aset HTML tidak seragam');
-sah(sw.includes("hadir-shell-v1.11.0-20260918-1") && sw.includes('app.js?v=1.11.0'), 'Cache PWA belum dinaikkan bersama aset');
+sah(html.includes(`styles.css?v=${versiPaparan}`) && html.includes(`app.js?v=${versiPaparan}`) &&
+    html.includes(`config.js?v=${versiPaparan}`) && html.includes(`manifest.webmanifest?v=${versiPaparan}`),
+  'Semua aset HTML mesti membawa versi yang sama dengan config.js (senarai semak aset blueprint)');
+sah(sw.includes(`hadir-shell-v${versiPaparan}-`) && sw.includes(`app.js?v=${versiPaparan}`),
+  'CACHE_VERSION dan APP_SHELL service worker mesti dinaikkan bersama aset');
 
 // Ciri Enjin PC (Companion): klaim atomik + lease, status tersimpan, dan
 // pengawal admin di frontend (tiada wildcard CORS, tiada medan kata laluan,
@@ -350,14 +355,16 @@ if (fs.existsSync(path.join(root, 'companion', 'bin', 'jalan-push.mjs'))) {
     'Payload tugasan mesti melalui STDIN, bukan argumen CLI (baris arahan boleh dibaca proses lain)');
 }
 
-sah(app.includes('function companionPanggil') && app.includes("if (!state.token) return Promise.reject"),
-  'Pembantu companionPanggil() tunggal tiada atau tidak menyekat tanpa sesi admin');
+sah(!app.includes('function companionPanggil') && !app.includes('companionPanggil('),
+  'Kod Companion mesti dibuang dari frontend: enjin PC kini aplikasi HADIR Desktop yang membaca backend terus, bukan panggilan pelayar ke loopback 8747');
 sah(!/Access-Control-Allow-Origin['"`]?\s*[,:]\s*['"`]\*/.test(app), 'Frontend tidak boleh mengandungi rentetan CORS wildcard *');
-sah(app.includes("KUNCI_COMPANION_SESI") && app.includes('sessionStorage.setItem(KUNCI_COMPANION_SESI'),
-  'Pasangan companion mesti disimpan lalai dalam sessionStorage');
+sah(!app.includes('KUNCI_COMPANION_SESI') && !app.includes('8747'),
+  'Tiada pasangan Companion atau port loopback boleh kekal dalam app.js');
 const bahagianMoeisPaneHtml = html.slice(html.indexOf('id="moeisPane"'), html.indexOf('</section>', html.indexOf('id="moeisPane"')));
 sah(!/type=["']password["']/.test(bahagianMoeisPaneHtml), 'Skrin Hantar ke MOEIS/Companion tidak boleh mempunyai medan type="password"');
-sah(html.includes('id="companionSambungBtn"') && html.includes('id="companionPairDialog"'), 'UI Sambung PC companion tiada');
+sah(!html.includes('id="companionSambungBtn"') && !html.includes('id="companionPairDialog"') &&
+    !html.includes('id="companionPane"') && !html.includes('Enjin PC (Companion)'),
+  'UI Companion mesti dibuang dari index.html: sambungan dibuat oleh aplikasi HADIR Desktop, bukan pelayar');
 
 const companionDir = path.join(root, 'companion');
 if (fs.existsSync(companionDir)) {
@@ -446,29 +453,18 @@ const blokPcStatusAwam = backend.match(/function hadirPcStatusAwam_\([\s\S]*?(?=
 sah(!blokPcStatusAwam.includes('RAHSIA_HASH') && !blokPcStatusAwam.includes('HADIR_MOEIS_ENGINE_SECRET'),
   'Status awam berbilang PC tidak boleh membocorkan rahsia/hash rahsia');
 
-// UI admin Peranti PC: terbit kod daftar + nyahaktif peranti, digated oleh state.token.
-sah(html.includes('id="devicePcAdmin"') && html.includes('id="devicePcIssueForm"') &&
-    html.includes('id="devicePcAkaunInput"') && html.includes('id="devicePcTtlInput"') &&
-    html.includes('id="devicePcIssueBtn"'),
-  'Borang terbit kod daftar peranti PC tiada');
-sah(html.includes('id="devicePcKodResult"') && html.includes('id="devicePcKodOutput"') &&
-    html.includes('id="devicePcSalinBtn"') && html.includes('id="devicePcKodLuput"'),
-  'Paparan kod daftar sekali guna peranti PC tiada');
-sah(app.includes("$('devicePcAdmin').hidden = !state.token"),
-  'Kawalan admin peranti PC (terbit/nyahaktif) mesti digated oleh state.token');
-sah(app.includes("$('devicePcIssueForm').addEventListener('submit', terbitKodDaftarPc_)") &&
-    app.includes("panggil('pcTerbitKodDaftar', [akaun, minit * 60000, state.token]"),
-  'Terbit kod daftar peranti PC tidak wired ke backend pcTerbitKodDaftar');
-sah(app.includes('function nyahaktifPerantiPc_') &&
-    app.includes("window.confirm('Nyahaktifkan peranti '") &&
-    app.includes("panggil('pcNyahaktifPeranti', [p.idPeranti, p.akaun, state.token]"),
-  'Nyahaktif peranti PC tidak wired ke backend pcNyahaktifPeranti atau tiada pengesahan');
-sah(app.includes("if (state.token && p.status === 'aktif')"),
-  'Butang Nyahaktif mesti hanya dipaparkan untuk peranti aktif ketika admin log masuk');
-sah(/function nyahaktifPerantiPc_\([^)]*\)\s*\{[\s\S]*?mulaButang\(btn/.test(app),
-  'Butang Nyahaktif mesti dilumpuhkan semasa permintaan berjalan (mulaButang)');
-sah(/function terbitKodDaftarPc_\([^)]*\)\s*\{[\s\S]*?mulaButang\(\$\('devicePcIssueBtn'\)/.test(app),
-  'Butang Terbit Kod Daftar mesti dilumpuhkan semasa permintaan berjalan (mulaButang)');
+// UI Peranti PC (ciri berbilang PC) dibuang daripada frontend: ciri itu masih OFF
+// secara lalai dan tidak digunakan oleh aliran semasa (satu PC, enjin = aplikasi
+// HADIR Desktop). Bahagian backend pc* kekal dan masih diuji di atas.
+['devicePcPane', 'devicePcAdmin', 'devicePcIssueForm', 'devicePcAkaunInput', 'devicePcTtlInput',
+ 'devicePcIssueBtn', 'devicePcKodResult', 'devicePcKodOutput', 'devicePcSalinBtn', 'devicePcKodLuput'
+].forEach((id) => {
+  sah(!html.includes(`id="${id}"`) && !app.includes(`'${id}'`),
+    `UI Peranti PC "${id}" mesti dibuang daripada frontend (ciri belum digunakan)`);
+});
+sah(!app.includes('function nyahaktifPerantiPc_') && !app.includes('function terbitKodDaftarPc_') &&
+    !app.includes('function muatPerantiPc_'),
+  'Fungsi UI Peranti PC mesti dibuang bersama UI-nya');
 
 const css = baca('styles.css');
 sah(css.includes('height: 100dvh') && css.includes('overflow-y: auto'), 'Kawasan senarai belum boleh discroll');
