@@ -376,6 +376,52 @@ public class PenghantaranMoeisTests
         Assert.Equal(1, dom.BilSimpan);
     }
 
+    // ---------- a reload that never produced a committed document ----------
+
+    // Regression for the 23 Sep 2026 false positive: the submission reported
+    // "disahkan" after a fixed sleep, while MOEIS showed the class 28/28
+    // present — the reload had not committed yet, so the read saw the OLD DOM.
+    // A reload that fails or times out is classifiable, and it stops at
+    // "tersimpan": never "disahkan", never a second submission.
+
+    [Theory]
+    [InlineData(HasilMuat.TamatMasa, "navigasi tamat masa")]
+    [InlineData(HasilMuat.Gagal, "navigasi gagal")]
+    public async Task MuatSemulaTidakSelesai_Tersimpan_BukanDisahkan(HasilMuat muat, string sebabDijangka)
+    {
+        var dom = Dom("101", "102", "103");
+        dom.HasilMuatSemula = muat;
+
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(Tugasan(Sakit("102")));
+
+        Assert.Equal("tersimpan", hasil.Status);   // never "disahkan"
+        Assert.False(hasil.Berjaya);
+        Assert.Contains(sebabDijangka, hasil.Sebab, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pengesahan TIDAK dipastikan", hasil.Sebab, StringComparison.OrdinalIgnoreCase);
+        // The page was never read back, so no student count is claimed.
+        Assert.Null(hasil.BilMurid);
+        Assert.False(hasil.Verifikasi.Semua);   // bool — nothing was verified
+        // The guard does not loosen anything: exactly one save, never re-sent.
+        Assert.Equal(1, dom.BilSimpan);
+        Assert.Equal(0, dom.BilSimpanSah);
+        Assert.Equal(1, dom.BilMuatSemula);
+    }
+
+    [Fact]
+    public async Task MuatSemulaSelesai_MasihMenuntutBacaSemulaMengesahkan()
+    {
+        // The other side of the same coin: only a committed document lets the
+        // re-read decide, and then the re-read still decides.
+        var dom = Dom("101", "102", "103");
+        dom.HasilMuatSemula = HasilMuat.Selesai;
+
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(Tugasan(Sakit("102")));
+
+        Assert.Equal("disahkan", hasil.Status);
+        Assert.True(hasil.Berjaya);
+        Assert.Equal(1, dom.BilMuatSemula);
+    }
+
     [Fact]
     public async Task DialogBerjayaTiada_TidakBerjaya()
     {
@@ -720,6 +766,12 @@ public sealed class DomMoeisPalsu : IDomMoeis
     public bool SimpanBerkesan = true;
     public bool KosongkanSebabSelepasMuatSemula;
     public bool RalatPadaSenarai;
+    /// <summary>
+    /// Apa yang "pelayar" laporkan tentang navigasi semula-muat: Selesai
+    /// (dokumen baharu sudah commit), Gagal (navigasi gagal), TamatMasa
+    /// (tiada NavigationCompleted — DOM mungkin masih dokumen LAMA).
+    /// </summary>
+    public HasilMuat HasilMuatSemula = HasilMuat.Selesai;
 
     // Observations.
     public List<string> Panggilan = new();
@@ -853,16 +905,22 @@ public sealed class DomMoeisPalsu : IDomMoeis
 
     public Task<bool> DialogBerjayaKelihatan() => Task.FromResult(DialogBerjaya);
 
-    public Task MuatSemula()
+    public Task<HasilMuat> MuatSemula()
     {
         Panggilan.Add("muat-semula");
         BilMuatSemula++;
-        _dialogTerbuka = false;
-        Murid = _tersimpan.Select(b => b.Salin()).ToList();
-        if (KosongkanSebabSelepasMuatSemula)
+        if (HasilMuatSemula == HasilMuat.Selesai)
         {
-            foreach (var b in Murid) { b.KategoriNilai = ""; b.KategoriTeks = ""; b.SebabNilai = ""; b.SebabTeks = ""; }
+            // Only a committed new document replaces the DOM. On failure or
+            // timeout the OLD state is still what a reader would see — the
+            // exact condition behind the 23 Sep false positive.
+            _dialogTerbuka = false;
+            Murid = _tersimpan.Select(b => b.Salin()).ToList();
+            if (KosongkanSebabSelepasMuatSemula)
+            {
+                foreach (var b in Murid) { b.KategoriNilai = ""; b.KategoriTeks = ""; b.SebabNilai = ""; b.SebabTeks = ""; }
+            }
         }
-        return Task.CompletedTask;
+        return Task.FromResult(HasilMuatSemula);
     }
 }

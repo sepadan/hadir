@@ -349,7 +349,16 @@ public interface IDomMoeis
     Task<bool> KlikSimpan();
     Task<bool> KlikSimpanSahkan();
     Task<bool> DialogBerjayaKelihatan();
-    Task MuatSemula();
+    /// <summary>
+    /// Reload halaman selepas simpan dan TUNGGU <c>NavigationCompleted</c>
+    /// sebenar (bersempadan dengan had masa). Pulangan mengklasifikasikan
+    /// hasilnya: <see cref="HasilMuat.Selesai"/> sahaja bermakna dokumen
+    /// baharu sudah commit dan DOM boleh dibaca semula; <c>Gagal</c> dan
+    /// <c>TamatMasa</c> bermakna halaman TIDAK DAPAT dibaca semula — ia bukan
+    /// kejayaan dan tidak pernah dilabel sebegitu. Tiada tulisan, tiada
+    /// ulangan hantar.
+    /// </summary>
+    Task<HasilMuat> MuatSemula();
 }
 
 /// <summary>The one entry point the rest of the app uses to submit attendance.</summary>
@@ -564,8 +573,10 @@ public static class PenghantaranMoeisFlow
             if (perluTanda.Count == 0)
             {
                 // Nothing to change → nothing is saved. Not a failure, but not a
-                // submission either: never press save just to press it.
-                await dom.MuatSemula();
+                // submission either: never press save just to press it. The reload
+                // result is deliberately ignored — the status below is NOT a
+                // success, so a failed/timed-out reload here claims nothing.
+                _ = await dom.MuatSemula();
                 var h = Buat(tugasan, "tidak-berubah",
                     "MOEIS sudah menanda setiap murid dalam tugasan sebagai tidak hadir; tiada perubahan dihantar.",
                     "tidak-berubah");
@@ -837,6 +848,14 @@ public static class PenghantaranMoeisFlow
     /// scratch, then PROVE the submission: every task student is absent, their
     /// category+reason read back as the task asked, and no student became absent
     /// that was not already absent before. Read-only — this never re-submits.
+    ///
+    /// <para>
+    /// The reload itself must FIRST be classified. If the page could not be
+    /// loaded again — navigation failed, or no <c>NavigationCompleted</c>
+    /// within the deadline — the DOM may still hold the pre-save document
+    /// (the exact 23 Sep 2026 "1 BIJAK" false positive), so nothing is read
+    /// and the result is <c>tersimpan</c>, never <c>disahkan</c>.
+    /// </para>
     /// </summary>
     private static async Task<KeadaanSemakan> SahkanSelepasMuatSemulaAsync(
         IDomMoeis dom,
@@ -849,8 +868,22 @@ public static class PenghantaranMoeisFlow
     {
         var hasil = new KeadaanSemakan();
 
-        await dom.MuatSemula();
+        var muat = await dom.MuatSemula();
         ct.ThrowIfCancellationRequested();
+        if (muat != HasilMuat.Selesai)
+        {
+            // Classifiable surface, not a silent success: the page was NOT read
+            // back, so the claim stops at "saved". BilMurid stays null — no
+            // student count was ever verified.
+            var sebab = muat == HasilMuat.TamatMasa
+                ? "navigasi tamat masa (tiada NavigationCompleted dalam had masa)"
+                : "navigasi gagal";
+            hasil.Gagal = Buat(tugasan, "tersimpan",
+                "Dialog simpan berjaya tetapi halaman tidak dapat dimuat semula untuk dibaca semula ("
+                    + sebab + "); pengesahan TIDAK dipastikan.",
+                muat == HasilMuat.TamatMasa ? "muat-semula-tamat-masa" : "muat-semula-gagal");
+            return hasil;
+        }
 
         var sedia = await SediakanHalamanAsync(dom, tugasan, kelas, paparanTarikh, ct);
         if (sedia.Gagal != null)

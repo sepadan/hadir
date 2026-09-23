@@ -183,6 +183,91 @@ public static class SkripMoeis
 }
 
 /// <summary>
+/// Produksi <see cref="IPelayarMuat"/>: membalut <c>CoreWebView2</c> sebenar.
+///
+/// <para><b>Benang.</b> Sama seperti <see cref="WebView2DomMoeis"/>: setiap
+/// sentuhan <c>CoreWebView2</c> — membaca harta itu sendiri, <c>Reload</c>,
+/// melanggan <c>NavigationCompleted</c> — dihantar ke benang UI melalui
+/// <see cref="IMarshalUi"/>. Melangganan dilakukan SEKALI pada pelayar semasa
+/// dan kejadian itu diteruskan kepada penunggu semasa, jadi tiada langganan
+/// terputus-putus di benang UI.
+/// </para>
+///
+/// <para><b>Jangan senyap.</b> <c>_getWebView()</c> sengaja di luar sebarang
+/// cuba/tangkap: akses silang-benang (atau pelayar mati) mesti kelihatan
+/// sebagai ralat teknikal, bukan lebur menjadi "tamat masa" yang
+/// <see cref="HasilMuat.TamatMasa"/> palsu. Hanya <c>Reload()</c> sendiri yang
+/// gagal ditukar kepada <see cref="HasilMuat.Gagal"/> — satu klasifikasi yang
+/// jujur, bukan kejayaan.
+/// </para>
+/// </summary>
+public sealed class PelayarMuatCoreWebView2 : IPelayarMuat
+{
+    private readonly Func<CoreWebView2?> _getWebView;
+    private readonly IMarshalUi _ui;
+    private readonly int _hadMasaMuatMs;
+
+    private Action<KeputusanNavigasi>? _penunggu;
+    private CoreWebView2? _dilangganPada;
+
+    public PelayarMuatCoreWebView2(Func<CoreWebView2?> getWebView, IMarshalUi ui, int hadMasaMuatMs)
+    {
+        _getWebView = getWebView ?? throw new ArgumentNullException(nameof(getWebView));
+        _ui = ui ?? throw new ArgumentNullException(nameof(ui));
+        _hadMasaMuatMs = hadMasaMuatMs;
+    }
+
+    public int HadMasaMuatMs => _hadMasaMuatMs;
+
+    public IDisposable LanggananSelesaiNavigasi(Action<KeputusanNavigasi> terima)
+    {
+        if (terima == null) throw new ArgumentNullException(nameof(terima));
+        _penunggu += terima;
+        return new PemecahLangganan(() => _penunggu -= terima);
+    }
+
+    public Task MulaMuatSemulaAsync() => _ui.JalankanAsync(() =>
+    {
+        // Membaca harta WebView2 DI SINI, di luar cuba/tangkap — lihat nota kelas.
+        var wv = _getWebView();
+        if (wv == null) return Task.FromResult(false);
+
+        // Pastikan pelayar (bukan semata-mata flag) dilangganan: CoreWebView2
+        // boleh diganti, dan kejadian pelayar mati tidak akan menyala lagi.
+        if (!ReferenceEquals(_dilangganPada, wv))
+        {
+            wv.NavigationCompleted += PadaNavigationCompleted;
+            _dilangganPada = wv;
+        }
+
+        try { wv.Reload(); }
+        catch (Exception ralat)
+        {
+            // Reload gagal → tiada NavigationCompleted akan tiba → klasifikasi
+            // sebagai kegagalan SEKARANG, bukan menunggu had masa yang sunyi.
+            Naikkan(new KeputusanNavigasi(false, ralat.Message));
+        }
+        return Task.FromResult(true);
+    });
+
+    private void PadaNavigationCompleted(object? pengirim, CoreWebView2NavigationCompletedEventArgs e)
+        => Naikkan(new KeputusanNavigasi(e.IsSuccess, e.WebErrorStatus.ToString()));
+
+    private void Naikkan(KeputusanNavigasi k)
+    {
+        var penunggu = _penunggu;
+        penunggu?.Invoke(k);
+    }
+
+    private sealed class PemecahLangganan : IDisposable
+    {
+        private Action? _buang;
+        public PemecahLangganan(Action buang) => _buang = buang;
+        public void Dispose() => Interlocked.Exchange(ref _buang, null)?.Invoke();
+    }
+}
+
+/// <summary>
 /// Production <see cref="IDomMoeis"/> over the embedded WebView2, driven by
 /// <c>CoreWebView2.ExecuteScriptAsync</c> — the same pattern as
 /// <see cref="WebView2IdMeLoginDom"/>. It holds NO policy: every decision about
@@ -205,6 +290,8 @@ public sealed class WebView2DomMoeis : IDomMoeis
 {
     private readonly Func<CoreWebView2?> _getWebView;
     private readonly IMarshalUi _ui;
+    private readonly IPelayarMuat _pelayar;
+    private readonly int _jedaAjaxMs;
     private readonly int _masaSediaMs;
     private readonly int _jedaPollMs;
     private readonly int _masaMuatMs;
@@ -214,13 +301,40 @@ public sealed class WebView2DomMoeis : IDomMoeis
     /// Penghantar benang UI — WAJIB, tiada lalai. Lalai senyap di sini bermakna
     /// satu tapak binaan yang terlupa akan gagal hanya semasa ujian HIDUP.
     /// </param>
+    /// <param name="masaMuatMs">
+    /// Bagi <see cref="MuatSemula"/>: HAD MASA menunggu
+    /// <c>NavigationCompleted</c> sebenar (bukan lagi jeda tetap yang boleh
+    /// berakhir dengan DOM lama di tangan).
+    /// </param>
+    /// <param name="jedaAjaxMs">
+    /// Jeda PENETAPAN kecil selepas navigasi benar-benar selesai: jadual
+    /// kehadiran MOEIS masih diisi melalui AJAX walaupun dokumen sudah commit.
+    /// </param>
+    /// <param name="pelayar">
+    /// Seam "tunggu muat selesai". Lalai: pembalut <c>CoreWebView2</c> produksi.
+    /// Ujian menyuntik stub dalam-memori, tanpa pelayar dan tanpa portal.
+    /// </param>
+    /// <param name="hadMasaNavigasiMs">
+    /// Pagar tunggu SATU <c>NavigationCompleted</c> (lalai 20 s). Ini PAGAR sahaja,
+    /// bukan kelewatan: menunggu tamat serta-merta apabila navigasi selesai, jadi
+    /// nilai besar tidak melambatkan kes berjaya sedikit pun. Ia sengaja jauh lebih
+    /// besar daripada <paramref name="masaMuatMs"/> lama (4 s) kerana had yang
+    /// terlalu ketat memotong navigasi yang lambat sikit lalu melaporkan
+    /// <c>tersimpan</c> untuk simpanan yang sebenarnya BERJAYA — arah yang selamat,
+    /// tetapi menyembunyikan kejayaan sebenar. Sebaliknya navigasi yang GAGAL tidak
+    /// menunggu pagar ini langsung: <c>NavigationCompleted</c> dengan
+    /// <c>IsSuccess=false</c> tiba serta-merta.
+    /// </param>
     public WebView2DomMoeis(
         Func<CoreWebView2?> getWebView,
         IMarshalUi ui,
         int masaSediaMs = 15000,
         int jedaPollMs = 250,
         int masaMuatMs = 4000,
-        int jedaSelepasPilihMs = 2500)
+        int jedaSelepasPilihMs = 2500,
+        int jedaAjaxMs = 1500,
+        IPelayarMuat? pelayar = null,
+        int hadMasaNavigasiMs = 20000)
     {
         _getWebView = getWebView ?? throw new ArgumentNullException(nameof(getWebView));
         _ui = ui ?? throw new ArgumentNullException(nameof(ui));
@@ -228,6 +342,8 @@ public sealed class WebView2DomMoeis : IDomMoeis
         _jedaPollMs = jedaPollMs;
         _masaMuatMs = masaMuatMs;
         _jedaSelepasPilihMs = jedaSelepasPilihMs;
+        _jedaAjaxMs = jedaAjaxMs;
+        _pelayar = pelayar ?? new PelayarMuatCoreWebView2(getWebView, ui, hadMasaNavigasiMs);
     }
 
     private static async Task Delay(int ms)
@@ -435,15 +551,35 @@ public sealed class WebView2DomMoeis : IDomMoeis
 
     public Task<bool> DialogBerjayaKelihatan() => TungguBenarAsync(SkripMoeis.DialogBerjayaKelihatan());
 
-    public async Task MuatSemula()
+    /// <summary>
+    /// Reload the same URL and WAIT for the real <c>NavigationCompleted</c>
+    /// through <see cref="IPelayarMuat"/>, bounded by <c>masaMuatMs</c> so it
+    /// can never hang forever. Only then — after a document that actually
+    /// committed — does the small AJAX settle delay run.
+    ///
+    /// <para>
+    /// Pepijat 23 Sep 2026 ("1 BIJAK" dilaporkan <c>disahkan</c> sementara MOEIS
+    /// menunjukkan 28/28 hadir): <c>Reload()</c> meninggalkan dokumen LAMA dalam
+    /// DOM sehingga dokumen baharu commit, jadi apa sahaja yang dibaca dalam
+    /// jeda tetap boleh menjadi keadaan pra-simpan. Kegagalan atau tamat masa
+    /// di SINI dipulangkan sebagai <see cref="HasilMuat.Gagal"/> /
+    /// <see cref="HasilMuat.TamatMasa"/> — bukan dilempar, bukan ditelan —
+    /// supaya pemanggil melaporkan <c>tersimpan</c>, bukan <c>disahkan</c>.
+    /// Tiada tulisan ke MOEIS, tiada ulangan hantar, tiada pemilih DOM yang
+    /// disentuh di sini.
+    /// </para>
+    /// </summary>
+    public async Task<HasilMuat> MuatSemula()
     {
-        await _ui.JalankanAsync(() =>
+        var hasil = await PengendaliMuat.TungguNavigasiSelesaiAsync(_pelayar);
+        if (hasil == HasilMuat.Selesai)
         {
-            var wv = _getWebView();
-            try { wv?.Reload(); } catch { /* transient reload failure */ }
-            return Task.FromResult(true);
-        });
-        await Delay(_masaMuatMs);
+            // Only a COMMITTED document earns the settle delay; a failure or a
+            // timeout returns at once so the caller can classify it honestly
+            // instead of waiting out a quiet, unverified success.
+            await Delay(_jedaAjaxMs);
+        }
+        return hasil;
     }
 }
 
