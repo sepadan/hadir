@@ -1,7 +1,11 @@
-# Pasang HadirDesktop ke %LOCALAPPDATA%\HadirDesktop\, cipta pintasan Desktop,
+﻿# Pasang HadirDesktop ke %LOCALAPPDATA%\HadirDesktop\, cipta pintasan Desktop,
 # tanya autostart (default MATI), dan lancarkan exe sekali. Idempoten.
 
 $ErrorActionPreference = "Stop"
+
+# Logik henti-aplikasi + soal-versi yang SAMA seperti update.ps1 (fail kongsi,
+# supaya kedua-dua skrip tidak boleh terpesong antara satu sama lain).
+. (Join-Path $PSScriptRoot "hentikan-hadir.ps1")
 
 $src        = Join-Path $PSScriptRoot "dist\win-x64\HadirDesktop.exe"
 $installDir = Join-Path $env:LOCALAPPDATA "HadirDesktop"
@@ -12,10 +16,24 @@ if (-not (Test-Path $src)) {
     exit 1
 }
 
-# (a) Salin exe ke folder pemasangan (idempoten: -Force menulis semula).
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+
+# (a0) Aplikasi yang hidup mengunci exe-nya: hentikan dahulu, jika tidak salinan
+#      di bawah gagal atau menghasilkan exe separuh tulis. Tiada fail data
+#      disentuh oleh langkah ini.
+$null = Stop-HadirDesktop -ExePath $targetExe -HadMasaSaat 20
+
+# (a) Salin exe ke folder pemasangan (idempoten: -Force menulis semula).
 Copy-Item -Path $src -Destination $targetExe -Force
 Write-Host "Salin: $targetExe"
+
+# (a1) Sahkan binaan mana yang baru dipasang.
+$versi = Get-VersiExe -ExePath $targetExe
+if ($versi) {
+    Write-Host "Versi dipasang: $versi"
+} else {
+    Write-Host "Amaran: versi exe tidak dapat dibaca (`--versi` gagal)."
+}
 
 # (b) Pintasan Desktop (idempoten: dicipta semula setiap kali).
 $desktop     = [Environment]::GetFolderPath("Desktop")

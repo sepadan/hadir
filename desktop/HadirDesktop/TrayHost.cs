@@ -89,7 +89,7 @@ public sealed class TrayHost : IDisposable
         _notifyIcon = new NotifyIcon
         {
             Icon = icon,
-            Text = LabelKeadaanPortal.UntukDulang(KeadaanPortal.Diam),
+            Text = LabelKeadaanPortal.UntukDulang(KeadaanPortal.Diam, VersiAplikasi.Versi),
             ContextMenuStrip = menu,
             Visible = true,
         };
@@ -112,7 +112,7 @@ public sealed class TrayHost : IDisposable
     public void SetPortalKeadaan(KeadaanPortal keadaan, string? sebab = null)
     {
         _stateItem.Text = LabelKeadaanPortal.UntukMenu(keadaan, sebab);
-        _notifyIcon.Text = LabelKeadaanPortal.UntukDulang(keadaan);
+        _notifyIcon.Text = LabelKeadaanPortal.UntukDulang(keadaan, VersiAplikasi.Versi);
     }
 
     /// <summary>Show the "still running in tray" balloon tip, but only the first time.</summary>

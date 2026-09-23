@@ -65,10 +65,17 @@ public static class LabelKeadaanPortal
         _ => "Diam — tiada tugasan belum siap hari ini; tiada portal dibuka, tiada log masuk.",
     };
 
-    /// <summary>Tray tooltip, truncated to the WinForms limit (never throws).</summary>
-    public static string UntukDulang(KeadaanPortal keadaan)
+    /// <summary>
+    /// Tray tooltip, truncated to the WinForms limit (never throws). A non-empty
+    /// <paramref name="versi"/> is shown after the app name so the owner can read
+    /// the installed build straight off the tray.
+    /// </summary>
+    public static string UntukDulang(KeadaanPortal keadaan, string? versi = null)
     {
-        var teks = "HADIR Desktop — " + Teks(keadaan);
+        var nama = string.IsNullOrWhiteSpace(versi)
+            ? DemoLabel.NamaApl
+            : DemoLabel.NamaApl + " " + versi.Trim();
+        var teks = nama + " — " + Teks(keadaan);
         return teks.Length <= MaksNotaDulang ? teks : teks[..MaksNotaDulang];
     }
 

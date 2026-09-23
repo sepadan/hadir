@@ -188,9 +188,10 @@ public sealed class MainForm : Form
                 "HadirDesktop", "real-portal-observations.log")
             : null;
 
+        var tajuk = DemoLabel.TajukTetingkapDenganVersi();
         Text = _realPortal.Enabled
-            ? DemoLabel.WindowTitle + DemoLabel.RealPortalBannerSuffix
-            : _devDebug is null ? DemoLabel.WindowTitle : DemoLabel.WindowTitle + DemoLabel.DevDebugBannerSuffix;
+            ? tajuk + DemoLabel.RealPortalBannerSuffix
+            : _devDebug is null ? tajuk : tajuk + DemoLabel.DevDebugBannerSuffix;
         Width = 1100;
         Height = 750;
         StartPosition = FormStartPosition.CenterScreen;
@@ -283,6 +284,13 @@ public sealed class MainForm : Form
 
     private async void MainForm_Load(object? sender, EventArgs e)
     {
+        // Satu baris versi setiap lancaran — supaya "binaan mana yang berjalan"
+        // boleh dijawab selepas kejadian. Penulis yang SAMA seperti log
+        // pembangun (gagal-tertutup; tiada data pengguna dalam baris ini).
+        DevAutoKitaran.TulisKe(
+            VersiAplikasi.LaluanLog(),
+            VersiAplikasi.BarisLog(DateTimeOffset.Now, VersiAplikasi.Versi));
+
         _portalServer.Start();
 
         var userDataFolder = _devDebug?.UserDataFolder

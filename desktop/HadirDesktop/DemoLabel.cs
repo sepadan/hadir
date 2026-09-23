@@ -7,7 +7,20 @@ namespace HadirDesktop;
 /// </summary>
 public static class DemoLabel
 {
-    public const string WindowTitle = "HADIR Desktop — MOD DEMO";
+    /// <summary>Nama aplikasi tanpa hiasan — dipakai tajuk tetingkap dan nota dulang.</summary>
+    public const string NamaApl = "HADIR Desktop";
+
+    /// <summary>Penanda mod demo, sentiasa selepas nama (dan versi, jika ada).</summary>
+    public const string SufiksDemo = " — MOD DEMO";
+
+    public const string WindowTitle = NamaApl + SufiksDemo;
+
+    /// <summary>
+    /// Tajuk tetingkap dengan versi binaan, cth <c>HADIR Desktop 1.0.0 — MOD
+    /// DEMO</c>. Versi datang dari <see cref="VersiAplikasi"/> sahaja.
+    /// </summary>
+    public static string TajukTetingkapDenganVersi() =>
+        NamaApl + " " + VersiAplikasi.Versi + SufiksDemo;
     public const string BannerText = "MOD DEMO — bukan sistem pengeluaran. Tiada tulisan MOEIS, tiada log masuk idMe sebenar.";
     public const string SimulatedSourceLabel = "simulasi";
     public const string RealSourceLabel = "enjin sebenar 127.0.0.1:8747";
