@@ -75,7 +75,8 @@ sah(backend.includes("getProperty('SEPADAN_SYNC_SECRET')") && backend.includes('
 sah(backend.includes("mode: 'merge', records: rekod, kepala: []"), 'Murid dari sistem lain mesti digabung tanpa mengarkib kumpulan yang tidak diliputi');
 sah(backend.includes("sumber === 'AKSI'") && backend.includes('dilangkau: true'), 'Relay mesti melangkau sistem asal bagi mencegah gelung');
 sah(backend.includes("'apiUploadMurid', [senarai, kata, 'HADIR']") && backend.includes("'apiImportGuru', [guru, kata, 'HADIR', mod || 'merge']"), 'Panggilan SEMAK mesti membawa penanda asal dan mod HADIR');
-sah(!backend.includes('deleteRow') && !backend.includes('clearContents'), 'Sync guru tidak boleh memadam rekod sedia ada secara fizikal');
+const badanGabungGuru = backend.match(/function hadirGabungGuru_\([\s\S]*?(?=\nfunction |$)/)[0];
+sah(!badanGabungGuru.includes('deleteRow') && !badanGabungGuru.includes('clearContents'), 'Sync guru tidak boleh memadam rekod sedia ada secara fizikal');
 sah(backend.includes('rmtHadir: rmtHadir, rmtJumlah: rmtJumlah'), 'Simpanan kehadiran mesti pulangkan nisbah RMT');
 sah(backend.includes('tahunKod: tahunKod') && backend.includes('hadirJantinaKod_'), 'Tahun atau jantina admin tidak dilengkapkan');
 sah(backend.includes('murid.filter(function (m) { return m.nilai === 0; })'), 'Respons sejarah hanya boleh menghantar nama murid tidak hadir');
@@ -292,7 +293,7 @@ sah(konteksMoeis.hadirMoeisSahkanLengkap_([{ nama: 'Ali', kategori: 'D', sebab: 
 // boleh menghantar semula.
 sah(konteksMoeis.hadirMoeisBolehCiptaJob_(undefined) === true, 'Tiada tugasan sedia ada mesti boleh dicipta');
 sah(konteksMoeis.hadirMoeisBolehCiptaJob_('gagal') === true, 'Tugasan gagal mesti boleh dicuba semula');
-sah(konteksMoeis.hadirMoeisBolehCiptaJob_('menunggu') === false, 'Tugasan menunggu mesti disekat (enjin akan mengambilnya)');
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_('menunggu') === true, 'Tugasan menunggu mesti boleh disegarkan sebelum klaim');
 sah(konteksMoeis.hadirMoeisBolehCiptaJob_('sedang_dihantar') === false, 'Tugasan sedang_dihantar mesti disekat (jangan reset lease)');
 sah(konteksMoeis.hadirMoeisBolehCiptaJob_('tersimpan') === false, 'Tugasan tersimpan mesti disekat (menunggu pengesahan)');
 // Status siap BOLEH dihantar semula: sebelum ini ia disekat dan itulah yang

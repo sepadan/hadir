@@ -3,6 +3,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace HadirDesktop;
 
@@ -65,7 +66,7 @@ public interface IRahsiaEnjinStore
 /// secret to another host (the reason <c>sahkanApiUrl</c> exists on the Node
 /// side; this is a faithful port of it).
 ///
-/// This class READS only. It never writes, never re-keys, and never pairs.
+/// Settings edits preserve all other JSON properties and never touch pairings.
 /// Neither the secret nor the URL is ever logged, returned in a status string,
 /// or included in an exception message.
 /// </summary>
@@ -76,6 +77,9 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
 
     private readonly string _laluanRahsia;
     private readonly string _laluanTetapan;
+    private readonly string _laluanPenanda;
+    private readonly object _simpanLock = new();
+    private readonly Action? _selepasPenandaDitulis;
 
     public DpapiRahsiaEnjinStore() : this(DirDataLalai())
     {
@@ -86,6 +90,12 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
     {
         _laluanRahsia = Path.Combine(dirData, "rahsia.dat");
         _laluanTetapan = Path.Combine(dirData, "tetapan.json");
+        _laluanPenanda = Path.Combine(dirData, "tetapan-desktop-belum-selesai");
+    }
+
+    internal DpapiRahsiaEnjinStore(string dirData, Action selepasPenandaDitulis) : this(dirData)
+    {
+        _selepasPenandaDitulis = selepasPenandaDitulis;
     }
 
     /// <summary>companion/src/tetapan.mjs <c>NAMA_FOLDER_DATA</c>.</summary>
@@ -93,8 +103,102 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "HADIR-MOEIS-Companion");
 
+    /// <summary>Only the non-secret URL may be prefilled in a settings dialog.</summary>
+    public string? BacaApiUrlUntukPaparan() => BacaApiUrl();
+
+    /// <summary>
+    /// Save a validated URL and optionally a new secret. Empty secret keeps the
+    /// existing one. Existing files must parse/decrypt; never replace damage
+    /// with defaults. Each file is atomically replaced on its own volume.
+    /// </summary>
+    public void Simpan(string apiUrl, string? rahsiaBaharu)
+    {
+        if (!SahkanApiUrl(apiUrl)) throw new InvalidOperationException("URL API mesti HTTPS pada hos Apps Script yang dibenarkan.");
+        lock (_simpanLock)
+        {
+            JsonObject tetapan = BacaObjekJson(_laluanTetapan, dilindungi: false);
+            JsonObject rahsia = BacaObjekJson(_laluanRahsia, dilindungi: true);
+            var tukarRahsia = !string.IsNullOrEmpty(rahsiaBaharu);
+            if (File.Exists(_laluanPenanda) && !tukarRahsia)
+                throw new InvalidOperationException("Simpanan lalu belum selesai; masukkan semula rahsia enjin untuk memulihkan tetapan.");
+            if (tukarRahsia && string.IsNullOrWhiteSpace(rahsiaBaharu))
+                throw new InvalidOperationException("Rahsia enjin tidak boleh ruang kosong sahaja.");
+            if (!tukarRahsia && (rahsia["rahsiaEnjin"] is not JsonValue nilai ||
+                !nilai.TryGetValue<string>(out var lama) || string.IsNullOrEmpty(lama)))
+                throw new InvalidOperationException("Rahsia enjin belum tersedia; isi rahsia baharu.");
+
+            tetapan["apiUrl"] = apiUrl;
+            if (tukarRahsia) rahsia["rahsiaEnjin"] = rahsiaBaharu;
+            // Finish serialization and DPAPI protection before touching either
+            // destination. A protection failure must leave both files intact.
+            var tetapanBytes = Encoding.UTF8.GetBytes(tetapan.ToJsonString());
+            var rahsiaBytes = tukarRahsia
+                ? ProtectedData.Protect(Encoding.UTF8.GetBytes(rahsia.ToJsonString()), null,
+                    DataProtectionScope.CurrentUser)
+                : null;
+            Directory.CreateDirectory(Path.GetDirectoryName(_laluanTetapan)!);
+            // Two files cannot share one atomic rename. A durable marker makes
+            // any crash or partial write fail closed on the next Desktop start.
+            var penandaSediaAda = File.Exists(_laluanPenanda);
+            File.WriteAllText(_laluanPenanda, "pending", Encoding.ASCII);
+            var tetapanSudahDitulis = false;
+            try
+            {
+                _selepasPenandaDitulis?.Invoke();
+                TulisAtomik(_laluanTetapan, tetapanBytes);
+                tetapanSudahDitulis = true;
+                if (rahsiaBytes is not null) TulisAtomik(_laluanRahsia, rahsiaBytes);
+                File.Delete(_laluanPenanda);
+            }
+            catch
+            {
+                // A failed first write leaves the previous pair intact. Once
+                // settings moved, retain the marker until explicit recovery.
+                if (!tetapanSudahDitulis && !penandaSediaAda) File.Delete(_laluanPenanda);
+                throw;
+            }
+        }
+    }
+
+    private static JsonObject BacaObjekJson(string laluan, bool dilindungi)
+    {
+        if (!File.Exists(laluan)) return new JsonObject();
+        try
+        {
+            var bytes = File.ReadAllBytes(laluan);
+            if (dilindungi) bytes = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
+            var json = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) throw new JsonException();
+            var seen = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in doc.RootElement.EnumerateObject())
+                if (!seen.Add(property.Name)) throw new JsonException();
+            return JsonNode.Parse(json) as JsonObject ?? throw new JsonException();
+        }
+        catch
+        {
+            // Never include file contents, path, URL, or DPAPI error text.
+            throw new InvalidOperationException("Fail tetapan sedia ada rosak atau tidak dapat dibaca; simpanan dibatalkan.");
+        }
+    }
+
+    private static void TulisAtomik(string laluan, byte[] bytes)
+    {
+        var sementara = laluan + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllBytes(sementara, bytes);
+            File.Move(sementara, laluan, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(sementara)) File.Delete(sementara);
+        }
+    }
+
     public TetapanBackendEnjin? Baca()
     {
+        if (File.Exists(_laluanPenanda)) return null;
         var rahsia = BacaRahsia();
         if (string.IsNullOrEmpty(rahsia)) return null;
 
@@ -106,6 +210,8 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
 
     public StatusRahsiaEnjin Status()
     {
+        if (File.Exists(_laluanPenanda))
+            return new StatusRahsiaEnjin { Sebab = "Simpanan tetapan tempatan belum selesai; tiada penghantaran." };
         var ada = File.Exists(_laluanRahsia);
         if (!ada)
         {

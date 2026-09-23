@@ -3,11 +3,17 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.12 — Tetapan Tempatan dalam HADIR Desktop
+
+- Menu dulang **Tetapan Tempatan** membuka dialog Windows untuk URL Apps Script dan rahsia enjin. Companion dan Edge tidak diperlukan.
+- URL mesti HTTPS pada hos Apps Script yang dibenarkan. Rahsia tidak dipaparkan; biarkan kosong untuk mengekalkan nilai sedia ada. Simpanan melindungi rahsia dengan DPAPI akaun Windows semasa dan mengekalkan medan tetapan serta klien pasangan yang lain.
+- Selepas menyimpan, **mulakan semula HADIR Desktop** supaya klien backend menggunakan tetapan baharu. Kitaran biasa berjalan setiap 10 minit apabila pilihan automatik dihidupkan.
+- Job `menunggu` disegarkan oleh Simpan kehadiran berikutnya sebelum klaim, pada baris dan ID yang sama. Simpan semua hadir membatalkan job menunggu; job yang sudah aktif menolak perubahan kehadiran sehingga selesai.
+
 ## 1.0.11 — Tetapan tempatan kekal dalam HADIR Desktop
 
 - Log masuk manual idMe dalam Tetapan Tempatan kini menavigasi WebView2 HADIR Desktop yang sama; kawalan yang melancarkan Edge dari halaman itu dibuang.
-- Jika Companion belum berjalan, Desktop memaparkan panduan ringkas di dalam WebView2 dan bukannya halaman ralat sambungan.
-- Companion mesti berjalan untuk menyimpan tetapan tempatan; halaman offline menerangkan perkara itu dan tidak membuka pelayar luar.
+- Pada 1.0.11, skrin tetapan menggunakan halaman Companion; 1.0.12 menggantikannya dengan dialog Windows tempatan.
 - Ujian regresi Companion dan Desktop dijalankan sebelum penerbitan.
 
 ## Versi
@@ -66,8 +72,9 @@ Setiap kitaran meninggalkan satu baris bukti dalam
 ```
 
 Baris `keadaan=diam` bermaksud kitaran BERJALAN dan memutuskan tiada kerja —
-bukan bermakna pemasa mati. Jika tiada baris baharu selama lebih 10 minit
-sedangkan tetapan HIDUP, barulah ada masalah.
+bukan bermakna pemasa mati. Selang biasa ialah kira-kira 10 minit ditambah
+masa proses; jika log berhenti dikemas kini sedangkan tetapan HIDUP, semak
+keadaan aplikasi.
 
 ## Di mana data disimpan — dan apa yang KEKAL
 

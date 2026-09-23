@@ -40,6 +40,127 @@ public class RahsiaEnjinStoreTests : IDisposable
 
     private void TulisTetapan(string json) => File.WriteAllText(Path.Combine(_dir, "tetapan.json"), json, Encoding.UTF8);
 
+    [Fact]
+    public void Simpan_UrlSahajaGagalSebelumCommit_MembuangPenandaDanKonfigurasiLamaBolehDibaca()
+    {
+        TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/old"}""");
+        var store = new DpapiRahsiaEnjinStore(_dir);
+        var tetapan = Path.Combine(_dir, "tetapan.json");
+        using (File.Open(tetapan, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            Assert.Throws<InvalidOperationException>(() => store.Simpan(ApiUrlSah, ""));
+        }
+        Assert.False(File.Exists(Path.Combine(_dir, "tetapan-desktop-belum-selesai")));
+        Assert.Equal("https://script.google.com/old", store.Baca()!.ApiUrl);
+        Assert.Equal("fixture-old", store.Baca()!.RahsiaEnjin);
+    }
+
+    [Fact]
+    public void Simpan_GagalMenggantiFailTetapanSelepasPenanda_MembuangPenanda()
+    {
+        TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/old"}""");
+        var tetapan = Path.Combine(_dir, "tetapan.json");
+        FileStream? kunci = null;
+        var store = new DpapiRahsiaEnjinStore(_dir,
+            () => kunci = File.Open(tetapan, FileMode.Open, FileAccess.ReadWrite, FileShare.None));
+        try { Assert.Throws<UnauthorizedAccessException>(() => store.Simpan(ApiUrlSah, "")); }
+        finally { kunci?.Dispose(); }
+        Assert.False(File.Exists(Path.Combine(_dir, "tetapan-desktop-belum-selesai")));
+        Assert.Equal("https://script.google.com/old", store.Baca()!.ApiUrl);
+        Assert.Equal("fixture-old", store.Baca()!.RahsiaEnjin);
+    }
+
+    [Fact]
+    public void Simpan_GagalMenggantiRahsiaSelepasTetapanDitulis_MengekalkanPenanda()
+    {
+        TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/old"}""");
+        var rahsia = Path.Combine(_dir, "rahsia.dat");
+        FileStream? kunci = null;
+        var store = new DpapiRahsiaEnjinStore(_dir,
+            () => kunci = File.Open(rahsia, FileMode.Open, FileAccess.ReadWrite, FileShare.None));
+        try { Assert.Throws<UnauthorizedAccessException>(() => store.Simpan(ApiUrlSah, "fixture-new")); }
+        finally { kunci?.Dispose(); }
+        Assert.True(File.Exists(Path.Combine(_dir, "tetapan-desktop-belum-selesai")));
+        Assert.Null(store.Baca());
+        Assert.Equal(ApiUrlSah, JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "tetapan.json")))
+            .RootElement.GetProperty("apiUrl").GetString());
+    }
+
+    [Fact]
+    public void Simpan_MengekalkanMedanLainDanKlien_DanRahsiaKosongTidakMengganti()
+    {
+        TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[{"id":"pasangan-fixture","hash":"fixture-hash"}],"masa":7}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/old","originDibenarkan":"https://example.test","selang":90}""");
+        var store = new DpapiRahsiaEnjinStore(_dir);
+
+        store.Simpan(ApiUrlSah, "");
+        using (var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "tetapan.json"))))
+        {
+            Assert.Equal(ApiUrlSah, doc.RootElement.GetProperty("apiUrl").GetString());
+            Assert.Equal(90, doc.RootElement.GetProperty("selang").GetInt32());
+            Assert.Equal("https://example.test", doc.RootElement.GetProperty("originDibenarkan").GetString());
+        }
+        Assert.Equal("fixture-old", store.Baca()!.RahsiaEnjin);
+        store.Simpan(ApiUrlSah, "fixture-new");
+        var plain = ProtectedData.Unprotect(File.ReadAllBytes(Path.Combine(_dir, "rahsia.dat")), null,
+            DataProtectionScope.CurrentUser);
+        using var secret = JsonDocument.Parse(plain);
+        Assert.Equal("fixture-new", secret.RootElement.GetProperty("rahsiaEnjin").GetString());
+        Assert.Equal("pasangan-fixture", secret.RootElement.GetProperty("klien")[0].GetProperty("id").GetString());
+        Assert.Equal(7, secret.RootElement.GetProperty("masa").GetInt32());
+    }
+
+    [Fact]
+    public void Simpan_FailRosakDanUrlTidakSah_TidakMenggantiFail()
+    {
+        TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/old","lain":true}""");
+        var secretPath = Path.Combine(_dir, "rahsia.dat");
+        var settingsPath = Path.Combine(_dir, "tetapan.json");
+        var store = new DpapiRahsiaEnjinStore(_dir);
+        var originalSecret = File.ReadAllBytes(secretPath);
+        var originalSettings = File.ReadAllBytes(settingsPath);
+        Assert.Throws<InvalidOperationException>(() => store.Simpan("https://evil.example.test/exec", "fixture-new"));
+        Assert.Equal(originalSecret, File.ReadAllBytes(secretPath));
+        Assert.Equal(originalSettings, File.ReadAllBytes(settingsPath));
+
+        File.WriteAllBytes(secretPath, new byte[] { 1, 2, 3 });
+        var damaged = File.ReadAllBytes(secretPath);
+        Assert.Throws<InvalidOperationException>(() => store.Simpan(ApiUrlSah, "fixture-new"));
+        Assert.Equal(damaged, File.ReadAllBytes(secretPath));
+        Assert.Equal(originalSettings, File.ReadAllBytes(settingsPath));
+
+        TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
+        TulisTetapan("not json");
+        var badSettings = File.ReadAllBytes(settingsPath);
+        var currentSecret = File.ReadAllBytes(secretPath);
+        Assert.Throws<InvalidOperationException>(() => store.Simpan(ApiUrlSah, "fixture-new"));
+        Assert.Equal(badSettings, File.ReadAllBytes(settingsPath));
+        Assert.Equal(currentSecret, File.ReadAllBytes(secretPath));
+    }
+
+    [Fact]
+    public void SimpananDuaFailTerputus_PenandaMenyekatBackend_SehinggaSimpanSemula()
+    {
+        TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/old"}""");
+        var marker = Path.Combine(_dir, "tetapan-desktop-belum-selesai");
+        File.WriteAllText(marker, "pending");
+        var store = new DpapiRahsiaEnjinStore(_dir);
+        Assert.Null(store.Baca());
+        Assert.False(store.Status().Sedia);
+        Assert.Throws<InvalidOperationException>(() => store.Simpan(ApiUrlSah, ""));
+        Assert.True(File.Exists(marker));
+
+        store.Simpan(ApiUrlSah, "fixture-new");
+        Assert.False(File.Exists(marker));
+        Assert.Equal(ApiUrlSah, store.Baca()!.ApiUrl);
+        Assert.Equal("fixture-new", store.Baca()!.RahsiaEnjin);
+    }
+
     // ---------- happy path ----------
 
     [Fact]

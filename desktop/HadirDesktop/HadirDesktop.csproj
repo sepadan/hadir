@@ -12,8 +12,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <!-- Versi binaan: SATU sumber kebenaran. VersiAplikasi.cs membacanya semula
          daripada assembly; jangan tulis nombor versi di tempat lain. -->
-    <Version>1.0.11</Version>
-    <InformationalVersion>1.0.11</InformationalVersion>
+    <Version>1.0.12</Version>
+    <InformationalVersion>1.0.12</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>

@@ -82,8 +82,6 @@ function hadirMoeisBelumLengkap_(murid) {
   return (murid || []).filter(function (m) { return !hadirMoeisSebabSah_(m && m.kategori, m && m.sebab); });
 }
 
-/* Elak pendua tugasan bagi kelas+tarikh yang sama: hanya dibenarkan mencipta
-   semula jika tiada tugasan sedia ada, atau tugasan sedia ada telah gagal. */
 /* Elak pendua tugasan bagi kelas+tarikh yang sama. Pemanggil
    (moeisJobBuat) MENGGUNAKAN SEMULA baris yang sama — id lama, setValues
    semula kepada 'menunggu' — jadi baris pendua memang mustahil. Gate ini
@@ -93,12 +91,12 @@ function hadirMoeisBelumLengkap_(murid) {
    langsung tidak terisi.
 
    Kini: status siap (berjaya) DIBENARKAN semula — admin menekan 'Hantar'
-   dan enjin menghantarnya semula. Dalam penerbangan (menunggu /
-   sedang_dihantar / tersimpan) KEKAL disekat supaya lease enjin tidak
-   direset di tengah jalan. */
+   dan enjin menghantarnya semula. Status menunggu boleh disegarkan dengan
+   snapshot terbaru sebelum klaim. Sedang_dihantar / tersimpan KEKAL
+   disekat supaya lease enjin tidak direset di tengah jalan. */
 function hadirMoeisBolehCiptaJob_(statusSediaAda) {
   if (statusSediaAda === undefined || statusSediaAda === null || statusSediaAda === '') return true;
-  return ['gagal', 'berjaya'].indexOf(statusSediaAda) >= 0;
+  return ['menunggu', 'gagal', 'berjaya'].indexOf(statusSediaAda) >= 0;
 }
 
 /* Membenarkan penghantaran hanya apabila ada sekurang-kurangnya seorang murid
@@ -624,6 +622,12 @@ function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
   var keputusan;
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
+    if (pilihan.iso === pilihan.hariIniIso) {
+      var jobAktif = hadirMoeisCariJobDiBawahLock_(kelas, pilihan.iso);
+      if (jobAktif.indeks >= 0 &&
+          ['sedang_dihantar', 'tersimpan'].indexOf(jobAktif.baris[jobAktif.indeks][3]) >= 0)
+        throw new Error('Tugasan MOEIS untuk ' + kelas + ' sedang dihantar atau tersimpan; tunggu pengesahan sebelum menyimpan semula kehadiran.');
+    }
     var s = ss.getSheetByName('kehadiran');
     var tkh = pilihan.tkh;
     var col = dapatkanKolTarikh_(s, tkh);
@@ -660,6 +664,10 @@ function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
     if (!jumlah) throw new Error('Tiada murid aktif ditemui untuk ' + kelas + '.');
     s.getRange(2, col, n, 1).setValues(nilai);
     hadirGantiMoeisSebabKelas_(pilihan.iso, kelas, sebabUntukSimpan);
+    if (pilihan.iso === pilihan.hariIniIso) {
+      try { hadirMoeisJobBuatDiBawahLock_(kelas, pilihan.iso, '', sesi.peranan, sebabUntukSimpan); }
+      catch (e) { hadirLog_('MOEIS_JOB_AUTO_GAGAL', sesi.peranan, kelas, String((e && e.message) || e)); }
+    }
     if (pilihan.iso === pilihan.hariIniIso) hadirPadamCacheInit_();
     hadirLog_('SIMPAN_KEHADIRAN', sesi.peranan, kelas,
       tkh + '; ' + jumlah + ' murid; ' + bilTiada + ' tidak hadir');
@@ -669,23 +677,6 @@ function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
       masa: Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Kuala_Lumpur', 'HH:mm') };
   } finally { lock.releaseLock(); }
 
-  // AUTO-HANTAR KE MOEIS (23 Sep) — tidak perlu lagi menekan butang "Hantar".
-  // Sebaik sahaja kehadiran disimpan (kategori/sebab sudah disahkan sah di
-  // baris atas), cipta/refresh tugasan MOEIS supaya enjin desktop mengambilnya
-  // dalam kitaran seterusnya. Gate hadirMoeisBolehCiptaJob_ (v118) membenarkan
-  // status 'berjaya' dicipta semula, jadi simpanan baharu MEMULIHKAN tugasan
-  // yang dahulunya terkunci oleh positif palsu — itulah jalan pemulihan 1 BIJAK.
-  //
-  // DI LUAR lock simpanan: hadirMoeisJobBuatDalaman_ mengambil lock SENDIRI
-  // dan Apps Script lock tidak reentrable (waitLock akan tamat masa 20 saat).
-  // Best-effort: kegagalan mencipta tugasan TIDAK boleh menggagalkan simpanan
-  // kehadiran guru — ia hanya dilog.
-  try {
-    hadirMoeisJobBuatDalaman_(kelas, pilihan.iso, '', sesi.peranan);
-  } catch (e) {
-    hadirLog_('MOEIS_JOB_AUTO_GAGAL', sesi.peranan, kelas,
-      String((e && e.message) || e));
-  }
   return keputusan;
 }
 
@@ -788,12 +779,32 @@ function hadirMoeisJobBuat_(kelas, tarikhIso, token, kelasMoeisId) {
   return hadirMoeisJobBuatDalaman_(kelas, tarikhIso, kelasMoeisId, sesi.peranan);
 }
 
-/* Teras cipta/refresh tugasan TANPA semakan sesi — dipanggil oleh auto-hantar
-   dalam hadirSimpanKehadiran_ (guru menyimpan kehadiran tidak memegang sesi
-   admin) dan oleh hadirMoeisJobBuat_ di atas selepas semakan sesi. Ia
-   mengambil lock SENDIRI, jadi pemanggil mesti berada DI LUAR mana-mana lock
-   lain — Apps Script lock tidak reentrable. */
+/* Pembungkus admin mengambil tepat satu ScriptLock. */
 function hadirMoeisJobBuatDalaman_(kelas, tarikhIso, kelasMoeisId, peranan) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try { return hadirMoeisJobBuatDiBawahLock_(kelas, tarikhIso, kelasMoeisId, peranan); }
+  finally { lock.releaseLock(); }
+}
+
+function hadirMoeisCariJobDiBawahLock_(kelas, tarikhIso) {
+  var sJob = ss.getSheetByName('HADIR_MOEIS_JOB');
+  // Sheet lama 11 lajur perlu dimigrasi sebelum sebarang bacaan 13 lajur.
+  // Jangan cipta sheet kosong untuk simpanan yang semuanya hadir.
+  if (sJob) sJob = hadirSheetMoeisJob_();
+  var n = sJob ? sJob.getLastRow() - 1 : 0;
+  var baris = n > 0 ? sJob.getRange(2, 1, n, HADIR_MOEIS_JOB_LEBAR).getDisplayValues() : [];
+  var indeks = -1;
+  for (var j = 0; j < baris.length; j++) {
+    if (String(baris[j][1]).trim() === tarikhIso && String(baris[j][2]).trim().toUpperCase() === kelas) {
+      indeks = j; break;
+    }
+  }
+  return { sJob: sJob, baris: baris, indeks: indeks };
+}
+
+/* Pemanggil mesti sudah memegang ScriptLock; tiada kunci bersarang. */
+function hadirMoeisJobBuatDiBawahLock_(kelas, tarikhIso, kelasMoeisId, peranan, muridSimpanan) {
   kelas = String(kelas || '').trim().toUpperCase();
   if (!kelas) throw new Error('Kelas tidak sah.');
   kelasMoeisId = String(kelasMoeisId || '').trim().slice(0, 100);
@@ -801,57 +812,55 @@ function hadirMoeisJobBuatDalaman_(kelas, tarikhIso, kelasMoeisId, peranan) {
   var hariIniIso = Utilities.formatDate(new Date(), zona, 'yyyy-MM-dd');
   tarikhIso = String(tarikhIso || hariIniIso).trim();
   if (tarikhIso !== hariIniIso) throw new Error('Penghantaran MOEIS hanya tersedia bagi kehadiran hari ini.');
-  var tkh = tarikhHariIni_();
-  var s = ss.getSheetByName('kehadiran');
-  if (!s) throw new Error('Tab kehadiran tidak ditemui.');
-  var data = s.getDataRange().getDisplayValues();
-  var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
-  var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
-  var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
-  var murid = [];
-  if (idxTarikh >= 0) {
-    for (var i = 1; i < data.length; i++) {
-      var nama = String(data[i][1] || '').trim();
-      var namaKelas = String(data[i][2] || '').trim().toUpperCase();
-      var ic = normalisasiIc_(data[i][3]);
-      if (!nama || namaKelas !== kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
-      if (data[i][idxTarikh] !== '0') continue;
-      var sebabRekod = petaSebab[ic];
-      murid.push({
-        ic: ic, nama: nama,
-        kategori: sebabRekod ? sebabRekod.kategori : '',
-        sebab: sebabRekod ? sebabRekod.sebab : ''
-      });
-    }
-  }
-  hadirMoeisSahkanLengkap_(murid, kelas);
-
-  var lock = LockService.getScriptLock();
-  lock.waitLock(20000);
-  try {
-    var sJob = hadirSheetMoeisJob_();
-    var n = sJob.getLastRow() - 1;
-    var baris = n > 0 ? sJob.getRange(2, 1, n, HADIR_MOEIS_JOB_LEBAR).getDisplayValues() : [];
-    var indeks = -1;
-    for (var j = 0; j < baris.length; j++) {
-      if (String(baris[j][1]).trim() === tarikhIso && String(baris[j][2]).trim().toUpperCase() === kelas) {
-        indeks = j; break;
+  var murid = muridSimpanan || [];
+  if (!muridSimpanan) {
+    // Bacaan kehadiran + sebab dan penulisan job mesti berada di bawah lock
+    // yang sama dengan simpanan guru dan klaim enjin. Jika dua Simpan tiba
+    // rapat, pembina job yang lambat tidak boleh menulis snapshot lama.
+    var tkh = tarikhHariIni_();
+    var s = ss.getSheetByName('kehadiran');
+    if (!s) throw new Error('Tab kehadiran tidak ditemui.');
+    var data = s.getDataRange().getDisplayValues();
+    var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
+    var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
+    var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
+    if (idxTarikh >= 0) {
+      for (var i = 1; i < data.length; i++) {
+        var nama = String(data[i][1] || '').trim();
+        var namaKelas = String(data[i][2] || '').trim().toUpperCase();
+        var ic = normalisasiIc_(data[i][3]);
+        if (!nama || namaKelas !== kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
+        if (data[i][idxTarikh] !== '0') continue;
+        var sebabRekod = petaSebab[ic];
+        murid.push({
+          ic: ic, nama: nama,
+          kategori: sebabRekod ? sebabRekod.kategori : '',
+          sebab: sebabRekod ? sebabRekod.sebab : ''
+        });
       }
     }
-    if (indeks >= 0 && !hadirMoeisBolehCiptaJob_(baris[indeks][3])) {
-      throw new Error('Tugasan untuk kelas ' + kelas + ' pada tarikh ini sudah wujud (status: ' +
-        hadirMoeisLabelStatus_(baris[indeks][3]) + ').');
-    }
-    var masa = new Date();
-    var id = indeks >= 0 ? baris[indeks][0] : Utilities.getUuid();
-    if (!kelasMoeisId && indeks >= 0) kelasMoeisId = String(baris[indeks][10] || '');
-    // 13 lajur (HADIR_MOEIS_JOB_LEBAR): PEMILIK/LEASE_SELEPAS kosong pada
-    // tugasan baharu/dicipta semula — setValues() melontar ralat dimensi
-    // jika baris ini kurang daripada lebar jadual sebenar.
-    var barisBaru = [id, tarikhIso, kelas, 'menunggu', '', masa, masa, '', '', JSON.stringify(murid), kelasMoeisId, '', ''];
-    if (indeks >= 0) sJob.getRange(indeks + 2, 1, 1, HADIR_MOEIS_JOB_LEBAR).setValues([barisBaru]);
-    else sJob.appendRow(barisBaru);
-  } finally { lock.releaseLock(); }
+  }
+  var job = hadirMoeisCariJobDiBawahLock_(kelas, tarikhIso);
+  var indeks = job.indeks, baris = job.baris;
+  if (!murid.length && muridSimpanan) {
+    if (indeks >= 0 && baris[indeks][3] === 'menunggu') job.sJob.deleteRow(indeks + 2);
+    return { ok: true, kelas: kelas, jumlah: 0, mesej: 'Tiada murid tidak hadir; tugasan menunggu dibatalkan.' };
+  }
+  hadirMoeisSahkanLengkap_(murid, kelas);
+  var sJob = job.sJob || hadirSheetMoeisJob_();
+  if (indeks >= 0 && !hadirMoeisBolehCiptaJob_(baris[indeks][3])) {
+    throw new Error('Tugasan untuk kelas ' + kelas + ' pada tarikh ini sudah wujud (status: ' +
+      hadirMoeisLabelStatus_(baris[indeks][3]) + ').');
+  }
+  var masa = new Date();
+  var id = indeks >= 0 ? baris[indeks][0] : Utilities.getUuid();
+  if (!kelasMoeisId && indeks >= 0) kelasMoeisId = String(baris[indeks][10] || '');
+  // 13 lajur (HADIR_MOEIS_JOB_LEBAR): PEMILIK/LEASE_SELEPAS kosong pada
+  // tugasan baharu/dicipta semula — setValues() melontar ralat dimensi
+  // jika baris ini kurang daripada lebar jadual sebenar.
+  var barisBaru = [id, tarikhIso, kelas, 'menunggu', '', masa, masa, '', '', JSON.stringify(murid), kelasMoeisId, '', ''];
+  if (indeks >= 0) sJob.getRange(indeks + 2, 1, 1, HADIR_MOEIS_JOB_LEBAR).setValues([barisBaru]);
+  else sJob.appendRow(barisBaru);
   hadirLog_('MOEIS_JOB_BUAT', peranan, kelas, murid.length + ' murid tidak hadir');
   return {
     ok: true, kelas: kelas, jumlah: murid.length,
@@ -961,12 +970,12 @@ function hadirMoeisJobKlaim_(id, pemilik, benarkanCubaSemula, rahsia) {
   lock.waitLock(20000);
   try {
     var s = ss.getSheetByName('HADIR_MOEIS_JOB');
-    if (!s || s.getLastRow() < 2) throw new Error('Tugasan tidak ditemui.');
+    if (!s || s.getLastRow() < 2) return null;
     var n = s.getLastRow() - 1;
     var baris = s.getRange(2, 1, n, HADIR_MOEIS_JOB_LEBAR).getDisplayValues();
     var indeks = -1;
     for (var i = 0; i < baris.length; i++) { if (String(baris[i][0]) === String(id)) { indeks = i; break; } }
-    if (indeks < 0) throw new Error('Tugasan tidak ditemui.');
+    if (indeks < 0) return null;
     var status = String(baris[indeks][3] || '');
     var pemilikSediaAda = String(baris[indeks][11] || '');
     // LEASE_SELEPAS mesti dibaca sebagai NILAI NOMBOR (getValue), bukan

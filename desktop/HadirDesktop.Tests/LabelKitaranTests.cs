@@ -75,7 +75,7 @@ public class JadualKitaranTests
     public void Pilih_OneShotMasihTertunda_SelepasPemasaDimulakanSemula()
     {
         var oneShot = Mula.AddSeconds(45);
-        var tickBaharu = Mula.AddSeconds(20).AddMinutes(10);
+        var tickBaharu = Mula.AddSeconds(20).AddMinutes(KitaranAuto.SelangMinit);
 
         var (seterusnya, pertama) = JadualKitaran.Pilih(tickBaharu, oneShot);
 
@@ -402,6 +402,17 @@ public class LabelKitaranTests
             Kini);
 
         Assert.Equal($"Kitaran: seterusnya lebih kurang 09:25 (setiap {KitaranAuto.SelangMinit} minit)", teks);
+    }
+
+    [Fact]
+    public void Menunggu_KitaranProduksiSepuluhMinit_LabelTepat()
+    {
+        var teks = LabelKitaran.Teks(
+            new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddMinutes(KitaranAuto.SelangMinit)),
+            Kini);
+
+        Assert.Equal(10, KitaranAuto.SelangMinit);
+        Assert.Equal("Kitaran: seterusnya lebih kurang 09:25 (setiap 10 minit)", teks);
     }
 
     /// <summary>

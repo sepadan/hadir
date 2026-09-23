@@ -30,9 +30,10 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
   ke AKSI serta SEMAK.
 - Bot Telegram dan fungsi kemas kini dalam aplikasi sedia ada terus berfungsi.
 - Menu admin **Hantar ke MOEIS** mengurus Kategori/Sebab wajib dan giliran
-  tugasan MOEIS, termasuk kad **Enjin PC (Companion)** untuk menyambung,
-  menguji dan mengawal enjin Playwright pada satu PC guru (Windows) melalui
-  loopback sahaja. Pemasangan penuh: [`companion/docs/PEMASANGAN.md`](companion/docs/PEMASANGAN.md).
+  tugasan MOEIS. HADIR Desktop pada PC sekolah mengambil tugasan apabila
+  automasi dihidupkan. Menu dulang **Tetapan Tempatan** membuka dialog Windows
+  untuk URL Apps Script dan rahsia enjin; Companion tidak diperlukan untuk
+  skrin tetapan ini. Kitaran produksi kekal 10 minit.
 - Companion mempunyai dua opt-in tempatan yang berasingan: autostart Windows
   dan auto-mula giliran berpengawal. Kedua-duanya lalai MATI; auto-mula
   menerima kerja `menunggu`, `sedang_dihantar` (yatim) atau `tersimpan`

@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.18 · 23 September 2026**
+**Versi 2.21 · 23 September 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -157,13 +157,22 @@ dikemas kini bersama jika MOEIS menukar senarainya.
   `Gagal: <sebab>`). Admin boleh melengkapkan Kategori/Sebab mana-mana murid
   terus dari skrin ini (`moeisSimpanSebab`, menulis satu baris sahaja) tanpa
   membuka semula skrin kehadiran.
-- Butang **Hantar** memanggil `moeisJobBuat(kelas, tarikhIso, token)`, yang
+- Setiap `simpanKehadiran` hari ini mencuba mencipta atau menyegarkan tugasan
+  `menunggu` secara automatik. Bacaan kehadiran/sebab, semakan status dan
+  penggantian `MURID_JSON` pada baris/ID sama berlaku di bawah `ScriptLock`
+  yang sama dengan klaim enjin dan simpanan kehadiran. Dua simpanan sebelum
+  klaim menghasilkan snapshot terkini pada ID/baris yang sama. Jika tugasan
+  `sedang_dihantar` atau `tersimpan`, simpanan ditolak sebelum kehadiran
+  berubah dan lease dikekalkan. Jika tiada murid tidak hadir, tugasan
+  `menunggu` sedia ada dipadam di bawah kunci; sejarah `gagal`/`berjaya`
+  dikekalkan. Kegagalan mencipta tugasan lain dilog.
+- Butang **Hantar** admin masih memanggil `moeisJobBuat(kelas, tarikhIso, token)`, yang
   disekat sepenuhnya (`hadirMoeisSahkanLengkap_`) jika ada murid tidak hadir
   tanpa Kategori/Sebab sah, atau jika tiada murid tidak hadir. Hanya
   kehadiran **hari ini** boleh dihantar. Satu tugasan tersimpan setiap
-  kelas+tarikh dalam tab `HADIR_MOEIS_JOB`; tugasan pendua disekat melainkan
-  tugasan sebelumnya berstatus `gagal` (`hadirMoeisBolehCiptaJob_`), yang mana
-  ia boleh dicuba semula.
+  kelas+tarikh dalam tab `HADIR_MOEIS_JOB`; status `menunggu` disegarkan,
+  `gagal`/`berjaya` boleh dicipta semula pada ID sama, manakala
+  `sedang_dihantar`/`tersimpan` disekat (`hadirMoeisBolehCiptaJob_`).
 - HADIR **tidak pernah** menghubungi MOEIS. `moeisJobBuat` hanya menulis
   baris tugasan; enjin pada PC guru — **shell desktop** `desktop/` (bahagian
   5.3), dengan `companion/` Node sebagai enjin lama (bahagian 5.2), berikutan
@@ -642,7 +651,8 @@ lalauan wajib (lihat butiran jaluran di bawah).
   didahulukan). Tiada label mendakwa "enjin aktif" daripada sumber mati.
 - **Tiada kawalan enjin; tetapi log masuk idMe + penghantaran MOEIS kini
   SEBENAR dalam desktop (1.0.7-1.0.9).** Tiada butang start/stop/restart
-  enjin dan tiada tulisan tetapan enjin dari shell — kekal. Dakwaan lama
+  enjin. Sejak 1.0.12, Tetapan Tempatan menyimpan URL API dan rahsia enjin
+  terus dari dialog WinForms. Dakwaan lama
   "tiada log masuk/idMe sebenar — DEMO memuatkan fixture tempatan sahaja"
   kini separa lapuk: `IdMeLoginFlow.JalankanAsync` (suis `LoginAuto`)
   menjalankan log masuk idMe sebenar daripada kredensial DPAPI, dan
@@ -659,11 +669,20 @@ lalauan wajib (lihat butiran jaluran di bawah).
   suis `LoginAuto`. Fixture tempatan hanya halaman mula mod
   `HADIR_DEV_DEBUG=1` (tanpa `HADIR_DEV_REAL_PORTAL=1`). Banner/tajuk mod
   manual berbeza daripada `MOD DEMO` agar halaman sebenar tidak dilabel palsu.
-- **Tetapan tempatan** membuka UI tetapan enjin (ber-nonce) dalam WebView2
-  terbenam — navigasi sahaja, tiada tulisan dari pihak shell. URLnya
-  `EngineEndpoints.BaseUrl` = `http://127.0.0.1:8747/`; dengan enjin
-  loopback mati (keadaan pemasangan semasa), navigasi itu gagal dengan
-  jujur — bukan dipalsukan.
+- **Tetapan Tempatan (1.0.12)** membuka `EngineSettingsDialog` WinForms dari
+  menu dulang, tanpa Companion, Node, Edge atau navigasi WebView2. URL API
+  dipaparkan; rahsia tidak pernah dipaparkan dan ruang kosong mengekalkan
+  rahsia lama. `DpapiRahsiaEnjinStore.Simpan` menerima hanya HTTPS pada hos
+  Apps Script yang dibenarkan, mengekalkan medan JSON lain termasuk `klien`,
+  menolak fail rosak/tidak boleh dibaca tanpa menggantinya, melindungi
+  `rahsia.dat` dengan DPAPI `CurrentUser`, dan mengganti setiap fail secara
+  atomik. Penanda `tetapan-desktop-belum-selesai` membuat bacaan Desktop gagal
+  tertutup jika proses terhenti antara dua penggantian; kegagalan sebelum
+  penggantian pertama membuang penanda sementara dan membiarkan konfigurasi lama
+  boleh dibaca, manakala kegagalan selepas penggantian pertama mengekalkannya.
+  Simpan semula menghabiskan pasangan fail dan membuang penanda. Dialog menyatakan Desktop perlu dimulakan semula kerana klien backend
+  dibina sekali semasa mula. Ujian stor menggunakan direktori sementara dan
+  nilai rekaan sahaja.
 - **CDP hanya mod dev opt-in, dengan get pintu masuk asal ketat.**
   `--remote-debugging-port` (loopback, port rawak, profil `webview2-dev-*`
   terasing) dihidupkan **hanya** bila `HADIR_DEV_DEBUG=1`; mod normal tidak
@@ -1303,6 +1322,9 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 23 September 2026 | 2.21 / desktop 1.0.12 / Apps Script @120 (diterbitkan); PWA 1.11.35 kekal | Simpanan kehadiran dan segar/batal job kini satu `ScriptLock`; klaim tidak boleh mengambil snapshot lama. Status `sedang_dihantar`/`tersimpan` menolak simpanan sebelum tulisan dan mengekalkan lease. Sifar tidak hadir memadam hanya job `menunggu`; sejarah gagal/berjaya dikekalkan. Simpanan DPAPI yang gagal sebelum penggantian pertama membuang penanda sementara, kegagalan selepas penggantian pertama mengekalkannya. Selang Desktop kekal 10 minit; perubahan PWA 1.11.36 yang belum diterbitkan dibatalkan. Dialog tetapan Windows kekal tanpa Companion. | Ujian VM/Windows lulus; smoke POST kaedah tidak sah pada Apps Script pulang 302→200 tanpa mutasi; Desktop 1.0.12 berjalan dengan status backend/API dan rahsia tersedia. Tiada rekod kehadiran sebenar dihantar; E2E guru→MOEIS belum dibuat. |
+| 23 September 2026 | 2.20 / desktop 1.0.12 / PWA 1.11.36 (dicadang, dibatalkan oleh 2.21) | Tetapan Tempatan kini dialog WinForms yang menyimpan URL API dan rahsia enjin ke fail kongsi dengan DPAPI `CurrentUser`, mengekalkan medan lain termasuk `klien`; tiada kebergantungan Companion/Edge. Klien backend memerlukan mula semula. Job `menunggu` disegarkan pada ID sama dan kitaran desktop 2 minit; nota web menerangkan selang semakan bersyarat dan cache aset dinaikkan serentak. | Ujian sintetik/tempatan sahaja; tiada konfigurasi hidup, data murid, portal atau penghantaran sebenar disentuh. |
+| 23 September 2026 | 2.19 (cadangan, disemak oleh 2.21) | Simpanan kedua sebelum klaim menyegarkan `MURID_JSON` pada baris/ID job `menunggu` yang sama; snapshot dibaca dan ditulis di bawah `ScriptLock` bersama klaim. `sedang_dihantar`/`tersimpan` masih disekat. Selang kitaran desktop 10→2 minit; label dan panduan dikemas kini. | Ujian VM fixture rekaan dan ujian desktop sahaja; tiada Apps Script, web, Desktop atau MOEIS hidup disentuh. Simpanan sifar tidak hadir dan job yang sudah diklaim masih memerlukan pertimbangan berasingan; tiada dakwaan pengesahan hidup. |
 | 23 September 2026 | desktop 1.0.11 (companion UI) | **Semua log masuk idMe kekal TERBENAM — UI tetapan tempatan tidak lagi melancarkan Edge.** `src/ui/render.mjs`: butang `btnUjiLogin` ("Uji log masuk", `POST /api/lokal/uji-login`) dan `btnLogin` ("Buka Edge untuk log masuk", `POST /api/lokal/log-masuk-manual`) dibuang — kedua-duanya memulakan aliran pelayar Companion (Edge headed). Gantiannya `btnLogMasukManual` menavigasi WebView2 YANG SAMA dengan `window.location.assign('https://idme.moe.gov.my/login')`; origin itu sudah sentiasa dibenarkan oleh `MainForm.OriginsNavigasi` (idMe HTTPS tanpa mengira `loginAuto`), jadi guard navigasi meluluskannya tanpa dilonggarkan, dan `NewWindowRequested` kekal menyekat setiap tetingkap OS. Teks status "belum diperiksa (tekan \"Uji log masuk\")" yang merujuk butang yang telah dibuang turut dikemas kini. Endpoint `/api/lokal/uji-login` dan `/api/lokal/log-masuk-manual` KEKAL pada pelayan (CLI/penjaga sesi masih menggunakannya) — hanya kawalan UI dibuang. Tiada kawalan lain pada halaman ini melancarkan pelayar: `/api/lokal/status` membaca cache sesi sahaja (`statusSesiMoeis`, tiada Edge). `desktop/HadirDesktop/EngineSettingsOfflinePage.cs` (baharu) memaparkan halaman mesra TERBENAM (`NavigateToString`, tiada `http(s)`, tiada `<a>`/`<script>`/`<form>`/`target=_blank`) apabila enjin loopback tidak berjalan, menggantikan `ERR_CONNECTION_REFUSED`; `MainForm.OpenEngineSettings` menyiasat enjin (timeout 5 s) sebelum menavigasi | Ujian: `node companion/tests/asap-e2e.mjs` 56/56; `dotnet test desktop/` 768 lulus, 0 gagal. Tiada Edge/pelayar sebenar dibuka, tiada kredensial disentuh, tiada kehadiran dihantar |
 | 23 September 2026 | desktop 1.0.10 | WebView2 membuka `https://idme.moe.gov.my/login` semasa mula dalam mod biasa, bukan fixture; fixture hanya mod dev-debug. Origin idMe HTTPS dibenarkan walaupun `LoginAuto` mati supaya halaman boleh dipaparkan dan log masuk manual; origin MOEIS serta auto-login/auto-hantar kekal berpagar suis asal (redirect manual idMe→MOEIS disekat jika `LoginAuto` mati). Pelayan fixture tempatan tidak dimulakan dalam mod normal. Tajuk/banner mod manual tidak lagi mendakwa paparan idMe palsu. Ujian pilihan halaman, allowlist dan label mod manual. | Tiada kredensial/data murid diubah; tiada penghantaran MOEIS dalam ujian. |
 | 23 September 2026 | desktop 1.0.9 | **Bersih UI + masa kitaran seterusnya; `BuangKomen` diperkukuh selepas 13 pusingan semakan GPT-6-SOL.** (1) **Sisa demo dibuang**: butang "Portal Fixture", label "Sumber: …" dan paparan `DevicePanel` (`Controls.Add(_devicePanel)` tiada — jalur hanya `_webView`/`_banner`/`_statusStrip`); kelas `DevicePanel`/`FixtureEngineStatusSource` KEKAL kerana ada ujian wiring sendiri. (2) **Masa kitaran seterusnya** (`LabelKitaran.cs` + `LabelKitaranTests.cs`, baharu): `_kitaranLabel` menunjukkan bila kitaran berikutnya (kitaran pertama = one-shot 45 s, selepas itu Timer 10 min; anggaran berasas jadual tick, bukan masa tamat kerja; "sedang berjalan" didahulukan; togol mati = "tiada kitaran seterusnya dijadualkan"), dan `_backendLabel` = `LabelBackend.Teks(klienSedia, konfigSedia, cap-SHA-256, sebab)` — menyatakan **konfigurasi rahsia enjin → Apps Script terus** (8747 mati), bukan dakwaan enjin aktif. (3) **Semakan bebas berlapis**: Claude `claude-opus-5` 3 fasa laksana (sesi terhad kuota pada fasa 4 — koordinator ambil alih), Codex GPT-6-SOL read-only **13 pusingan TOLAK**; T13 ditutup secara gagal-tertutup (bukan sokongan penuh sintaks C#): pengira `#if` bebas-konfigurasi (SEMUA identiti gugur, literal `true`/`false` sahaja dipercayai, arah gagal = merah-jujur), kemudian `BuangKomen` ditulis semula sebagai **lexer merentas baris** (mod bertindan kod/komen/rentetan normal-verbatim-mentah-interpolasi+lubang/aksara; direktif hanya-dalam-mod-kod-pada-baris-mula → `#endif` sebagai teks di dalam `@"…"`/`"""…"""` tidak menutup bingkai; komen hujung direktif dipotong), kemudian **seksyen #if tak-aktif = hanya-direktif** (pusingan 9: kompilator C# TIDAK meleksis rentetan dalam seksyen dilangkau — lexer lama menyembunyikan "#if" bersarang dalam contoh @"…" lalu #endif pertama menutup bingkai LUAR awal = hijau senyap) + **5 ujian pengecut**; 3 XML-doc dibaiki. **Ujian 754/754.** Pusingan 10-12 menutup `# if`, pemisah baris C# dan awalan `@`-verbatim. Pusingan 13: rentetan mentah berinterpolasi (`$"""`) ditolak secara eksplisit oleh guard (`FormatException`) kerana lubang bersarang belum dimodelkan — tiada lulus senyap; pengekodan itu tidak ada dalam `MainForm.cs`. | Tiada perubahan data/endpoint (kod desktop + ujian sahaja; web/Apps Script tidak disentuh). BLUEPRINT §5.3 diperbetulkan dalam commit sama — 4 dakwaan lapuk: tulisan MOEIS + auth idMe kini DALAM desktop (bukan eksklusif `companion/`), jaluran sebenar = Apps Script terus (loopback hanya fallback), status strip = 3 label fakta, tetapan loopback gagal jujur apabila 8747 mati. |

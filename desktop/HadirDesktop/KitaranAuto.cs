@@ -24,9 +24,8 @@ public static class KitaranAuto
     public const string NamaFailLog = "hadir-desktop.log";
 
     /// <summary>
-    /// Selang antara kitaran, dalam minit. 10 minit: cukup pantas untuk pagi
-    /// sekolah (guru menanda, tugasan dihantar tidak lama selepas itu) dan cukup
-    /// jarang untuk tidak membebankan portal atau pelayan HADIR.
+    /// Selang antara kitaran, dalam minit. Sepuluh minit mengekalkan
+    /// kadar cubaan portal dan log masuk automatik yang telah ditetapkan.
     /// </summary>
     public const int SelangMinit = 10;
 

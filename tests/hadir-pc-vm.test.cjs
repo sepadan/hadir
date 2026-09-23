@@ -26,7 +26,9 @@ class HelaianPalsu {
   getRange(r, c, numRows, numCols) {
     return new JulatPalsu(this, r, c, numRows || 1, numCols || 1);
   }
+  getDataRange() { return this.getRange(1, 1, this.getLastRow(), this.getLastColumn()); }
   appendRow(arr) { this.baris.push(arr.slice()); }
+  deleteRow(r) { this.baris.splice(r - 1, 1); }
   getLastRow() { return this.baris.length; }
   getLastColumn() {
     var maks = 0;
@@ -73,6 +75,13 @@ class JulatPalsu {
   }
   getValue() { return this.getValues()[0][0]; }
   setValue(v) { this.setValues([[v]]); }
+  clearContent() {
+    for (var i = this.r; i < this.r + this.numRows; i++) {
+      for (var j = this.c; j < this.c + this.numCols; j++) {
+        this.helaian.baris[i - 1][j - 1] = '';
+      }
+    }
+  }
 }
 
 class SpreadsheetPalsu {
@@ -92,6 +101,8 @@ function buatKonteks(opsyen) {
   opsyen = opsyen || {};
   var jam = { sekarang: opsyen.sekarang || 1_700_000_000_000 };
   var kunciDipegang = false;
+  var bilKunci = 0;
+  var selepasLepasKunci = null;
   var ss = new SpreadsheetPalsu();
   var propsStor = new Map();
   var propsMock = {
@@ -112,10 +123,16 @@ function buatKonteks(opsyen) {
           waitLock: function () {
             assert.equal(kunciDipegang, false, 'Kunci tidak boleh diambil semula sebelum dilepaskan (tiada bersarang)');
             kunciDipegang = true;
+            bilKunci++;
           },
           releaseLock: function () {
             assert.equal(kunciDipegang, true, 'Kunci dilepaskan tanpa dipegang');
             kunciDipegang = false;
+            if (selepasLepasKunci) {
+              var callback = selepasLepasKunci;
+              selepasLepasKunci = null;
+              callback();
+            }
           }
         };
       }
@@ -158,7 +175,9 @@ function buatKonteks(opsyen) {
     ss: ss,
     jam: jam,
     majukanMasa: function (ms) { jam.sekarang += ms; },
-    kunciDipegang: function () { return kunciDipegang; }
+    kunciDipegang: function () { return kunciDipegang; },
+    bilKunci: function () { return bilKunci; },
+    selepasLepasKunci: function (callback) { selepasLepasKunci = callback; }
   };
 }
 
@@ -173,6 +192,157 @@ function tokenSesi(env, peranan) {
   }));
   return token;
 }
+
+function buatKehadiranMoeisPalsu() {
+  var env = buatKonteks();
+  var tarikhIso = '2026-09-24', tkh = '24/09';
+  env.k.Date = class extends Date {
+    constructor(...args) { super(...(args.length ? args : ['2026-09-24T01:00:00Z'])); }
+    static now() { return Date.parse('2026-09-24T01:00:00Z'); }
+  };
+  env.k.Utilities.formatDate = function (tarikh, zon, pola) {
+    return pola === 'yyyy-MM-dd' ? tarikhIso : '09:00';
+  };
+  env.k.tarikhHariIni_ = function () { return tkh; };
+  env.k.sediakanLajurSahaja = function () {};
+  env.k.dapatkanKolTarikh_ = function () { return 5; };
+  env.k.dapatkanIntervalArkib_ = function () { return []; };
+  env.k.dapatkanIcAktifMain_ = function () { return {}; };
+  env.k.muridTiadaPadaTarikh_ = function () { return false; };
+  env.k.muridDisembunyikanHariIni_ = function () { return false; };
+  env.k.hadirPetaRmt_ = function () { return {}; };
+  env.k.hadirPadamCacheInit_ = function () {};
+  env.props.setProperty('HADIR_MOEIS_ENGINE_SECRET', 'rahsia-fixture');
+  var s = env.ss.insertSheet('kehadiran');
+  s.appendRow(['NO', 'NAMA', 'KELAS', 'IC', tkh]);
+  s.appendRow([1, 'Murid Alfa', '1 UJI', 'fixture-a', '']);
+  s.appendRow([2, 'Murid Beta', '1 UJI', 'fixture-b', '']);
+  return { env: env, tarikhIso: tarikhIso, tkh: tkh };
+}
+
+test('dua Simpan sebelum klaim menyegarkan satu job/ID dan klaim membaca snapshot kedua', function () {
+  var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+  var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
+  var kunciB = k.hadirKunciMurid_('fixture-b', f.tkh);
+  k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciA, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
+  var jobSheet = f.env.ss.getSheetByName('HADIR_MOEIS_JOB');
+  assert.equal(jobSheet.getLastRow(), 2);
+  var id = jobSheet.baris[1][0];
+  assert.deepEqual(JSON.parse(jobSheet.baris[1][9]), [
+    { ic: 'fixture-a', nama: 'Murid Alfa', kategori: 'D', sebab: 'DEMAM' }
+  ]);
+  var kehadiran = f.env.ss.getSheetByName('kehadiran');
+  var bacaAsal = kehadiran.getDataRange.bind(kehadiran);
+  kehadiran.getDataRange = function () {
+    assert.equal(f.env.kunciDipegang(), true, 'snapshot job mesti dibaca di bawah ScriptLock');
+    return bacaAsal();
+  };
+  k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciB, kategori: 'N', sebab: 'BANGUN LEWAT' }], '', f.tarikhIso);
+  assert.equal(jobSheet.getLastRow(), 2, 'tiada baris pendua');
+  assert.equal(jobSheet.baris[1][0], id, 'ID asal dikekalkan');
+  assert.equal(jobSheet.baris[1][3], 'menunggu');
+  assert.deepEqual(JSON.parse(jobSheet.baris[1][9]), [
+    { ic: 'fixture-b', nama: 'Murid Beta', kategori: 'N', sebab: 'BANGUN LEWAT' }
+  ]);
+  var claim = k.hadirMoeisJobKlaim_(id, 'desktop-fixture', false, 'rahsia-fixture');
+  assert.deepEqual(Array.from(claim.murid, x => ({ ic: x.ic, nama: x.nama, kategori: x.kategori, sebab: x.sebab })), [
+    { ic: 'fixture-b', nama: 'Murid Beta', kategori: 'N', sebab: 'BANGUN LEWAT' }
+  ]);
+});
+
+test('klaim pada pelepasan kunci Simpan melihat snapshot terkini', function () {
+  var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+  var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
+  var kunciB = k.hadirKunciMurid_('fixture-b', f.tkh);
+  k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciA, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
+  var id = f.env.ss.getSheetByName('HADIR_MOEIS_JOB').baris[1][0];
+  var claim;
+  f.env.selepasLepasKunci(function () {
+    claim = k.hadirMoeisJobKlaim_(id, 'desktop-fixture', false, 'rahsia-fixture');
+  });
+  k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciB, kategori: 'N', sebab: 'BANGUN LEWAT' }], '', f.tarikhIso);
+  assert.deepEqual(Array.from(claim.murid, x => x.ic), ['fixture-b']);
+});
+
+test('Simpan semua hadir membuang job menunggu dan klaim tidak menemuinya', function () {
+  var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+  var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
+  k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciA, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
+  var id = f.env.ss.getSheetByName('HADIR_MOEIS_JOB').baris[1][0];
+  k.hadirSimpanKehadiran_('1 UJI', [], '', f.tarikhIso);
+  assert.equal(f.env.ss.getSheetByName('HADIR_MOEIS_JOB').getLastRow(), 1);
+  assert.equal(k.hadirMoeisJobKlaim_(id, 'desktop-fixture', false, 'rahsia-fixture'), null);
+});
+
+test('Simpan semua hadir mengekalkan sejarah job gagal atau berjaya', function () {
+  for (var status of ['gagal', 'berjaya']) {
+    var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+    var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
+    k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciA, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
+    var jobSheet = f.env.ss.getSheetByName('HADIR_MOEIS_JOB');
+    jobSheet.baris[1][3] = status;
+    var sebelum = jobSheet.baris[1].slice();
+    k.hadirSimpanKehadiran_('1 UJI', [], '', f.tarikhIso);
+    assert.deepEqual(jobSheet.baris[1], sebelum);
+  }
+});
+
+test('admin mencipta job dengan tepat satu ScriptLock tanpa bersarang', function () {
+  var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+  var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
+  k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciA, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
+  var sebelum = f.env.bilKunci();
+  f.env.props.setProperty('HADIR_SESI_admin-fixture', JSON.stringify({
+    peranan: 'admin', luput: Date.parse('2027-01-01T00:00:00Z')
+  }));
+  k.hadirMoeisJobBuat_('1 UJI', f.tarikhIso, 'admin-fixture');
+  assert.equal(f.env.bilKunci(), sebelum + 1);
+  assert.equal(f.env.ss.getSheetByName('HADIR_MOEIS_JOB').getLastRow(), 2);
+});
+
+test('job sedia ada 11 lajur dimigrasi sebelum refresh atomik', function () {
+  var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+  var kunciB = k.hadirKunciMurid_('fixture-b', f.tkh);
+  var jobSheet = f.env.ss.insertSheet('HADIR_MOEIS_JOB');
+  jobSheet.appendRow([
+    'ID', 'TARIKH_ISO', 'KELAS', 'STATUS', 'MESEJ', 'DICIPTA',
+    'DIKEMASKINI', 'MASA_SELESAI', 'BIL_HADIR_SELEPAS', 'MURID_JSON', 'KELAS_MOEIS_ID'
+  ]);
+  jobSheet.appendRow([
+    'job-legacy', f.tarikhIso, '1 UJI', 'menunggu', '', 'masa', 'masa', '', '',
+    JSON.stringify([{ ic: 'fixture-a', nama: 'Murid Alfa', kategori: 'D', sebab: 'DEMAM' }]), ''
+  ]);
+
+  k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciB, kategori: 'N', sebab: 'BANGUN LEWAT' }], '', f.tarikhIso);
+
+  assert.equal(jobSheet.baris[0][11], 'PEMILIK');
+  assert.equal(jobSheet.baris[0][12], 'LEASE_SELEPAS');
+  assert.equal(jobSheet.baris[1][0], 'job-legacy');
+  assert.deepEqual(JSON.parse(jobSheet.baris[1][9]), [
+    { ic: 'fixture-b', nama: 'Murid Beta', kategori: 'N', sebab: 'BANGUN LEWAT' }
+  ]);
+});
+
+test('Simpan ketika job aktif menolak tanpa mengubah kehadiran, snapshot atau lease', function () {
+  for (var status of ['sedang_dihantar', 'tersimpan']) {
+    var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+    var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
+    var kunciB = k.hadirKunciMurid_('fixture-b', f.tkh);
+    k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciA, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
+    var jobSheet = f.env.ss.getSheetByName('HADIR_MOEIS_JOB');
+    jobSheet.baris[1][3] = status;
+    jobSheet.baris[1][11] = 'desktop-fixture';
+    jobSheet.baris[1][12] = 2_000_000_000_000;
+    var sebelum = jobSheet.baris[1].slice();
+    var kehadiran = f.env.ss.getSheetByName('kehadiran').baris.map(r => r.slice());
+    assert.throws(function () {
+      k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciB, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
+    }, /Tugasan.*sedang dihantar|Tugasan.*tersimpan/i);
+    assert.equal(jobSheet.getLastRow(), 2);
+    assert.deepEqual(jobSheet.baris[1], sebelum, status + ': job/lease aktif mesti kekal');
+    assert.deepEqual(f.env.ss.getSheetByName('kehadiran').baris, kehadiran);
+  }
+});
 
 // ================================================================
 // hadirPcTerbitKodDaftar_
@@ -587,9 +757,9 @@ test('pcStatusAwam_: tidak memerlukan token dan tidak membocorkan PII/rahsia', f
 //   - benarkan 'berjaya'             (status siap boleh dihantar semula;
 //     pemanggil MEMANG menggunakan semula baris yang sama — id lama +
 //     setValues semula kepada 'menunggu' — jadi pendua tetap mustahil)
-//   - SEKAT 'menunggu' / 'sedang_dihantar' / 'tersimpan'
-//     (dalam penerbangan; jangan reset lease enjin di tengah jalan)
-test('hadirMoeisBolehCiptaJob_: status siap dibenarkan semula, dalam penerbangan disekat', function () {
+//   - benarkan 'menunggu' untuk mengganti snapshot sebelum klaim
+//   - SEKAT 'sedang_dihantar' / 'tersimpan' (jangan reset lease enjin)
+test('hadirMoeisBolehCiptaJob_: menunggu boleh disegarkan, lease aktif disekat', function () {
   var env = buatKonteks();
   var f = env.k.hadirMoeisBolehCiptaJob_;
   assert.equal(typeof f, 'function', 'gerbang mesti wujud dalam HadirWeb.gs');
@@ -604,9 +774,8 @@ test('hadirMoeisBolehCiptaJob_: status siap dibenarkan semula, dalam penerbangan
   assert.equal(f('berjaya'), true,
     'berjaya -> BOLEH dihantar semula; sebelum ini ia mengunci 1 BIJAK walaupun MOEIS kosong');
 
-  // Dalam penerbangan kekal disekat
-  assert.equal(f('menunggu'), false, 'menunggu -> disekat (enjin akan mengambilnya)');
+  assert.equal(f('menunggu'), true, 'menunggu -> segarkan snapshot sebelum klaim');
   assert.equal(f('sedang_dihantar'), false, 'sedang_dihantar -> disekat (jangan reset lease)');
   assert.equal(f('tersimpan'), false,
-    'tersimpan -> disekat (menunggu pengesahan; enjin mencuba semula sendiri)');
+    'tersimpan -> disekat (menunggu pengesahan; jangan reset lease)');
 });

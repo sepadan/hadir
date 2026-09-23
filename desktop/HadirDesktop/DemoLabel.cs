@@ -55,9 +55,6 @@ public static class DemoLabel
     public const string TrayHantarAuto = "Hantar ke MOEIS (automatik)";
     public const string TrayExit = "Keluar";
 
-    /// <summary>Loopback URL of the companion root; it redirects to the nonce-protected local settings UI.</summary>
-    public const string EngineSettingsUrl = EngineEndpoints.BaseUrl + EngineEndpoints.SettingsPath;
-
     /// <summary>Label shown when the dev/test debug transport is active (never in normal mode).</summary>
     public const string DevDebugBannerSuffix = " — MOD DEV-DEBUG (CDP loopback sahaja)";
 
