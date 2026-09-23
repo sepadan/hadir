@@ -19,6 +19,13 @@ namespace HadirDesktop;
 /// </summary>
 public sealed class IdMeSettingsDialog : Form
 {
+    /// <summary>
+    /// Teks kotak semak "Hantar ke MOEIS (automatik)" dalam dialog ini. Togol
+    /// yang SAMA seperti menu dulang — dipaparkan di sini supaya pemilik nampak
+    /// (dan boleh kawal) nilainya di tempat tetapan disimpan.
+    /// </summary>
+    public const string LabelHantarAuto = "Hantar ke MOEIS secara automatik selepas log masuk (opt-in)";
+
     private readonly IKredensialIdMeStore _kredensial;
     private readonly IIdMeLoginSettingsStore _tetapan;
     private readonly IdMeLoginManager? _pengurus;
@@ -30,6 +37,7 @@ public sealed class IdMeSettingsDialog : Form
     private readonly CheckBox _chkSimpan = new() { Text = "Simpan pada PC ini (disulit DPAPI, akaun Windows semasa)", Checked = false };
     private readonly CheckBox _chkLoginAuto = new() { Text = "Log masuk idMe automatik atas permintaan (opt-in)", Checked = false };
     private readonly CheckBox _chkTanpaFrasa = new() { Text = "Teruskan jika frasa keselamatan tidak dapat dibaca (imej/canvas) — opt-in", Checked = false };
+    private readonly CheckBox _chkHantarAuto = new() { Text = LabelHantarAuto, Checked = false };
     private readonly NumericUpDown _numMaksPenolakan = new() { Minimum = 0, Maximum = 50, Value = 5, Width = 80 };
     private readonly Label _lblPenolakan = new() { AutoSize = true, ForeColor = Color.DimGray };
     private readonly Button _btnSimpan = new() { Text = "Simpan" };
@@ -48,7 +56,7 @@ public sealed class IdMeSettingsDialog : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(560, 400);
+        ClientSize = new Size(560, 430);
         ShowInTaskbar = false;
 
         var panel = new TableLayoutPanel
@@ -56,7 +64,7 @@ public sealed class IdMeSettingsDialog : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(12),
             ColumnCount = 2,
-            RowCount = 10,
+            RowCount = 11,
         };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
@@ -86,14 +94,16 @@ public sealed class IdMeSettingsDialog : Form
         panel.SetColumnSpan(_chkLoginAuto, 2);
         panel.Controls.Add(_chkTanpaFrasa, 0, 6);
         panel.SetColumnSpan(_chkTanpaFrasa, 2);
+        panel.Controls.Add(_chkHantarAuto, 0, 7);
+        panel.SetColumnSpan(_chkHantarAuto, 2);
 
-        TambahLabel("Berhenti selepas penolakan kata laluan berturut-turut (0 = jangan berhenti)", 7);
-        panel.Controls.Add(_numMaksPenolakan, 1, 7);
+        TambahLabel("Berhenti selepas penolakan kata laluan berturut-turut (0 = jangan berhenti)", 8);
+        panel.Controls.Add(_numMaksPenolakan, 1, 8);
 
         _lblPenolakan.AutoSize = false;
         _lblPenolakan.Dock = DockStyle.Fill;
         _lblPenolakan.TextAlign = ContentAlignment.MiddleLeft;
-        panel.Controls.Add(_lblPenolakan, 0, 8);
+        panel.Controls.Add(_lblPenolakan, 0, 9);
         panel.SetColumnSpan(_lblPenolakan, 2);
 
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true };
@@ -101,7 +111,7 @@ public sealed class IdMeSettingsDialog : Form
         flow.Controls.Add(_btnCubaLagi);
         flow.Controls.Add(_btnPadam);
         flow.Controls.Add(_btnSimpan);
-        panel.Controls.Add(flow, 0, 9);
+        panel.Controls.Add(flow, 0, 10);
         panel.SetColumnSpan(flow, 2);
 
         Controls.Add(panel);
@@ -115,6 +125,12 @@ public sealed class IdMeSettingsDialog : Form
         MuatSemulaTetapan();
         MuatSemulaPenolakan();
     }
+
+    /// <summary>
+    /// Kotak semak "Hantar ke MOEIS (automatik)" — didedahkan untuk ujian sahaja
+    /// (corak sama seperti <c>TrayHost.ItemMenu</c>).
+    /// </summary>
+    public CheckBox KotakHantarAuto => _chkHantarAuto;
 
     private void MuatSemulaStatus()
     {
@@ -141,6 +157,7 @@ public sealed class IdMeSettingsDialog : Form
         var t = _tetapan.Baca();
         _chkLoginAuto.Checked = t.LoginAuto;
         _chkTanpaFrasa.Checked = t.BenarkanTerusTanpaFrasa;
+        _chkHantarAuto.Checked = t.HantarAuto;
         _numMaksPenolakan.Value = Math.Clamp(t.MaksPenolakanBerturut, 0, 50);
     }
 
@@ -170,15 +187,24 @@ public sealed class IdMeSettingsDialog : Form
         }
     }
 
-    private void Simpan()
+    /// <summary>
+    /// Laluan "Simpan" — sama seperti yang dipanggil oleh butang Simpan (awam
+    /// supaya boleh diuji tanpa message-loop WinForms; corak sama seperti
+    /// <c>TrayHost.ItemMenu</c>).
+    /// </summary>
+    public void Simpan()
     {
         // Persist the opt-in switches + rejection guard N (non-secret).
-        _tetapan.Simpan(new IdMeLoginTetapan
-        {
-            LoginAuto = _chkLoginAuto.Checked,
-            BenarkanTerusTanpaFrasa = _chkTanpaFrasa.Checked,
-            MaksPenolakanBerturut = (int)_numMaksPenolakan.Value,
-        });
+        // Baca dahulu, ubah hanya medan yang dialog ini kawal: sebuah medan yang
+        // tidak dipaparkan di sini TIDAK BOLEH ditetapkan semula secara senyap.
+        var tetapan = _tetapan.Baca();
+        tetapan.LoginAuto = _chkLoginAuto.Checked;
+        tetapan.BenarkanTerusTanpaFrasa = _chkTanpaFrasa.Checked;
+        tetapan.MaksPenolakanBerturut = (int)_numMaksPenolakan.Value;
+        // Kotak semak ini diikat pada nilai tersimpan semasa dialog dibuka, jadi
+        // "tidak disentuh" bermakna nilai tersimpan ditulis semula, bukan MATI.
+        tetapan.HantarAuto = _chkHantarAuto.Checked;
+        _tetapan.Simpan(tetapan);
 
         if (!_chkSimpan.Checked)
         {

@@ -82,10 +82,12 @@ public sealed class MainForm : Form
     {
         _statusSource = _fixtureSource;
         _realPortal = RealPortalDevMode.FromEnvironment();
-        // In real-portal dev mode, widen the allowlist to the exact idMe origin
-        // so the real login page can render (read-only). Normal mode keeps the
-        // empty allowlist = fixture/loopback only.
-        _navigationGuard = new NavigationGuard(_realPortal.AllowedOrigins);
+        // Bina penjaga navigasi DARI TETAPAN TERSIMPAN semasa mula, bukan hanya
+        // selepas dialog "Akaun idMe" ditutup. Tanpa ini, PC yang restart dengan
+        // LoginAuto sudah HIDUP tidak dibenarkan navigasi ke origin idMe/MOEIS
+        // sampai seseorang membuka dialog itu — auto-login tersekat senyap.
+        // (`_idMeSettingsStore` ialah pengawal medan, jadi ia sudah sedia di sini.)
+        RebuildNavigationGuard();
 
         // idMe auto-login plumbing (default OFF). The credential store is the
         // SAME shared DPAPI file as the companion engine (HADIR-MOEIS-Companion/
@@ -485,19 +487,39 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Rebuilds the navigation allowlist from the real-portal dev mode origins
-    /// PLUS the idMe/MOEIS origins when (and only when) the owner has enabled
-    /// the auto-login feature. Everything else stays blocked.
+    /// Senarai origin allowlist navigasi — fungsi TULEN (tiada WinForms, tiada
+    /// I/O) supaya ia boleh diuji tanpa message-loop. Origin mod portal-sebenar
+    /// sentiasa dikekalkan; origin idMe/MOEIS ditambah HANYA apabila pemilik
+    /// menghidupkan auto-login. Selain itu semuanya kekal disekat (loopback
+    /// dibenarkan oleh <see cref="NavigationGuard"/> sendiri).
     /// </summary>
-    private void RebuildNavigationGuard()
+    public static List<string> OriginsNavigasi(bool realPortalEnabled, IEnumerable<string> realPortalOrigins, bool loginAuto)
     {
-        var origins = new List<string>(_realPortal.AllowedOrigins);
-        if (_idMeSettingsStore.Baca().LoginAuto)
+        var origins = new List<string>();
+        if (realPortalEnabled && realPortalOrigins != null)
+        {
+            origins.AddRange(realPortalOrigins);
+        }
+        if (loginAuto)
         {
             origins.Add(IdMeLoginEndpoints.IdMeOrigin);
             origins.Add(IdMeLoginEndpoints.MoeisOrigin);
         }
-        _navigationGuard = new NavigationGuard(origins);
+        return origins;
+    }
+
+    /// <summary>
+    /// Rebuilds the navigation allowlist from the real-portal dev mode origins
+    /// PLUS the idMe/MOEIS origins when (and only when) the owner has enabled
+    /// the auto-login feature. Everything else stays blocked. Dipanggil semasa
+    /// mula DAN selepas dialog "Akaun idMe" ditutup.
+    /// </summary>
+    private void RebuildNavigationGuard()
+    {
+        _navigationGuard = new NavigationGuard(OriginsNavigasi(
+            _realPortal.Enabled,
+            _realPortal.AllowedOrigins,
+            _idMeSettingsStore.Baca().LoginAuto));
     }
 
     /// <summary>

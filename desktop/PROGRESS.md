@@ -1,5 +1,68 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## Dua pepijat dari ujian hidup: penjaga navigasi + HantarAuto senyap (2026-09-23)
+
+Kedua-duanya ditemui semasa ujian hidup, kedua-duanya senyap.
+
+**1. Penjaga navigasi tidak dibina semasa mula** (`MainForm.cs`). Pembina
+membina `new NavigationGuard(_realPortal.AllowedOrigins)` — senarai KOSONG dalam
+mod biasa — dan `RebuildNavigationGuard()` hanya dipanggil selepas dialog "Akaun
+idMe…" ditutup. Jadi PC sekolah yang restart dengan `LoginAuto` sudah tersimpan
+HIDUP tidak dibenarkan navigasi ke origin idMe/MOEIS sampai seseorang membuka
+dialog itu: auto-login tersekat tanpa sebarang mesej. Pembetulan:
+`RebuildNavigationGuard()` dipanggil dalam pembina (sebelum sebarang navigasi
+portal; `_idMeSettingsStore` ialah pengawal medan jadi ia sudah sedia), dan
+pengiraan senarai origin diekstrak ke fungsi TULEN
+`MainForm.OriginsNavigasi(realPortalEnabled, realPortalOrigins, loginAuto)` yang
+kini menjadi satu-satunya sumber senarai itu. Tingkah laku "dialog ditutup →
+bina semula" kekal.
+
+**2. Dialog tetapan menetapkan semula `HantarAuto` kepada MATI** (
+`IdMeSettingsDialog.Simpan()`). Ia membina `IdMeLoginTetapan` BAHARU dengan tiga
+medan sahaja, jadi `HantarAuto` kembali `false` — opt-in penghantaran MOEIS
+dimatikan SENYAP setiap kali pemilik menyimpan tetapan. Pembetulan: `Simpan()`
+kini `Baca()` dahulu dan hanya mengubah medan yang dialog ini kawal (medan yang
+tidak dipaparkan tidak boleh ditetapkan semula), DAN togol itu kini kelihatan di
+tempat yang sama — kotak semak "Hantar ke MOEIS secara automatik selepas log
+masuk (opt-in)" selepas `_chkTanpaFrasa`, diikat pada nilai tersimpan semasa
+dialog dibuka dan ditulis semula semasa Simpan. `Simpan()` dijadikan awam dan
+`KotakHantarAuto` didedahkan untuk ujian (corak sama seperti `TrayHost.ItemMenu`).
+
+### Ujian
+
+```
+dotnet build desktop/HadirDesktop.sln              # Build succeeded, 0 Error(s)
+dotnet test  desktop/HadirDesktop.sln --no-restore # Passed! 430 / Failed: 0 (3 larian)
+```
+
+430 lulus / 0 gagal (sebelum ini 418; **+12**):
+
+- `OriginsNavigasiTests` (5) — mod biasa + `LoginAuto` HIDUP mengandungi origin
+  idMe + MOEIS; MATI tidak mengandungi kedua-duanya; origin portal-sebenar
+  sentiasa dikekalkan (HIDUP dan MATI); mod portal-sebenar MATI tidak menambah
+  originnya; penjaga yang dibina dari senarai itu benar-benar membenarkan
+  `/login` idMe hanya bila `LoginAuto` HIDUP.
+- `IdMeSettingsDialogHantarAutoTests` (7) — stor tetapan fail sementara, stor
+  kredensial palsu (tiada DPAPI, kotak "Simpan pada PC ini" tidak ditanda jadi
+  kredensial tidak pernah ditulis): tersimpan HIDUP + kotak ditanda → kekal
+  HIDUP; tersimpan HIDUP + kotak TIDAK DISENTUH → kotak menunjukkan HIDUP dan
+  kekal HIDUP; kotak tidak ditanda → MATI; tersimpan MATI + ditanda → HIDUP;
+  medan dialog lain (`LoginAuto`, `MaksPenolakanBerturut`) tetap disimpan; label
+  opt-in dan kotak itu benar-benar dalam pokok kawalan dialog.
+
+Bukti ujian tidak kosong: dengan `HantarAuto` dipaksa `false` semula dalam
+`Simpan()`, 4 daripada ujian baharu GAGAL; pembetulan dipulihkan selepas itu.
+
+Amaran `CS8619` pada `MainForm.cs` masih yang sama seperti pada HEAD (c38ed9c).
+
+### Disahkan vs tidak disahkan
+
+- DISAHKAN: build + 430 ujian (3 larian berturut, semuanya 430/0).
+- TIDAK DISAHKAN (langsung): pembinaan penjaga dalam pembina `MainForm` sendiri
+  tidak diuji oleh xUnit (WinForms; ia memerlukan pembina penuh yang membaca
+  DPAPI) — hanya fungsi tulen yang kini menjadi sumbernya diuji. Restart PC
+  sebenar dengan `LoginAuto` HIDUP belum dijalankan oleh manusia dalam slice ini.
+
 ## Togol dulang "Hantar ke MOEIS (automatik)" (2026-09-23, lalai MATI)
 
 Penghantaran automatik kini milik pemilik, bukan medan kod. Sebelum ini

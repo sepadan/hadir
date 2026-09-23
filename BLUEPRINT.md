@@ -706,6 +706,24 @@ peraturan kehadiran, tulisan MOEIS dan auth idMe kekal eksklusif dalam
   boolean `true` (pulangan `null` = tidak dapat dipastikan), supaya amplop
   `ok:false` tidak boleh muncul sebagai "tiada kerja" yang mematikan isyarat
   deman secara senyap.
+- **Opt-in penghantaran MOEIS milik pemilik (lalai MATI).** Togol
+  `IdMeLoginTetapan.HantarAuto` (JSON bukan rahsia, gagal-tertutup: fail hilang
+  atau rosak = MATI) menentukan sama ada sesi idMe yang sah diikuti tulisan
+  sebenar ke MOEIS. Ia bebas daripada `LoginAuto`: HIDUP + `HantarAuto` MATI
+  bermakna log masuk sahaja, tiada tulisan. Togol itu boleh dikawal dari DUA
+  tempat yang membaca/menulis medan yang SAMA — menu dulang dan kotak semak
+  dalam dialog "Akaun idMe". Peraturan yang mengikat kedua-duanya: penulis mesti
+  `Baca()` dahulu dan mengubah HANYA medan yang ia kawal. (Ujian hidup 23 Sep
+  2026 menemui pelanggaran peraturan itu: `Simpan()` dialog membina rekod tetapan
+  baharu tanpa `HantarAuto`, jadi opt-in dimatikan senyap setiap kali pemilik
+  menyimpan tetapan.)
+- **Allowlist navigasi dibina semasa MULA, bukan hanya selepas dialog.** Senarai
+  origin ialah satu fungsi tulen (`MainForm.OriginsNavigasi`): origin mod dev
+  portal-sebenar + origin idMe/MOEIS apabila (dan hanya apabila) `LoginAuto`
+  HIDUP; loopback dibenarkan oleh `NavigationGuard` sendiri. Penjaga dibina
+  dalam pembina `MainForm` DAN selepas dialog ditutup — tanpa binaan semasa mula,
+  PC yang restart dengan `LoginAuto` sudah HIDUP disekat daripada origin
+  idMe/MOEIS sampai seseorang membuka dialog (ujian hidup 23 Sep 2026).
 
 ## 5b. Ciri berbilang PC (pendaftaran peranti + kepimpinan berpagar, staged, OFF secara lalai)
 
