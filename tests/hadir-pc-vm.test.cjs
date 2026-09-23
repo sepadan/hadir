@@ -574,3 +574,39 @@ test('pcStatusAwam_: tidak memerlukan token dan tidak membocorkan PII/rahsia', f
   var teksJson = JSON.stringify(hasil);
   assert.ok(!/rahsia/i.test(teksJson), 'Status awam tidak boleh membocorkan rahsia: ' + teksJson);
 });
+
+
+// ================================================================
+// Gerbang cipta semula tugasan (hadirMoeisBolehCiptaJob_)
+// ================================================================
+//
+// 23 Sep 2026: 1 BIJAK mempunyai status 'berjaya' yang SALAH (positif palsu
+// MuatSemula lama) dan gerbang menolak cipta semula walaupun MOEIS langsung
+// tidak terisi — tiada jalan keluar automatik. Peraturan mesti:
+//   - benarkan kosong / 'gagal'      (perilaku asal, kekal)
+//   - benarkan 'berjaya'             (status siap boleh dihantar semula;
+//     pemanggil MEMANG menggunakan semula baris yang sama — id lama +
+//     setValues semula kepada 'menunggu' — jadi pendua tetap mustahil)
+//   - SEKAT 'menunggu' / 'sedang_dihantar' / 'tersimpan'
+//     (dalam penerbangan; jangan reset lease enjin di tengah jalan)
+test('hadirMoeisBolehCiptaJob_: status siap dibenarkan semula, dalam penerbangan disekat', function () {
+  var env = buatKonteks();
+  var f = env.k.hadirMoeisBolehCiptaJob_;
+  assert.equal(typeof f, 'function', 'gerbang mesti wujud dalam HadirWeb.gs');
+
+  // Perilaku asal mesti kekal
+  assert.equal(f(undefined), true, 'tiada tugasan sedia ada -> cipta');
+  assert.equal(f(null), true, 'status null -> cipta');
+  assert.equal(f(''), true, 'status kosong -> cipta');
+  assert.equal(f('gagal'), true, 'gagal -> cipta semula (perilaku asal)');
+
+  // Pembaikan 1 BIJAK: status siap kini boleh dihantar semula
+  assert.equal(f('berjaya'), true,
+    'berjaya -> BOLEH dihantar semula; sebelum ini ia mengunci 1 BIJAK walaupun MOEIS kosong');
+
+  // Dalam penerbangan kekal disekat
+  assert.equal(f('menunggu'), false, 'menunggu -> disekat (enjin akan mengambilnya)');
+  assert.equal(f('sedang_dihantar'), false, 'sedang_dihantar -> disekat (jangan reset lease)');
+  assert.equal(f('tersimpan'), false,
+    'tersimpan -> disekat (menunggu pengesahan; enjin mencuba semula sendiri)');
+});

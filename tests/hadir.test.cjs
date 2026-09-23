@@ -286,11 +286,19 @@ try {
 sah(konteksMoeis.hadirMoeisSahkanLengkap_([{ nama: 'Ali', kategori: 'D', sebab: 'DEMAM' }], '1 BIJAK') === true,
   'Senarai lengkap mesti diterima untuk penghantaran');
 
-// Elak pendua tugasan bagi kelas+tarikh yang sama.
+// Elak pendua tugasan bagi kelas+tarikh yang sama. Pendua memang mustahil
+// kerana pemanggil MENGGUNAKAN SEMULA baris yang sama (id lama, setValues
+// semula kepada 'menunggu') — jadi gate ini sebenarnya mengawal bila admin
+// boleh menghantar semula.
 sah(konteksMoeis.hadirMoeisBolehCiptaJob_(undefined) === true, 'Tiada tugasan sedia ada mesti boleh dicipta');
 sah(konteksMoeis.hadirMoeisBolehCiptaJob_('gagal') === true, 'Tugasan gagal mesti boleh dicuba semula');
-sah(konteksMoeis.hadirMoeisBolehCiptaJob_('menunggu') === false, 'Tugasan menunggu mesti mengelak pendua');
-sah(konteksMoeis.hadirMoeisBolehCiptaJob_('berjaya') === false, 'Tugasan berjaya mesti mengelak pendua');
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_('menunggu') === false, 'Tugasan menunggu mesti disekat (enjin akan mengambilnya)');
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_('sedang_dihantar') === false, 'Tugasan sedang_dihantar mesti disekat (jangan reset lease)');
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_('tersimpan') === false, 'Tugasan tersimpan mesti disekat (menunggu pengesahan)');
+// Status siap BOLEH dihantar semula: sebelum ini ia disekat dan itulah yang
+// mengunci 1 BIJAK — statusnya tersilap 'berjaya' (positif palsu MuatSemula
+// lama) lalu tiada jalan keluar walaupun MOEIS langsung tidak terisi.
+sah(konteksMoeis.hadirMoeisBolehCiptaJob_('berjaya') === true, 'Tugasan berjaya mesti boleh dihantar semula oleh admin');
 
 const cfg = baca('config.js');
 const versiPadanan = cfg.match(/versi: 'HADIR v([0-9.]+)'/);

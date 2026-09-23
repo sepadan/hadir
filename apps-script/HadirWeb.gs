@@ -84,8 +84,21 @@ function hadirMoeisBelumLengkap_(murid) {
 
 /* Elak pendua tugasan bagi kelas+tarikh yang sama: hanya dibenarkan mencipta
    semula jika tiada tugasan sedia ada, atau tugasan sedia ada telah gagal. */
+/* Elak pendua tugasan bagi kelas+tarikh yang sama. Pemanggil
+   (moeisJobBuat) MENGGUNAKAN SEMULA baris yang sama — id lama, setValues
+   semula kepada 'menunggu' — jadi baris pendua memang mustahil. Gate ini
+   sebenarnya menghalang hantar semula bagi tugasan yang sudah siap, dan
+   itulah yang menyekat 1 BIJAK (23 Sep): statusnya tersilap 'berjaya'
+   (positif palsu MuatSemula lama) lalu tiada jalan keluar walaupun MOEIS
+   langsung tidak terisi.
+
+   Kini: status siap (berjaya) DIBENARKAN semula — admin menekan 'Hantar'
+   dan enjin menghantarnya semula. Dalam penerbangan (menunggu /
+   sedang_dihantar / tersimpan) KEKAL disekat supaya lease enjin tidak
+   direset di tengah jalan. */
 function hadirMoeisBolehCiptaJob_(statusSediaAda) {
-  return statusSediaAda === undefined || statusSediaAda === null || statusSediaAda === '' || statusSediaAda === 'gagal';
+  if (statusSediaAda === undefined || statusSediaAda === null || statusSediaAda === '') return true;
+  return ['gagal', 'berjaya'].indexOf(statusSediaAda) >= 0;
 }
 
 /* Membenarkan penghantaran hanya apabila ada sekurang-kurangnya seorang murid
