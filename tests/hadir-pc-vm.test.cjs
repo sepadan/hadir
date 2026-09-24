@@ -57,8 +57,10 @@ class JulatPalsu {
     return keluar;
   }
   getDisplayValues() {
+    // formatPaparan pilihan meniru format nombor Sheets (cth. 0.4 dipapar '0').
+    var format = this.helaian.formatPaparan;
     return this.getValues().map(function (baris) {
-      return baris.map(function (v) { return v == null ? '' : String(v); });
+      return baris.map(function (v) { return format ? format(v) : (v == null ? '' : String(v)); });
     });
   }
   setValues(nilai) {
@@ -298,6 +300,66 @@ test('admin mencipta job dengan tepat satu ScriptLock tanpa bersarang', function
   k.hadirMoeisJobBuat_('1 UJI', f.tarikhIso, 'admin-fixture');
   assert.equal(f.env.bilKunci(), sebelum + 1);
   assert.equal(f.env.ss.getSheetByName('HADIR_MOEIS_JOB').getLastRow(), 2);
+});
+
+test('job admin menolak kelas yang kehadirannya belum lengkap sebelum menulis job', function () {
+  var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+  var kehadiran = f.env.ss.getSheetByName('kehadiran');
+  kehadiran.baris[1][4] = '0';
+  kehadiran.baris[2][4] = '';
+  var sebab = f.env.ss.insertSheet('HADIR_MOEIS_SEBAB');
+  sebab.appendRow(['TARIKH_ISO', 'KELAS', 'IC', 'NAMA', 'KATEGORI', 'SEBAB']);
+  sebab.appendRow([f.tarikhIso, '1 UJI', 'fixture-a', 'Murid Alfa', 'D', 'DEMAM']);
+  f.env.props.setProperty('HADIR_SESI_admin-fixture', JSON.stringify({
+    peranan: 'admin', luput: Date.parse('2027-01-01T00:00:00Z')
+  }));
+  assert.throws(function () {
+    k.hadirMoeisJobBuat_('1 UJI', f.tarikhIso, 'admin-fixture');
+  }, /Kehadiran kelas belum disimpan sepenuhnya/);
+  assert.equal(f.env.ss.getSheetByName('HADIR_MOEIS_JOB'), null, 'job tidak boleh ditulis daripada kelas separa');
+  assert.equal(f.env.kunciDipegang(), false, 'ScriptLock mesti dilepaskan selepas penolakan');
+});
+
+test('nilai mentah 0.4 yang dipapar sebagai 0 tidak dikira disimpan dan job admin ditolak', function () {
+  var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+  var kehadiran = f.env.ss.getSheetByName('kehadiran');
+  kehadiran.baris[1][4] = 0.4;
+  kehadiran.baris[2][4] = 1;
+  kehadiran.formatPaparan = function (v) {
+    return typeof v === 'number' ? String(Math.round(v)) : (v == null ? '' : String(v));
+  };
+  assert.equal(kehadiran.getDataRange().getDisplayValues()[1][4], '0', 'fixture mesti meniru paparan dibundarkan');
+  var sebab = f.env.ss.insertSheet('HADIR_MOEIS_SEBAB');
+  sebab.appendRow(['TARIKH_ISO', 'KELAS', 'IC', 'NAMA', 'KATEGORI', 'SEBAB']);
+  sebab.appendRow([f.tarikhIso, '1 UJI', 'fixture-a', 'Murid Alfa', 'D', 'DEMAM']);
+  f.env.props.setProperty('HADIR_SESI_admin-fixture', JSON.stringify({
+    peranan: 'admin', luput: Date.parse('2027-01-01T00:00:00Z')
+  }));
+  var ringkasan = k.hadirMoeisSenaraiKelas_('admin-fixture');
+  var kelas = ringkasan.filter(function (x) { return x.nama === '1 UJI'; })[0];
+  assert.equal(kelas.kehadiranDisimpan, false, '0.4 mentah tidak boleh dikira disimpan');
+  assert.equal(kelas.bilTidakHadir, 0, '0.4 mentah tidak boleh dikira tidak hadir');
+  assert.throws(function () {
+    k.hadirMoeisJobBuat_('1 UJI', f.tarikhIso, 'admin-fixture');
+  }, /Kehadiran kelas belum disimpan sepenuhnya/);
+  assert.equal(f.env.ss.getSheetByName('HADIR_MOEIS_JOB'), null, 'job tidak boleh ditulis daripada nilai mentah tidak sah');
+  assert.equal(f.env.kunciDipegang(), false, 'ScriptLock mesti dilepaskan selepas penolakan');
+});
+
+test('job admin menolak apabila lajur tarikh hari ini belum wujud', function () {
+  var f = buatKehadiranMoeisPalsu(), k = f.env.k;
+  var kehadiran = f.env.ss.getSheetByName('kehadiran');
+  kehadiran.baris[0][4] = '23/09';
+  kehadiran.baris[1][4] = '1';
+  kehadiran.baris[2][4] = '1';
+  f.env.props.setProperty('HADIR_SESI_admin-fixture', JSON.stringify({
+    peranan: 'admin', luput: Date.parse('2027-01-01T00:00:00Z')
+  }));
+  assert.throws(function () {
+    k.hadirMoeisJobBuat_('1 UJI', f.tarikhIso, 'admin-fixture');
+  }, /Kehadiran kelas belum disimpan sepenuhnya/);
+  assert.equal(f.env.ss.getSheetByName('HADIR_MOEIS_JOB'), null, 'job tidak boleh ditulis tanpa lajur hari ini');
+  assert.equal(f.env.kunciDipegang(), false, 'ScriptLock mesti dilepaskan selepas penolakan');
 });
 
 test('job sedia ada 11 lajur dimigrasi sebelum refresh atomik', function () {

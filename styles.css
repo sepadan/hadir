@@ -455,7 +455,9 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .review-card-head h2 { font-size: 1.05rem; }
 .review-card-head p { margin-top: 2px; color: var(--muted); font-size: .8rem; }
 .review-state { flex: 0 0 auto; padding: 5px 9px; border-radius: 999px; background: #e5f7ef; color: #087851; font-size: .72rem; font-weight: 850; }
+.review-state.err { background: #ffe5e8; color: #b82f42; }
 .review-card.pending .review-state { background: #fff0cd; color: #8a6000; }
+.review-card.pending .review-state.err { background: #ffe5e8; color: #b82f42; }
 .review-card-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .review-card-stats > div { padding: 11px 15px; }
 .review-card-stats > div + div { border-left: 1px solid var(--line); }

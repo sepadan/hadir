@@ -238,7 +238,24 @@ sah(app.includes('senaraiSebab.some(function (s) { return !s.kategori || !s.seba
   'Simpanan mesti disekat di sisi pelanggan jika kategori/sebab belum lengkap');
 sah(app.includes("panggil('moeisSenaraiKelas'") && app.includes("panggil('moeisJobBuat'") && app.includes("panggil('moeisSimpanSebab'"),
   'Frontend skrin Hantar ke MOEIS tidak lengkap');
-sah(app.includes('hantarBtn.disabled = !lengkap'), 'Butang Hantar mesti disekat apabila kategori/sebab belum lengkap');
+sah(app.includes('hantarBtn.disabled = !sudahSimpan || !lengkap'), 'Butang Hantar mesti disekat jika kehadiran belum disimpan atau kategori/sebab belum lengkap');
+sah(app.includes('k.kehadiranDisimpan === true') && app.includes('tarikhKehadiran === hariIni'),
+  'Kad MOEIS mesti mengesahkan simpanan untuk tarikh hari ini sebelum menunjukkan lengkap');
+sah(app.includes("'review-state ' + (belumDihantar") && app.includes('Belum lengkap: kehadiran hari ini belum disimpan'),
+  'Status belum lengkap dan belum dihantar mesti mempunyai keadaan merah dan mesej simpanan jelas');
+sah(backend.includes('kehadiranDisimpan: hadirMoeisKehadiranKelasDisimpan_(kehadiranKelasNilai[kelas])'),
+  'API senarai kelas mesti menilai simpanan seluruh kelas, bukan satu murid sahaja');
+sah(/\.review-state\.err\s*\{[^}]*color:\s*#b82f42/i.test(baca('styles.css')),
+  'Label Belum dihantar mesti mempunyai gaya teks merah');
+sah(/\.moeis-status\.err\s*\{[^}]*color:\s*#b82f42/i.test(baca('styles.css')),
+  'Status MOEIS ralat mesti berwarna merah');
+(function () {
+  const css = baca('styles.css');
+  const pending = css.search(/\.review-card\.pending \.review-state\s*\{/);
+  const merah = css.search(/\.review-card\.pending \.review-state\.err\s*\{[^}]*color:\s*#b82f42/i);
+  sah(pending >= 0 && merah > pending,
+    'Badge Belum dihantar/Gagal mesti kekal merah pada kad pending (rule .err selepas rule pending)');
+})();
 
 function fungsiBackend(nama) {
   const re = new RegExp('function ' + nama + '\\([^)]*\\)\\s*\\{[\\s\\S]*?(?=\\nfunction |$)');
@@ -249,9 +266,36 @@ function fungsiBackend(nama) {
 const konteksMoeis = {};
 const sumberMoeis = [
   'hadirMoeisSebabData_', 'hadirMoeisSebabSah_', 'hadirMoeisBelumLengkap_',
-  'hadirMoeisBolehCiptaJob_', 'hadirMoeisSahkanLengkap_'
+  'hadirMoeisKehadiranKelasDisimpan_', 'hadirMoeisBolehCiptaJob_', 'hadirMoeisSahkanLengkap_'
 ].map(fungsiBackend).join('\n');
 vm.runInNewContext(sumberMoeis, konteksMoeis);
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_([1, 0]) === true,
+  'Kehadiran kelas dianggap disimpan apabila setiap murid mempunyai nilai 1 atau 0');
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_(['1', '']) === false,
+  'Kehadiran kelas dianggap belum disimpan jika sekurang-kurangnya seorang murid masih kosong');
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_(['X', '1']) === false,
+  'Nilai kehadiran selain 0/1 tidak boleh dianggap sudah disimpan');
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_([]) === false,
+  'Kehadiran kelas kosong tidak boleh dianggap sudah disimpan');
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_(['1', '0']) === true,
+  'Rentetan paparan 1/0 mesti dianggap sudah disimpan');
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_(['1', '  ']) === false,
+  'Nilai ruang kosong tidak boleh dianggap sudah disimpan');
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_([1, null]) === false &&
+  konteksMoeis.hadirMoeisKehadiranKelasDisimpan_([undefined, 0]) === false,
+  'null/undefined tidak boleh dianggap sudah disimpan');
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_([2, '1']) === false &&
+  konteksMoeis.hadirMoeisKehadiranKelasDisimpan_(['01', '1']) === false,
+  'Nombor/rentetan selain 0/1 tidak boleh dianggap sudah disimpan');
+sah(konteksMoeis.hadirMoeisKehadiranKelasDisimpan_(null) === false &&
+  konteksMoeis.hadirMoeisKehadiranKelasDisimpan_(undefined) === false,
+  'Input bukan tatasusunan tidak boleh dianggap sudah disimpan');
+['hadirMoeisSenaraiKelas_', 'hadirMoeisJobBuatDiBawahLock_'].forEach(function (nama) {
+  const src = fungsiBackend(nama);
+  sah(src.includes('julat.getValues()') && src.includes("mentah[i][idxTarikh]") &&
+    !src.includes('data[i][idxTarikh]') && src.includes("nilai !== 0 && nilai !== '0'"),
+    nama + ' mesti membaca nilai kehadiran mentah (getValues), bukan nilai paparan');
+});
 
 // Pengesahan wajib kategori+sebab terhadap senarai rasmi MOEIS.
 sah(konteksMoeis.hadirMoeisSebabSah_('D', 'DEMAM') === true, 'Pasangan kategori/sebab sah mesti diterima');

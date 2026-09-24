@@ -680,6 +680,14 @@ function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
   return keputusan;
 }
 
+function hadirMoeisKehadiranKelasDisimpan_(nilaiKehadiran) {
+  if (!Array.isArray(nilaiKehadiran) || !nilaiKehadiran.length) return false;
+  // Hanya 1 (hadir) atau 0 (tidak hadir) dikira disimpan; kosong/nilai lain tidak.
+  return nilaiKehadiran.every(function (nilai) {
+    return nilai === 0 || nilai === 1 || nilai === '0' || nilai === '1';
+  });
+}
+
 /* Admin sahaja. Senarai kelas hari ini untuk skrin "Hantar ke MOEIS": bilangan
    tidak hadir, murid yang belum lengkap kategori/sebab, dan status tugasan
    giliran sedia ada bagi kelas itu. */
@@ -690,11 +698,15 @@ function hadirMoeisSenaraiKelas_(token) {
   var tkh = tarikhHariIni_();
   var s = ss.getSheetByName('kehadiran');
   if (!s) throw new Error('Tab kehadiran tidak ditemui.');
-  var data = s.getDataRange().getDisplayValues();
+  var julat = s.getDataRange();
+  var data = julat.getDisplayValues();
+  // Nilai kehadiran dibaca mentah: format paparan boleh membundarkan 0.4 kepada '0'.
+  var mentah = julat.getValues();
   var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
   var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
   var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
   var kelasSemua = Object.create(null);
+  var kehadiranKelasNilai = Object.create(null);
   var absenPeta = Object.create(null);
   for (var i = 1; i < data.length; i++) {
     var nama = String(data[i][1] || '').trim();
@@ -702,8 +714,10 @@ function hadirMoeisSenaraiKelas_(token) {
     var ic = normalisasiIc_(data[i][3]);
     if (!nama || !kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
     kelasSemua[kelas] = true;
-    var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
-    if (nilai !== '0') continue;
+    var nilai = idxTarikh < 0 ? '' : mentah[i][idxTarikh];
+    if (!kehadiranKelasNilai[kelas]) kehadiranKelasNilai[kelas] = [];
+    kehadiranKelasNilai[kelas].push(nilai);
+    if (nilai !== 0 && nilai !== '0') continue;
     var sebabRekod = petaSebab[ic];
     if (!absenPeta[kelas]) absenPeta[kelas] = [];
     absenPeta[kelas].push({
@@ -720,6 +734,7 @@ function hadirMoeisSenaraiKelas_(token) {
     return {
       nama: kelas,
       bilTidakHadir: murid.length,
+      kehadiranDisimpan: hadirMoeisKehadiranKelasDisimpan_(kehadiranKelasNilai[kelas]),
       belumLengkap: belumLengkap.map(function (m) { return { kunci: m.kunci, nama: m.nama }; }),
       statusPenghantaran: job ? job.status : 'belum_dihantar',
       mesejPenghantaran: job ? job.mesej : '',
@@ -820,24 +835,34 @@ function hadirMoeisJobBuatDiBawahLock_(kelas, tarikhIso, kelasMoeisId, peranan, 
     var tkh = tarikhHariIni_();
     var s = ss.getSheetByName('kehadiran');
     if (!s) throw new Error('Tab kehadiran tidak ditemui.');
-    var data = s.getDataRange().getDisplayValues();
+    var julat = s.getDataRange();
+    var data = julat.getDisplayValues();
+    // Nilai kehadiran dibaca mentah: format paparan boleh membundarkan 0.4 kepada '0'.
+    var mentah = julat.getValues();
     var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
     var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
     var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
-    if (idxTarikh >= 0) {
-      for (var i = 1; i < data.length; i++) {
-        var nama = String(data[i][1] || '').trim();
-        var namaKelas = String(data[i][2] || '').trim().toUpperCase();
-        var ic = normalisasiIc_(data[i][3]);
-        if (!nama || namaKelas !== kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
-        if (data[i][idxTarikh] !== '0') continue;
-        var sebabRekod = petaSebab[ic];
-        murid.push({
-          ic: ic, nama: nama,
-          kategori: sebabRekod ? sebabRekod.kategori : '',
-          sebab: sebabRekod ? sebabRekod.sebab : ''
-        });
-      }
+    // Semua murid aktif kelas mesti bernilai 0/1 hari ini sebelum job dibaca
+    // atau ditulis; lajur tarikh tiada = semua kosong = belum disimpan.
+    var nilaiKelas = [];
+    for (var i = 1; i < data.length; i++) {
+      var nama = String(data[i][1] || '').trim();
+      var namaKelas = String(data[i][2] || '').trim().toUpperCase();
+      var ic = normalisasiIc_(data[i][3]);
+      if (!nama || namaKelas !== kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
+      var nilai = idxTarikh < 0 ? '' : mentah[i][idxTarikh];
+      nilaiKelas.push(nilai);
+      if (nilai !== 0 && nilai !== '0') continue;
+      var sebabRekod = petaSebab[ic];
+      murid.push({
+        ic: ic, nama: nama,
+        kategori: sebabRekod ? sebabRekod.kategori : '',
+        sebab: sebabRekod ? sebabRekod.sebab : ''
+      });
+    }
+    if (!hadirMoeisKehadiranKelasDisimpan_(nilaiKelas)) {
+      throw new Error('Kehadiran kelas belum disimpan sepenuhnya untuk ' + kelas +
+        ' hari ini. Simpan kehadiran semua murid dahulu.');
     }
   }
   var job = hadirMoeisCariJobDiBawahLock_(kelas, tarikhIso);

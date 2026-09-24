@@ -1329,16 +1329,22 @@
       title.appendChild(el('h2', '', k.nama));
       title.appendChild(el('p', '', k.bilTidakHadir + ' murid tidak hadir'));
       head.appendChild(title);
+      var tarikhKehadiran = state.data && state.data.tarikhIso;
+      var hariIni = tarikhMalaysiaHariIni_();
+      var sudahSimpan = !!tarikhKehadiran && tarikhKehadiran === hariIni && k.kehadiranDisimpan === true;
       var statusPenghantaran = k.mesejPenghantaran && k.statusPenghantaran === 'gagal'
         ? 'Gagal: ' + k.mesejPenghantaran
         : (MOEIS_LABEL_STATUS[k.statusPenghantaran] || 'Belum dihantar');
-      head.appendChild(el('span', 'review-state', statusPenghantaran));
+      var belumDihantar = !['menunggu', 'sedang_dihantar', 'tersimpan', 'berjaya'].includes(k.statusPenghantaran);
+      head.appendChild(el('span', 'review-state ' + (belumDihantar || k.statusPenghantaran === 'gagal' ? 'err' : ''), statusPenghantaran));
       card.appendChild(head);
 
       var badan = el('div', 'moeis-card-body');
-      var lengkap = !k.belumLengkap.length;
-      badan.appendChild(el('p', 'moeis-status ' + (lengkap ? 'ok' : 'err'),
-        lengkap ? 'Lengkap' : 'Belum lengkap: ' + k.belumLengkap.length));
+      var lengkap = sudahSimpan && !k.belumLengkap.length;
+      var statusKelas = !sudahSimpan || k.belumLengkap.length ? 'err' : 'ok';
+      var teksLengkap = !sudahSimpan ? 'Belum lengkap: kehadiran hari ini belum disimpan'
+        : (k.belumLengkap.length ? 'Belum lengkap: ' + k.belumLengkap.length : 'Lengkap');
+      badan.appendChild(el('p', 'moeis-status ' + statusKelas, teksLengkap));
       if (!lengkap) {
         var ul = el('ul', 'moeis-belum-lengkap');
         k.belumLengkap.forEach(function (m) {
@@ -1359,7 +1365,7 @@
       // dihantar semula. Menyekat 'berjaya' di sini yang mematikan butang
       // 1 BIJAK pada 23 Sep — backend sudah menerima cipta semula tetapi
       // pelayar tidak pernah menghantar permintaan itu.
-      hantarBtn.disabled = !lengkap || !k.bilTidakHadir ||
+      hantarBtn.disabled = !sudahSimpan || !lengkap || !k.bilTidakHadir ||
         k.statusPenghantaran === 'menunggu' || k.statusPenghantaran === 'sedang_dihantar' ||
         k.statusPenghantaran === 'tersimpan';
       hantarBtn.addEventListener('click', function () { hantarMoeis(k.nama); });
