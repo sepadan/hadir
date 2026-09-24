@@ -458,6 +458,17 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .review-state.err { background: #ffe5e8; color: #b82f42; }
 .review-card.pending .review-state { background: #fff0cd; color: #8a6000; }
 .review-card.pending .review-state.err { background: #ffe5e8; color: #b82f42; }
+/* Status kad Semak Kehadiran: warna sentiasa disertai teks label. */
+.review-card.kad-belum { border-color: #f1b9c1; background: #fffafa; }
+.review-card.kad-tidak-lengkap { border-color: #efd598; background: #fffdf8; }
+.review-card.kad-moeis { border-color: #9ed9bf; }
+.review-state.st-belum { background: #ffe5e8; color: #b82f42; }
+.review-state.st-tidak-lengkap { background: #fff0cd; color: #7a5400; }
+.review-state.st-diisi { background: #e5f7ef; color: #087851; }
+.review-state.st-moeis { background: #087851; color: #fff; }
+.review-state.st-disimpan { background: #eef2f6; color: #3d4b5c; }
+.kad-belum .review-message { color: #b82f42; }
+.review-message-warn { padding-top: 0; color: #7a5400; font-weight: 750; }
 .review-card-stats { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .review-card-stats > div { padding: 11px 15px; }
 .review-card-stats > div + div { border-left: 1px solid var(--line); }

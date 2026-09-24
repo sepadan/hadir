@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.22 · 24 September 2026**
+**Versi 2.23 · 24 September 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -1086,9 +1086,26 @@ lalai dan tidak pernah dideploy / dihidupkan dalam produksi**:
 - Respons RPC SEMAK kadangkala menukar padding Base64 `=` kepada `\x3d`.
   Pembaca HADIR menormalkan kedua-dua bentuk sebelum menyemak sumber dan ID.
 
+## 7.1 Status kad Semak Kehadiran
+
+Kad kelas menilai status bagi tarikh hari ini mengikut susunan berikut:
+
+- **Belum diisi** (merah) apabila tiada kehadiran kelas yang disimpan.
+- **Tidak lengkap** (kuning) apabila rekod separa atau mana-mana murid tidak hadir
+  belum mempunyai Kategori dan Sebab MOEIS yang sah.
+- **Selesai MOEIS** (hijau) hanya apabila tugasan kelas/tarikh berstatus `berjaya`
+  dan bilangan tidak hadir sepadan dengan rekod kehadiran semasa.
+- **Telah diisi** (hijau muda) apabila kehadiran lengkap telah disimpan tetapi
+  tiada bukti tugasan MOEIS berjaya.
+
+Simpanan kehadiran baharu membuang bukti penghantaran lama kelas itu daripada
+paparan sehingga status tugasan dimuat semula. Tarikh lama yang telah disimpan
+memaparkan status neutral **Disimpan**, kerana butiran sebab tidak hadir bagi
+sejarah tidak semestinya tersedia untuk mengesahkan kelengkapan.
+
 ## 7. PWA dan auto-update
 
-Versi aplikasi `HADIR v1.11.36`. Label kaki menu sengaja tidak menulis `PWA`,
+Versi aplikasi `HADIR v1.11.37`. Label kaki menu sengaja tidak menulis `PWA`,
 tetapi manifest, pemasangan homescreen dan auto-update kekal aktif.
 `service-worker.js` memintas permintaan GET sama asal sahaja. Backend Apps
 Script berlainan asal, maka data tidak pernah masuk Cache Storage.
@@ -1322,6 +1339,7 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 24 September 2026 | 2.23 / web 1.11.37 | Kad **Semak Kehadiran** menunjukkan empat keadaan: **Belum diisi** merah; **Tidak lengkap** kuning jika rekod separa atau sebab tidak hadir tiada/tidak sah; **Telah diisi** hijau muda selepas simpan lengkap; **Selesai MOEIS** hijau pekat hanya dengan status tugasan `berjaya` dan bilangan tidak hadir sepadan. Simpanan baharu membuang bukti MOEIS lama kelas itu. | Ujian status dengan fixture sintetik, ujian warna CSS, dan semakan UI lebar telefon; tiada rekod kehadiran atau tugasan MOEIS sebenar diubah |
 | 24 September 2026 | 2.22 / web 1.11.36 / Apps Script @121 (diterbitkan) | Kad Hantar ke MOEIS memaparkan "Belum lengkap" merah sehingga semua murid aktif kelas bernilai 0/1 untuk tarikh hari ini (`hadirMoeisKehadiranKelasDisimpan_`; kosong, ruang, `null`/`undefined` atau nilai lain = belum disimpan). Laluan admin `moeisJobBuat` kini, di bawah `ScriptLock` yang sama dan sebelum membaca/menulis `HADIR_MOEIS_JOB`, menolak dengan "Kehadiran kelas belum disimpan sepenuhnya" jika mana-mana murid aktif belum 0/1 atau lajur hari ini belum wujud. Kedua-dua laluan membaca sel kehadiran dengan `getValues()` (mentah), bukan `getDisplayValues()`, supaya nilai seperti `0.4` yang dipapar `0` tidak dikira disimpan/tidak hadir; laluan dalaman dari `hadirSimpanKehadiran_` (`muridSimpanan`) tidak berubah. Label "Belum dihantar"/"Gagal" merah walaupun kad `pending`, dan butang Hantar ditahan jika simpanan hari ini belum disahkan. | Ujian menggunakan fixture sintetik; tiada data kehadiran produksi diubah. |
 | 23 September 2026 | 2.21 / desktop 1.0.12 / Apps Script @120 (diterbitkan); PWA 1.11.35 kekal | Simpanan kehadiran dan segar/batal job kini satu `ScriptLock`; klaim tidak boleh mengambil snapshot lama. Status `sedang_dihantar`/`tersimpan` menolak simpanan sebelum tulisan dan mengekalkan lease. Sifar tidak hadir memadam hanya job `menunggu`; sejarah gagal/berjaya dikekalkan. Simpanan DPAPI yang gagal sebelum penggantian pertama membuang penanda sementara, kegagalan selepas penggantian pertama mengekalkannya. Selang Desktop kekal 10 minit; perubahan PWA 1.11.36 yang belum diterbitkan dibatalkan. Dialog tetapan Windows kekal tanpa Companion. | Ujian VM/Windows lulus; smoke POST kaedah tidak sah pada Apps Script pulang 302→200 tanpa mutasi; Desktop 1.0.12 berjalan dengan status backend/API dan rahsia tersedia. Tiada rekod kehadiran sebenar dihantar; E2E guru→MOEIS belum dibuat. |
 | 23 September 2026 | 2.20 / desktop 1.0.12 / PWA 1.11.36 (dicadang, dibatalkan oleh 2.21) | Tetapan Tempatan kini dialog WinForms yang menyimpan URL API dan rahsia enjin ke fail kongsi dengan DPAPI `CurrentUser`, mengekalkan medan lain termasuk `klien`; tiada kebergantungan Companion/Edge. Klien backend memerlukan mula semula. Job `menunggu` disegarkan pada ID sama dan kitaran desktop 2 minit; nota web menerangkan selang semakan bersyarat dan cache aset dinaikkan serentak. | Ujian sintetik/tempatan sahaja; tiada konfigurasi hidup, data murid, portal atau penghantaran sebenar disentuh. |

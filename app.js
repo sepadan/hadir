@@ -73,7 +73,7 @@
     uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null,
     guru: [], guruUploadRecords: [], guruUploadFileName: '',
     cacheSementara: false, tarikhEditIso: '', versiSemakan: 0,
-    moeisKelas: []
+    moeisKelas: [], versiMoeisSemakan: 0, moeisSemakanSedang: false
   };
 
   function $(id) { return document.getElementById(id); }
@@ -344,6 +344,41 @@
     lukisSemakan();
   }
 
+  /* Cermin hadirMoeisSebabSah_ pelayan: kategori dan sebab mesti wujud dalam
+     senarai rasmi MOEIS, bukan sekadar tidak kosong. */
+  function sebabMoeisSah_(kategori, sebab) {
+    kategori = teks(kategori).trim().toUpperCase();
+    sebab = teks(sebab).trim().toUpperCase();
+    if (!kategori || !sebab) return false;
+    return (MOEIS_SEBAB.sebab[kategori] || []).indexOf(sebab) > -1;
+  }
+
+  /* Status kad Semak Kehadiran. Keadaan lengkap/MOEIS hanya dinilai bagi data
+     bertarikh hari ini (Malaysia) kerana hanya data itu membawa Kategori/Sebab.
+     "Selesai MOEIS" memerlukan bukti statusPenghantaran 'berjaya' daripada
+     moeisSenaraiKelas bagi kelas sama dengan bilangan tidak hadir yang sama;
+     'tersimpan'/'menunggu' bukan selesai. */
+  function statusKadSemakan_(kelas, tarikhIso, hariIniIso, moeisKelas) {
+    var murid = (kelas && kelas.murid) || [];
+    var ditanda = murid.filter(function (m) { return m.nilai === 0 || m.nilai === 1; });
+    // Respons tarikh lama hanya membawa murid tidak hadir, jadi sudahSimpan juga dirujuk.
+    if (!ditanda.length && !(kelas && kelas.sudahSimpan)) return { kod: 'belum', label: 'Belum diisi', tanpaSebab: 0, belumDitanda: murid.length };
+    if (!tarikhIso || tarikhIso !== hariIniIso) {
+      return { kod: 'disimpan', label: 'Disimpan', tanpaSebab: 0, belumDitanda: 0 };
+    }
+    var tiada = ditanda.filter(function (m) { return m.nilai === 0; });
+    var tanpaSebab = tiada.filter(function (m) { return !sebabMoeisSah_(m.kategori, m.sebab); }).length;
+    var belumDitanda = murid.length - ditanda.length;
+    if (tanpaSebab || belumDitanda) {
+      return { kod: 'tidak-lengkap', label: 'Tidak lengkap', tanpaSebab: tanpaSebab, belumDitanda: belumDitanda };
+    }
+    var bukti = (moeisKelas || []).find(function (x) { return x && x.nama === kelas.nama; });
+    if (bukti && bukti.statusPenghantaran === 'berjaya' && Number(bukti.bilTidakHadir) === tiada.length) {
+      return { kod: 'moeis', label: 'Selesai MOEIS', tanpaSebab: 0, belumDitanda: 0 };
+    }
+    return { kod: 'diisi', label: 'Telah diisi', tanpaSebab: 0, belumDitanda: 0 };
+  }
+
   function lukisSemakan() {
     var namaKelas = $('reviewClassSelect').value;
     var semuaKelas = state.reviewData && state.reviewData.kelas ? state.reviewData.kelas : [];
@@ -370,23 +405,33 @@
       box.appendChild(kosong);
       return;
     }
+    var tarikhSemakan = state.reviewData && state.reviewData.tarikhIso;
+    var hariIniIso = tarikhMalaysiaHariIni_();
+    var buktiMoeis = state.peranan === 'admin' ? state.moeisKelas : [];
     kelas.forEach(function (k) {
       var murid = k.murid || [];
+      var statusKad = statusKadSemakan_(k, tarikhSemakan, hariIniIso, buktiMoeis);
       var tiada = k.sudahSimpan ? murid.filter(function (m) { return m.nilai === 0; }) : [];
       var hadir = k.sudahSimpan
         ? (typeof k.hadir === 'number' ? k.hadir : murid.filter(function (m) { return m.nilai === 1; }).length)
         : 0;
-      var card = el('article', 'review-card review-card-action' + (k.sudahSimpan ? ' done' : ' pending'));
+      var card = el('article', 'review-card review-card-action kad-' + statusKad.kod);
       card.tabIndex = 0;
       card.setAttribute('role', 'button');
-      card.setAttribute('aria-label', 'Isi kehadiran kelas ' + k.nama);
+      card.setAttribute('aria-label', 'Isi kehadiran kelas ' + k.nama + ' — ' + statusKad.label);
       var head = el('div', 'review-card-head');
       var title = el('div');
       title.appendChild(el('h2', '', k.nama));
       title.appendChild(el('p', '', murid.length + ' murid'));
       head.appendChild(title);
-      head.appendChild(el('span', 'review-state', k.sudahSimpan ? 'Selesai' : 'Belum disimpan'));
+      head.appendChild(el('span', 'review-state st-' + statusKad.kod, statusKad.label));
       card.appendChild(head);
+      if (statusKad.kod === 'tidak-lengkap') {
+        var kurang = [];
+        if (statusKad.tanpaSebab) kurang.push(statusKad.tanpaSebab + ' murid tidak hadir tanpa sebab');
+        if (statusKad.belumDitanda) kurang.push(statusKad.belumDitanda + ' murid belum ditanda');
+        card.appendChild(el('p', 'review-message review-message-warn', kurang.join(' · ')));
+      }
       if (!k.sudahSimpan) {
         card.appendChild(el('p', 'review-message', 'Belum ada rekod untuk kelas ini.'));
       } else {
@@ -421,6 +466,25 @@
         }
       });
       box.appendChild(card);
+    });
+  }
+
+  /* Bukti "Selesai MOEIS" bagi kad Semak (admin, hari ini sahaja). Satu
+     permintaan pada satu masa; respons yang tiba selepas log keluar, tukar
+     token atau simpanan kehadiran diabaikan. Hanya lukisSemakan dipanggil
+     semula, jadi tiada gelung muatan. */
+  function muatBuktiMoeisSemakan_() {
+    var tarikh = state.reviewData && state.reviewData.tarikhIso;
+    if (state.peranan !== 'admin' || !state.token || state.moeisSemakanSedang ||
+        !tarikh || tarikh !== tarikhMalaysiaHariIni_()) return;
+    var token = state.token, versi = state.versiMoeisSemakan;
+    state.moeisSemakanSedang = true;
+    panggil('moeisSenaraiKelas', [token], 30000).then(function (r) {
+      if (state.token !== token || state.peranan !== 'admin' || state.versiMoeisSemakan !== versi) return;
+      state.moeisKelas = Array.isArray(r) ? r : [];
+      if (state.paneAktif === 'reviewPane') lukisSemakan();
+    }).catch(function () {}).then(function () {
+      state.moeisSemakanSedang = false;
     });
   }
 
@@ -583,6 +647,10 @@
           m.sebab = m.nilai === 0 && sebabRekod ? sebabRekod.sebab : '';
         });
         kemasKiniRmtHariIni();
+        // Simpanan baharu menyegarkan tugasan MOEIS; bukti 'berjaya' lama tidak sah lagi.
+        state.versiMoeisSemakan++;
+        var namaDisimpan = state.kelas.nama;
+        state.moeisKelas = state.moeisKelas.filter(function (x) { return x.nama !== namaDisimpan; });
         if (simpanHariIni && state.reviewData && state.data && state.reviewData.tarikhIso === state.data.tarikhIso) {
           state.reviewData = state.data;
         }
@@ -762,6 +830,7 @@
       $('attendanceDateLabel').textContent = 'KEHADIRAN HARI INI';
       status($('publicStatus'), '', '');
       lukisPilihanSemakan();
+      muatBuktiMoeisSemakan_();
     }
   }
 
