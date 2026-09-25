@@ -201,6 +201,13 @@ idMe session.
   re-checked immediately before the Save / Save & Confirm click. A refusal or
   exception gives `disekat-pagar`: no click, no portal write, and the claim is
   released.
+- **The claim payload is the authoritative task identity.** After a successful
+  claim, the submission task is built from the payload the backend re-read
+  under its script lock — class and students — and from nothing else. The
+  earlier list snapshot is never used to fill a gap: a claim that carries no
+  students (or no class) means the task no longer owns them (a same-ID
+  recreate, a hand-edited row), so the builder refuses it and the flow
+  releases the lease without any portal write or result report.
 - **Report failure recovery.** If all three `moeisJobSelesai` attempts fail
   after a MOEIS write, the pass reports `laporan-gagal`
   (`BilLaporanGagal`, a `LAPOR_GAGAL` log line) and retains the claim. On

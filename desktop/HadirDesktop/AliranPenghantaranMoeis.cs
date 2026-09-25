@@ -258,13 +258,21 @@ public sealed class AliranPenghantaranMoeis
 
                 memegangKlaim = true;
                 _log?.Invoke("KLAIM_OK: id=" + kerja.Id);
-                // Build from the payload the backend re-read UNDER ITS LOCK.
+                // Build from the payload the backend re-read UNDER ITS LOCK — and
+                // from NOTHING ELSE. The claim is the authoritative identity of the
+                // task, so the earlier LIST snapshot is never substituted back in:
+                // a claim that carries no class or no students means the task no
+                // longer owns them (a same-ID recreate, or a hand-edited row), and
+                // filling the gap from the list would write attendance for students
+                // this task does not have. An incomplete payload therefore falls
+                // through to the builder, which REFUSES it, and the lease is
+                // released without any portal write.
                 sumberKerja = kerja with
                 {
-                    Kelas = string.IsNullOrWhiteSpace(klaim.Kelas) ? kerja.Kelas : klaim.Kelas,
-                    TarikhIso = string.IsNullOrWhiteSpace(klaim.TarikhIso) ? kerja.TarikhIso : klaim.TarikhIso,
-                    KelasMoeisId = string.IsNullOrWhiteSpace(klaim.KelasMoeisId) ? kerja.KelasMoeisId : klaim.KelasMoeisId,
-                    Murid = klaim.Murid.Count > 0 ? klaim.Murid : kerja.Murid,
+                    Kelas = (klaim.Kelas ?? "").Trim(),
+                    TarikhIso = klaim.TarikhIso,
+                    KelasMoeisId = klaim.KelasMoeisId ?? "",
+                    Murid = klaim.Murid,
                 };
             }
 

@@ -187,6 +187,14 @@ public class PenghantaranGagalTertutupTests
         public readonly List<string> Jejak = new();
         public string Status = "menunggu";
         public IReadOnlyList<MuridKerjaPenuh> Murid = SnapshotAsal;
+        /// <summary>
+        /// Muatan murid yang dikembalikan OLEH KLAIM sahaja, apabila ia berbeza
+        /// daripada senarai (cth klaim yang membawa muatan KOSONG). null = klaim
+        /// mengembalikan snapshot senarai seperti biasa.
+        /// </summary>
+        public IReadOnlyList<MuridKerjaPenuh>? KlaimMurid;
+        /// <summary>Kelas yang dikembalikan OLEH KLAIM sahaja (null = "PRASEKOLAH").</summary>
+        public string? KlaimKelas;
         /// <summary>Dijalankan DI DALAM klaim, selepas senarai dibaca (perlumbaan senarai→klaim).</summary>
         public Action? SemasaKlaim;
         /// <summary>Dijalankan setiap kali 'selesai' dipanggil (untuk merakam keadaan MOEIS ketika itu).</summary>
@@ -216,7 +224,7 @@ public class PenghantaranGagalTertutupTests
             // Peraturan backend: pemilik SAMA boleh menuntut semula 'sedang_dihantar' serta-merta.
             if (Status != "menunggu" && Status != "sedang_dihantar") return Task.FromResult<TugasanDiklaim?>(null);
             Status = "sedang_dihantar";
-            return Task.FromResult<TugasanDiklaim?>(new TugasanDiklaim(id, "PRASEKOLAH", HariIniIso, "K1", Murid));
+            return Task.FromResult<TugasanDiklaim?>(new TugasanDiklaim(id, KlaimKelas ?? "PRASEKOLAH", HariIniIso, "K1", KlaimMurid ?? Murid));
         }
 
         public Task LepasAsync(string id, string pemilik, CancellationToken ct = default)
@@ -501,5 +509,69 @@ public class PenghantaranGagalTertutupTests
         Assert.DoesNotContain("LaporanTertunggak", kod);
         Assert.DoesNotContain("LAPORAN_DIMAIN_SEMULA", kod);
         Assert.DoesNotContain("DiciptaEpochMs", kod);
+    }
+
+    // ================= (c) klaim ialah identiti MUKTAMAD tugasan =================
+
+    [Fact]
+    public async Task KlaimBermuatanKosong_TidakGantiSnapshotSenarai_LepasTanpaTulis()
+    {
+        // Perlumbaan senarai→klaim: tugasan dicipta semula dengan ID sama dan
+        // muatan KOSONG (admin memadam murid, atau baris disunting). Senarai
+        // yang dibaca sebelum klaim masih membawa 102 — dan snapshot LAMA itu
+        // TIDAK boleh menggantikan muatan klaim.
+        var backend = new BackendBerurutan { SelesaiGagal = false, KlaimMurid = Array.Empty<MuridKerjaPenuh>() };
+        var dom = Dom();
+        var aliran = AliranUntuk(backend, dom);
+
+        var hasil = await aliran.JalankanAsync();
+
+        // Tiada murid ditanda, tiada tulisan portal, tiada laporan keputusan.
+        Assert.DoesNotContain(dom.Panggilan, p => p.StartsWith("tanda:", StringComparison.Ordinal));
+        Assert.Equal(0, dom.BilSimpan);
+        Assert.Equal(0, dom.BilSimpanSah);
+        Assert.Equal(0, dom.BilKemaskini);
+        Assert.DoesNotContain(backend.Jejak, j => j.StartsWith("selesai", StringComparison.Ordinal));
+        // Klaim yang dipegang dilepaskan supaya cubaan kemudian boleh mengambilnya.
+        Assert.Contains("lepas:j1", backend.Jejak);
+        Assert.Equal("menunggu", backend.Status);
+        Assert.False(hasil.Berjaya);
+        Assert.Equal(1, hasil.BilDilangkau);
+        Assert.Equal(0, hasil.BilDicuba);
+        Assert.Empty(hasil.Hasil);
+    }
+
+    [Fact]
+    public async Task KlaimTiadaKelas_TidakGantiSnapshotSenarai_LepasTanpaTulis()
+    {
+        var backend = new BackendBerurutan { SelesaiGagal = false, KlaimKelas = "  " };
+        var dom = Dom();
+        var aliran = AliranUntuk(backend, dom);
+
+        var hasil = await aliran.JalankanAsync();
+
+        Assert.Equal(0, dom.BilSimpan);
+        Assert.Equal(0, dom.BilSimpanSah);
+        Assert.DoesNotContain(backend.Jejak, j => j.StartsWith("selesai", StringComparison.Ordinal));
+        Assert.Contains("lepas:j1", backend.Jejak);
+        Assert.Equal(1, hasil.BilDilangkau);
+        Assert.Equal(0, hasil.BilDicuba);
+    }
+
+    [Fact]
+    public async Task KlaimBermuatanPenuh_MasihDihantarDanDilaporkan()
+    {
+        // Kawalan: klaim yang lengkap mengalir seperti biasa — pagar di atas
+        // tidak boleh menjadikan penghantaran biasa mustahil.
+        var backend = new BackendBerurutan { SelesaiGagal = false, KlaimMurid = SnapshotAsal };
+        var dom = Dom();
+        var aliran = AliranUntuk(backend, dom);
+
+        var hasil = await aliran.JalankanAsync();
+
+        Assert.Contains("tanda:102", dom.Panggilan);
+        Assert.Equal(1, dom.BilSimpanSah);
+        Assert.Equal("disahkan", Assert.Single(hasil.Hasil).Status);
+        Assert.Contains("selesai:j1:berjaya", backend.Jejak);
     }
 }
