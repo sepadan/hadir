@@ -69,6 +69,12 @@ function moeis(status, bil) {
 }
 s = semak(lengkap, moeis('berjaya'));
 sah(s.kod === 'moeis' && s.label === 'Selesai MOEIS', 'Status berjaya mesti "Selesai MOEIS"');
+const lengkapTanpaSesiAdmin = Object.assign({}, lengkap, { moeisSelesai: true });
+sah(statusKad(lengkapTanpaSesiAdmin, HARI_INI, HARI_INI, []).kod === 'moeis',
+  'Status MOEIS yang disahkan pelayan mesti dipaparkan tanpa log masuk admin');
+const buktiAdminLama = [{ nama: 'KELAS UJIAN', statusPenghantaran: 'berjaya', bilTidakHadir: 1 }];
+sah(statusKad(Object.assign({}, lengkap, { moeisSelesai: false }), HARI_INI, HARI_INI, buktiAdminLama).kod === 'diisi',
+  'Bukti awam false mesti mengatasi status admin berjaya yang sudah lapuk');
 ['tersimpan', 'menunggu', 'sedang_dihantar', 'gagal', 'belum_dihantar', ''].forEach(function (st) {
   sah(semak(lengkap, moeis(st)).kod === 'diisi', `Status "${st}" tidak boleh dianggap Selesai MOEIS`);
 });
@@ -142,8 +148,9 @@ function binaAliranMoeis(pilihan) {
   let lukis = 0;
   const penyelesai = [];
   const k = {
-    state: Object.assign({ peranan: 'admin', token: 'token-ujian', paneAktif: 'reviewPane', moeisKelas: [],
-      reviewData: { tarikhIso: HARI_INI }, versiMoeisSemakan: 0, moeisSemakanSedang: false }, pilihan || {}),
+    state: Object.assign({ peranan: 'guru', token: '', paneAktif: 'reviewPane', moeisKelas: [],
+      reviewData: { tarikhIso: HARI_INI, kelas: [Object.assign({}, lengkap)] },
+      versiSemakan: 0, versiMoeisSemakan: 0, moeisSemakanSedang: false }, pilihan || {}),
     tarikhMalaysiaHariIni_: () => HARI_INI,
     lukisSemakan: () => { lukis++; },
     panggil: (kaedah, argumen) => {
@@ -157,29 +164,28 @@ function binaAliranMoeis(pilihan) {
 const tunggu = () => new Promise(r => setImmediate(r));
 
 (async function () {
-  // Admin + hari ini: satu panggilan, tiada pendua semasa dalam penerbangan, lukis semula selepas respons.
+  // Guru tanpa sesi admin: satu ringkasan awam, tiada panggilan admin pendua.
   let a = binaAliranMoeis();
   a.k.muatBuktiMoeisSemakan_();
   a.k.muatBuktiMoeisSemakan_();
-  sah(a.panggilan.length === 1 && a.panggilan[0].kaedah === 'moeisSenaraiKelas' &&
-      a.panggilan[0].argumen[0] === 'token-ujian', 'Semak admin mesti memuatkan moeisSenaraiKelas sekali sahaja');
-  a.penyelesai[0].selesai(moeis('berjaya'));
+  sah(a.panggilan.length === 1 && a.panggilan[0].kaedah === 'semakKehadiran' &&
+      a.panggilan[0].argumen[0] === HARI_INI, 'Status MOEIS mesti dimuat melalui API awam tanpa token admin');
+  a.penyelesai[0].selesai({ kelas: [{ nama: 'KELAS UJIAN', moeisSelesai: true }] });
   await tunggu();
-  sah(a.lukis() === 1, 'Kad Semak mesti dilukis semula sekali selepas bukti MOEIS diterima');
-  sah(semak(lengkap, a.k.state.moeisKelas).kod === 'moeis', 'Status berjaya mesti tampil "Selesai MOEIS" selepas data muat');
+  sah(a.lukis() === 1, 'Kad Semak mesti dilukis semula selepas bukti awam diterima');
+  sah(semak(a.k.state.reviewData.kelas[0], []).kod === 'moeis', 'Selesai MOEIS mesti dipaparkan tanpa log masuk admin');
   a.k.muatBuktiMoeisSemakan_();
-  sah(a.panggilan.length === 2, 'Membuka semula Semak selepas respons boleh menyegarkan bukti');
+  sah(a.panggilan.length === 2, 'Buka semula Semak boleh menyegar bukti MOEIS');
 
-  // Guru: tiada akses status admin.
-  a = binaAliranMoeis({ peranan: 'guru', token: '' });
+  // Status bukan berjaya kekal "Telah diisi" walaupun pengguna awam.
+  a = binaAliranMoeis();
   a.k.muatBuktiMoeisSemakan_();
-  sah(a.panggilan.length === 0, 'Guru tidak boleh memanggil moeisSenaraiKelas');
-  a = binaAliranMoeis({ peranan: 'guru', token: 'token-lama' });
-  a.k.muatBuktiMoeisSemakan_();
-  sah(a.panggilan.length === 0, 'Mod guru tidak memuatkan status admin walaupun token tertinggal');
+  a.penyelesai[0].selesai({ kelas: [{ nama: 'KELAS UJIAN', moeisSelesai: false }] });
+  await tunggu();
+  sah(semak(a.k.state.reviewData.kelas[0], []).kod === 'diisi', 'Bukti false tidak boleh dianggap selesai MOEIS');
 
   // Tarikh selain hari ini: tiada panggilan.
-  a = binaAliranMoeis({ reviewData: { tarikhIso: '2026-09-23' } });
+  a = binaAliranMoeis({ reviewData: { tarikhIso: '2026-09-23', kelas: [Object.assign({}, lengkap)] } });
   a.k.muatBuktiMoeisSemakan_();
   sah(a.panggilan.length === 0, 'Semakan tarikh lama tidak memuatkan bukti MOEIS');
 
@@ -187,18 +193,19 @@ const tunggu = () => new Promise(r => setImmediate(r));
   a = binaAliranMoeis();
   a.k.muatBuktiMoeisSemakan_();
   a.k.state.paneAktif = 'attendancePane';
-  a.penyelesai[0].selesai(moeis('berjaya'));
+  a.penyelesai[0].selesai({ kelas: [{ nama: 'KELAS UJIAN', moeisSelesai: true }] });
   await tunggu();
-  sah(a.lukis() === 0, 'Kad tidak dilukis jika pane Semak tidak lagi aktif');
+  sah(a.lukis() === 0 && a.k.state.reviewData.kelas[0].moeisSelesai !== true,
+    'Respons lapuk tidak boleh mengemas kini kad selepas pane bertukar');
 
-  // Log keluar sebelum respons: abaikan.
+  // Tarikh/data bertukar: respons lama mesti diabaikan.
   a = binaAliranMoeis();
   a.k.muatBuktiMoeisSemakan_();
-  a.k.state.token = '';
-  a.k.state.peranan = 'guru';
-  a.penyelesai[0].selesai(moeis('berjaya'));
+  a.k.state.reviewData = { tarikhIso: '2026-09-24', kelas: [Object.assign({}, lengkap)] };
+  a.penyelesai[0].selesai({ kelas: [{ nama: 'KELAS UJIAN', moeisSelesai: true }] });
   await tunggu();
-  sah(a.k.state.moeisKelas.length === 0 && a.lukis() === 0, 'Respons selepas log keluar mesti diabaikan');
+  sah(a.lukis() === 0 && a.k.state.reviewData.kelas[0].moeisSelesai !== true,
+    'Respons daripada tarikh sebelumnya mesti diabaikan');
 
   // Simpanan kehadiran semasa permintaan: respons lama tidak boleh memulihkan bukti berjaya.
   a = binaAliranMoeis();

@@ -355,9 +355,8 @@
 
   /* Status kad Semak Kehadiran. Keadaan lengkap/MOEIS hanya dinilai bagi data
      bertarikh hari ini (Malaysia) kerana hanya data itu membawa Kategori/Sebab.
-     "Selesai MOEIS" memerlukan bukti statusPenghantaran 'berjaya' daripada
-     moeisSenaraiKelas bagi kelas sama dengan bilangan tidak hadir yang sama;
-     'tersimpan'/'menunggu' bukan selesai. */
+     "Selesai MOEIS" memerlukan boolean awam `moeisSelesai`: job berjaya,
+     bilangan tidak hadir sepadan, nilai mentah tepat 0 dan sebab semasa sah. */
   function statusKadSemakan_(kelas, tarikhIso, hariIniIso, moeisKelas) {
     var murid = (kelas && kelas.murid) || [];
     var ditanda = murid.filter(function (m) { return m.nilai === 0 || m.nilai === 1; });
@@ -371,6 +370,12 @@
     var belumDitanda = murid.length - ditanda.length;
     if (tanpaSebab || belumDitanda) {
       return { kod: 'tidak-lengkap', label: 'Tidak lengkap', tanpaSebab: tanpaSebab, belumDitanda: belumDitanda };
+    }
+    if (kelas.moeisSelesai === true) {
+      return { kod: 'moeis', label: 'Selesai MOEIS', tanpaSebab: 0, belumDitanda: 0 };
+    }
+    if (typeof kelas.moeisSelesai === 'boolean') {
+      return { kod: 'diisi', label: 'Telah diisi', tanpaSebab: 0, belumDitanda: 0 };
     }
     var bukti = (moeisKelas || []).find(function (x) { return x && x.nama === kelas.nama; });
     if (bukti && bukti.statusPenghantaran === 'berjaya' && Number(bukti.bilTidakHadir) === tiada.length) {
@@ -469,20 +474,23 @@
     });
   }
 
-  /* Bukti "Selesai MOEIS" bagi kad Semak (admin, hari ini sahaja). Satu
-     permintaan pada satu masa; respons yang tiba selepas log keluar, tukar
-     token atau simpanan kehadiran diabaikan. Hanya lukisSemakan dipanggil
-     semula, jadi tiada gelung muatan. */
+  /* Muat bukti siap MOEIS melalui ringkasan awam (tanpa sesi Admin). Pelayan
+     hanya memulangkan boolean per kelas selepas padanan snapshot, bukan butiran
+     job/murid. Respons lapuk diabaikan jika tarikh/pane bertukar. */
   function muatBuktiMoeisSemakan_() {
     var tarikh = state.reviewData && state.reviewData.tarikhIso;
-    if (state.peranan !== 'admin' || !state.token || state.moeisSemakanSedang ||
-        !tarikh || tarikh !== tarikhMalaysiaHariIni_()) return;
-    var token = state.token, versi = state.versiMoeisSemakan;
+    if (state.moeisSemakanSedang || !tarikh || tarikh !== tarikhMalaysiaHariIni_()) return;
+    var versi = state.versiSemakan, versiBukti = state.versiMoeisSemakan, dataSemasa = state.reviewData;
     state.moeisSemakanSedang = true;
-    panggil('moeisSenaraiKelas', [token], 30000).then(function (r) {
-      if (state.token !== token || state.peranan !== 'admin' || state.versiMoeisSemakan !== versi) return;
-      state.moeisKelas = Array.isArray(r) ? r : [];
-      if (state.paneAktif === 'reviewPane') lukisSemakan();
+    panggil('semakKehadiran', [tarikh], 30000).then(function (r) {
+      if (state.versiSemakan !== versi || state.versiMoeisSemakan !== versiBukti ||
+          state.reviewData !== dataSemasa || state.paneAktif !== 'reviewPane') return;
+      var bukti = Object.create(null);
+      (r && Array.isArray(r.kelas) ? r.kelas : []).forEach(function (k) {
+        bukti[k.nama] = k.moeisSelesai === true;
+      });
+      (dataSemasa.kelas || []).forEach(function (k) { k.moeisSelesai = bukti[k.nama] === true; });
+      lukisSemakan();
     }).catch(function () {}).then(function () {
       state.moeisSemakanSedang = false;
     });
@@ -636,6 +644,7 @@
       .then(function (r) {
         $('saveHint').textContent = 'Disimpan ' + (r.masa || 'sekarang');
         state.kelas.sudahSimpan = true;
+        state.kelas.moeisSelesai = false;
         state.kelas.tidakHadir = state.tidakHadir.size;
         state.kelas.rmtHadir = Number(r.rmtHadir || 0);
         state.kelas.rmtJumlah = Number(r.rmtJumlah || 0);

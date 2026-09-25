@@ -47,6 +47,69 @@ sah(!backend.includes("token: 'SISTEM_HADIR'"), 'AKSI tidak boleh menerima token
 sah(backend.includes("hadirAksiRpc_(url, 'importMurid', [csv, masuk.token, 'HADIR'], masuk.token)"), 'Token sesi dan penanda asal AKSI mesti dihantar pada import');
 sah(backend.includes('uploadMuridCsv: hadirUploadMuridCsv_'), 'API upload CSV murid tiada');
 sah(backend.includes('semakKehadiran: hadirSemakKehadiran_'), 'API semakan tarikh terdahulu tiada');
+const blokPadanJob = backend.match(/function hadirMoeisJobSelesaiSah_\(job, murid\) \{([\s\S]*?)\n\}/);
+sah(blokPadanJob, 'Status MOEIS perlu fail-closed pada nilai mentah dan kategori/sebab semasa');
+const padanJob = new Function('job', 'murid', 'hadirMoeisSebabSah_', blokPadanJob[1]);
+const sebabSahUji = function (kategori, sebab) { return kategori === 'K' && sebab === 'S'; };
+const jobSah = { status: 'berjaya', bilTidakHadir: 1 };
+sah(padanJob(jobSah, [{ nilai: 0, nilaiMentah: 0, kategori: 'K', sebab: 'S' }], sebabSahUji),
+  'Job berjaya dengan bilangan, nilai mentah dan sebab semasa yang sah patut dianggap selesai');
+sah(!padanJob({ status: 'berjaya', bilTidakHadir: 2 },
+  [{ nilai: 0, nilaiMentah: 0, kategori: 'K', sebab: 'S' }], sebabSahUji),
+  'Job tidak boleh dianggap selesai apabila bilangannya tidak sama dengan data semasa');
+sah(!padanJob(jobSah, [{ nilai: 0, nilaiMentah: 0.4, kategori: 'K', sebab: 'S' }], sebabSahUji),
+  'Sel mentah 0.4 yang dipaparkan sebagai 0 tidak boleh dianggap selesai');
+sah(!padanJob(jobSah, [{ nilai: 0, nilaiMentah: 0, kategori: '', sebab: '' }], sebabSahUji),
+  'Job berjaya tidak dianggap selesai jika sebab semasa tidak sah');
+sah(!padanJob({ status: 'menunggu', bilTidakHadir: 1 },
+  [{ nilai: 0, nilaiMentah: 0, kategori: 'K', sebab: 'S' }], sebabSahUji),
+  'Status selain berjaya tidak boleh dianggap selesai');
+sah(!padanJob(jobSah, [null], sebabSahUji),
+  'Rekod mentah yang rosak mesti gagal-tertutup tanpa mengesahkan selesai');
+const blokInvalidJobSebab = backend.match(/function hadirMoeisJobSebabBerubah_\(tarikhIso, kelas\) \{([\s\S]*?)\n\}/);
+sah(blokInvalidJobSebab, 'Perubahan sebab selepas job berjaya mesti melucutkan bukti selesai');
+const lebarJobUji = Number((backend.match(/var HADIR_MOEIS_JOB_LEBAR = (\d+)/) || [])[1]);
+function ujiInvalidJobSebab(statusAwal) {
+  const job = ['job-uji', '2026-09-25', 'KELAS UJIAN', statusAwal, '', '', ''];
+  const writes = [];
+  const sheet = {
+    getLastRow: () => 2,
+    getRange: (row, col, _numRows, numCols) => numCols === lebarJobUji
+      ? { getDisplayValues: () => [job.slice()] }
+      : { setValue: (value) => { writes.push([row, col, value]); job[col - 1] = String(value); } }
+  };
+  const fn = new Function('ss', 'HADIR_MOEIS_JOB_LEBAR',
+    blokInvalidJobSebab[0] + String.fromCharCode(10) + 'return hadirMoeisJobSebabBerubah_;')({ getSheetByName: () => sheet }, lebarJobUji);
+  return { hasil: fn('2026-09-25', 'KELAS UJIAN'), job, writes };
+}
+const jobSebabBerubah = ujiInvalidJobSebab('berjaya');
+sah(jobSebabBerubah.hasil && jobSebabBerubah.job[3] === 'gagal' &&
+    jobSebabBerubah.job[4].includes('hantar semula'),
+  'Job berjaya mesti tidak lagi dianggap selesai selepas sebab dikemas kini');
+const jobSebabMenunggu = ujiInvalidJobSebab('menunggu');
+sah(!jobSebabMenunggu.hasil && jobSebabMenunggu.job[3] === 'menunggu' &&
+    jobSebabMenunggu.writes.length === 0,
+  'Perubahan sebab tidak boleh mengubah job yang belum berjaya');
+const blokUpsertSebab = backend.match(/function hadirUpsertMoeisSebab_\(tarikhIso, kelas, item\) \{([\s\S]*?)\n\}/);
+const blokSimpanSebab = backend.match(/function hadirMoeisSimpanSebab_\(payload, token\) \{([\s\S]*?)\n\}/);
+sah(blokUpsertSebab && blokUpsertSebab[1].includes('if (!berubah) return false;') &&
+    blokSimpanSebab && blokSimpanSebab[1].includes('if (sebabBerubah) hadirMoeisJobSebabBerubah_(tarikhIso, kelas);'),
+  'Sebab yang benar-benar berubah sahaja membatalkan pengesahan job lama');
+const blokBolehCiptaJob = backend.match(/function hadirMoeisBolehCiptaJob_\(statusSediaAda\) \{([\s\S]*?)\n\}/);
+sah(blokBolehCiptaJob && blokBolehCiptaJob[1].includes("['menunggu', 'gagal', 'berjaya']"),
+  'Job yang sebabnya berubah kekal boleh dihantar semula secara manual');
+const blokJobPeta = backend.match(/function hadirBacaJobPeta_\(tarikhIso\) \{([\s\S]*?)\n\}/);
+sah(blokJobPeta && blokJobPeta[1].includes("JSON.parse(r[9] || '[]')") &&
+    blokJobPeta[1].includes('bilTidakHadir'),
+  'Ringkasan awam mesti mengira bilangan job tanpa memulangkan payload murid');
+const blokInitPaparan = backend.match(/function hadirBinaInit_\([\s\S]*?(?=\nfunction )/);
+sah(blokInitPaparan && blokInitPaparan[0].includes('hadirMoeisJobSelesaiSah_(job, murid)') &&
+    blokInitPaparan[0].includes('getValues()') && blokInitPaparan[0].includes('nilaiMentah: nilaiMentah'),
+  'Init awam mesti menggunakan status fail-closed dan nilai mentah tanpa memulangkan data tambahan');
+const blokSemakPaparan = backend.match(/function hadirSemakKehadiran_\([\s\S]*?(?=\nfunction )/);
+sah(blokSemakPaparan && blokSemakPaparan[0].includes('hadirMoeisJobSelesaiSah_(job, murid)') &&
+    blokSemakPaparan[0].includes('getValues()') && blokSemakPaparan[0].includes('hadirBacaMoeisSebabPeta_(tarikhIso)'),
+  'Semakan tarikh awam mesti mengesahkan nilai mentah dan sebab semasa tanpa sesi admin');
 sah(backend.includes('bukaKehadiranTarikh: hadirBukaKehadiranTarikh_'), 'API buka pengisian tarikh lama tiada');
 sah(backend.includes('function hadirSahkanTarikhIso_'), 'Pengesahan tarikh bersama tiada');
 sah(backend.includes('function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso)'), 'Simpanan tarikh dipilih tiada');
@@ -381,6 +444,10 @@ sah(/function hadirMoeisJobSelesai_\(id, keputusan, mesej, bilHadirSelepas, pemi
   'moeisJobSelesai mesti menerima pemilik sebagai argumen kelima');
 sah(blokSelesai.includes('pemilikSemasa !== pemilik') && blokSelesai.includes("statusSemasa !== 'sedang_dihantar'"),
   'moeisJobSelesai mesti menolak laporan daripada enjin bukan pemegang klaim atau status yang tidak sepadan');
+sah(blokSelesai.includes('hadirPadamCacheInit_();'),
+  'Cache init mesti dibatalkan sebaik job selesai supaya kad tidak memaparkan status lama');
+sah(backend.includes("return 'HADIR_INIT_V4_' + String(tarikhIso || '');"),
+  'Cache init perlu versi baharu agar ringkasan yang belum ada status MOEIS tidak digunakan');
 
 // Pemulihan tugasan tersekat (21 September 2026): tugasan 'sedang_dihantar'
 // yang ditinggalkan enjin mati/restart mesti boleh diklaim semula. Tiga laluan

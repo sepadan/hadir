@@ -148,11 +148,14 @@ function hadirUpsertMoeisSebab_(tarikhIso, kelas, item) {
   var data = n > 0 ? s.getRange(2, 1, n, 6).getDisplayValues() : [];
   for (var i = 0; i < data.length; i++) {
     if (String(data[i][0]).trim() === tarikhIso && normalisasiIc_(data[i][2]) === item.ic) {
+      var berubah = String(data[i][4] || '') !== item.kategori || String(data[i][5] || '') !== item.sebab;
+      if (!berubah) return false;
       s.getRange(i + 2, 1, 1, 6).setValues([[tarikhIso, kelas, item.ic, item.nama, item.kategori, item.sebab]]);
-      return;
+      return true;
     }
   }
   s.appendRow([tarikhIso, kelas, item.ic, item.nama, item.kategori, item.sebab]);
+  return true;
 }
 
 /* Ganti keseluruhan rekod sebab bagi satu kelas+tarikh dengan senarai murid
@@ -206,10 +209,49 @@ function hadirBacaJobPeta_(tarikhIso) {
   var peta = Object.create(null);
   hadirBacaJobBaris_().forEach(function (r) {
     if (String(r[1]).trim() === tarikhIso) {
-      peta[String(r[2]).trim().toUpperCase()] = { id: r[0], status: r[3], mesej: r[4] };
+      var bilTidakHadir = null;
+      try {
+        var muridJob = JSON.parse(r[9] || '[]');
+        if (Array.isArray(muridJob)) bilTidakHadir = muridJob.length;
+      } catch (abaikan) {}
+      peta[String(r[2]).trim().toUpperCase()] = {
+        id: r[0], status: r[3], mesej: r[4], bilTidakHadir: bilTidakHadir
+      };
     }
   });
   return peta;
+}
+
+function hadirMoeisJobSebabBerubah_(tarikhIso, kelas) {
+  var s = ss.getSheetByName('HADIR_MOEIS_JOB');
+  if (!s || s.getLastRow() < 2) return false;
+  var n = s.getLastRow() - 1;
+  var baris = s.getRange(2, 1, n, HADIR_MOEIS_JOB_LEBAR).getDisplayValues();
+  for (var i = 0; i < baris.length; i++) {
+    if (String(baris[i][1]).trim() !== tarikhIso ||
+        String(baris[i][2]).trim().toUpperCase() !== kelas) continue;
+    if (String(baris[i][3]).trim() !== 'berjaya') return false;
+    s.getRange(i + 2, 4).setValue('gagal');
+    s.getRange(i + 2, 5).setValue('Sebab dikemas kini selepas penghantaran MOEIS berjaya; hantar semula untuk mengesahkan perubahan.');
+    s.getRange(i + 2, 7).setValue(new Date());
+    return true;
+  }
+  return false;
+}
+
+/* Status siap hanya benar jika job berjaya, jumlah tidak hadir semasa sepadan,
+   nilai mentah setiap tanda tidak hadir tepat 0, dan sebab semasa masih sah.
+   Ini menolak sel rosak (contoh 0.4 yang dipapar sebagai 0) tanpa menghantar
+   butiran murid kepada klien. */
+function hadirMoeisJobSelesaiSah_(job, murid) {
+  if (!job || job.status !== 'berjaya' || !Array.isArray(murid) ||
+      murid.some(function (m) { return !m || typeof m !== 'object'; })) return false;
+  var tidakHadir = murid.filter(function (m) { return m.nilai === 0; });
+  if (job.bilTidakHadir !== tidakHadir.length) return false;
+  return tidakHadir.every(function (m) {
+    var nilaiTepat = m.nilaiMentah === 0 || m.nilaiMentah === '0';
+    return nilaiTepat && hadirMoeisSebabSah_(m.kategori, m.sebab);
+  });
 }
 
 function hadirAdakahPermintaan_(e) {
@@ -384,10 +426,13 @@ function hadirBinaInit_(sekarang, zona, tarikhIso) {
   var data = s.getDataRange().getDisplayValues();
   var tkh = tarikhHariIni_();
   var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
+  var nilaiMentahData = idxTarikh >= 0 && data.length > 1
+    ? s.getRange(2, idxTarikh + 1, data.length - 1, 1).getValues() : [];
   var intervalArkib = dapatkanIntervalArkib_();
   var icMain = dapatkanIcAktifMain_();
   var petaRmt = hadirPetaRmt_();
   var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
+  var petaJob = hadirBacaJobPeta_(tarikhIso);
   var peta = Object.create(null);
   for (var i = 1; i < data.length; i++) {
     var nama = String(data[i][1] || '').trim();
@@ -396,10 +441,12 @@ function hadirBinaInit_(sekarang, zona, tarikhIso) {
     if (!nama || !kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
     if (!peta[kelas]) peta[kelas] = [];
     var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
+    var nilaiMentah = idxTarikh < 0 || !nilaiMentahData[i - 1] ? '' : nilaiMentahData[i - 1][0];
     var sebabRekod = nilai === '0' ? petaSebab[ic] : null;
     peta[kelas].push({
       kunci: hadirKunciMurid_(ic, tkh), nama: nama,
       nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
+      nilaiMentah: nilaiMentah,
       _rmt: !!petaRmt[ic],
       _rmtHadir: nilai === '1' && !!petaRmt[ic],
       kategori: sebabRekod ? sebabRekod.kategori : '',
@@ -408,11 +455,14 @@ function hadirBinaInit_(sekarang, zona, tarikhIso) {
   }
   var kelasHasil = Object.keys(peta).sort(hadirSusunKelas_).map(function (kelas) {
     var murid = peta[kelas].sort(function (a, b) { return a.nama.localeCompare(b.nama); });
+    var job = petaJob[kelas];
+    var bilTidakHadir = murid.filter(function (m) { return m.nilai === 0; }).length;
     return {
       nama: kelas,
       murid: murid.map(function (m) { return { kunci: m.kunci, nama: m.nama, nilai: m.nilai, kategori: m.kategori, sebab: m.sebab }; }),
       jumlah: murid.length,
-      tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
+      tidakHadir: bilTidakHadir,
+      moeisSelesai: hadirMoeisJobSelesaiSah_(job, murid),
       rmtJumlah: murid.filter(function (m) { return m._rmt; }).length,
       rmtHadir: murid.filter(function (m) { return m._rmtHadir; }).length,
       sudahSimpan: murid.some(function (m) { return m.nilai === 0 || m.nilai === 1; })
@@ -429,7 +479,7 @@ function hadirBinaInit_(sekarang, zona, tarikhIso) {
 }
 
 function hadirKunciCacheInit_(tarikhIso) {
-  return 'HADIR_INIT_V3_' + String(tarikhIso || '');
+  return 'HADIR_INIT_V4_' + String(tarikhIso || '');
 }
 
 function hadirPadamCacheInit_() {
@@ -477,6 +527,10 @@ function hadirSemakKehadiran_(tarikhIso) {
   var intervalArkib = dapatkanIntervalArkib_();
   var icMain = dapatkanIcAktifMain_();
   var petaRmt = hadirPetaRmt_();
+  var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
+  var petaJob = hadirBacaJobPeta_(tarikhIso);
+  var nilaiMentahData = idxTarikh >= 0 && data.length > 1
+    ? s.getRange(2, idxTarikh + 1, data.length - 1, 1).getValues() : [];
 
   if (idxTarikh >= 0) {
     for (var i = 1; i < data.length; i++) {
@@ -486,9 +540,14 @@ function hadirSemakKehadiran_(tarikhIso) {
       if (!nama || !kelas || !ic || muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)) continue;
       if (!peta[kelas]) peta[kelas] = [];
       var nilai = data[i][idxTarikh];
+      var nilaiMentah = nilaiMentahData[i - 1] ? nilaiMentahData[i - 1][0] : '';
+      var sebabRekod = nilai === '0' ? petaSebab[ic] : null;
       peta[kelas].push({
         nama: nama,
         nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
+        nilaiMentah: nilaiMentah,
+        kategori: sebabRekod ? sebabRekod.kategori : '',
+        sebab: sebabRekod ? sebabRekod.sebab : '',
         _rmt: !!petaRmt[ic],
         _rmtHadir: nilai === '1' && !!petaRmt[ic]
       });
@@ -497,13 +556,16 @@ function hadirSemakKehadiran_(tarikhIso) {
 
   var kelasHasil = Object.keys(peta).sort(hadirSusunKelas_).map(function (kelas) {
     var murid = peta[kelas].sort(function (a, b) { return a.nama.localeCompare(b.nama); });
+    var job = petaJob[kelas];
+    var bilTidakHadir = murid.filter(function (m) { return m.nilai === 0; }).length;
     return {
       nama: kelas,
       murid: murid.filter(function (m) { return m.nilai === 0; })
         .map(function (m) { return { nama: m.nama, nilai: 0 }; }),
       jumlah: murid.length,
       hadir: murid.filter(function (m) { return m.nilai === 1; }).length,
-      tidakHadir: murid.filter(function (m) { return m.nilai === 0; }).length,
+      tidakHadir: bilTidakHadir,
+      moeisSelesai: hadirMoeisJobSelesaiSah_(job, murid),
       rmtJumlah: murid.filter(function (m) { return m._rmt; }).length,
       rmtHadir: murid.filter(function (m) { return m._rmtHadir; }).length,
       sudahSimpan: murid.some(function (m) { return m.nilai === 0 || m.nilai === 1; })
@@ -777,9 +839,10 @@ function hadirMoeisSimpanSebab_(payload, token) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    hadirUpsertMoeisSebab_(tarikhIso, kelas, {
+    var sebabBerubah = hadirUpsertMoeisSebab_(tarikhIso, kelas, {
       ic: dipadan.ic, nama: dipadan.nama, kategori: kategori, sebab: sebab
     });
+    if (sebabBerubah) hadirMoeisJobSebabBerubah_(tarikhIso, kelas);
   } finally { lock.releaseLock(); }
   hadirPadamCacheInit_();
   hadirLog_('MOEIS_SEBAB_ADMIN', sesi.peranan, kelas, 'kategori=' + kategori);
@@ -967,6 +1030,7 @@ function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, pemilik, r
     s.getRange(indeks + 2, 12).setValue('');
     s.getRange(indeks + 2, 13).setValue('');
   } finally { lock.releaseLock(); }
+  hadirPadamCacheInit_();
   hadirLog_('MOEIS_JOB_SELESAI', 'sistem', kelasLog, keputusan);
   return { ok: true };
 }
