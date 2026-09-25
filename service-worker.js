@@ -15,10 +15,10 @@
    dahulu; cache hanya menjadi sandaran bila internet tiada. Ikon kekal
    cache-first kerana ia besar dan tidak pernah berubah. */
 
-const CACHE_VERSION = 'hadir-shell-v1.11.38-20260925-1';
+const CACHE_VERSION = 'hadir-shell-v1.11.39-20260925-1';
 const APP_SHELL = [
-  './', './index.html', './styles.css?v=1.11.38', './config.js?v=1.11.38',
-  './app.js?v=1.11.38', './manifest.webmanifest?v=1.11.38', './offline.html',
+  './', './index.html', './styles.css?v=1.11.39', './config.js?v=1.11.39',
+  './app.js?v=1.11.39', './manifest.webmanifest?v=1.11.39', './offline.html',
   './icons/hadir-192.png', './icons/hadir-512.png',
   './icons/hadir-maskable-512.png', './icons/apple-touch-icon.png',
   './icons/favicon-32.png', './icons/favicon-48.png'

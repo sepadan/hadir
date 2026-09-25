@@ -150,7 +150,8 @@ function binaAliranMoeis(pilihan) {
   const k = {
     state: Object.assign({ peranan: 'guru', token: '', paneAktif: 'reviewPane', moeisKelas: [],
       reviewData: { tarikhIso: HARI_INI, kelas: [Object.assign({}, lengkap)] },
-      versiSemakan: 0, versiMoeisSemakan: 0, moeisSemakanSedang: false }, pilihan || {}),
+      versiSemakan: 0, versiMoeisSemakan: 0, moeisSemakanSedang: false,
+      moeisSemakanAktif: null, moeisSemakanMuatSemula: false }, pilihan || {}),
     tarikhMalaysiaHariIni_: () => HARI_INI,
     lukisSemakan: () => { lukis++; },
     panggil: (kaedah, argumen) => {
@@ -197,6 +198,42 @@ const tunggu = () => new Promise(r => setImmediate(r));
   await tunggu();
   sah(a.lukis() === 0 && a.k.state.reviewData.kelas[0].moeisSelesai !== true,
     'Respons lapuk tidak boleh mengemas kini kad selepas pane bertukar');
+
+  // Keluar dan masuk semula ketika permintaan lama masih berjalan mesti
+  // menjadualkan muatan baharu selepas respons lapuk selesai.
+  a = binaAliranMoeis();
+  a.k.muatBuktiMoeisSemakan_();
+  a.k.state.paneAktif = 'attendancePane';
+  a.k.state.paneAktif = 'reviewPane';
+  a.k.state.versiSemakan++;
+  a.k.muatBuktiMoeisSemakan_();
+  a.penyelesai[0].selesai({ kelas: [{ nama: 'KELAS UJIAN', moeisSelesai: false }] });
+  await tunggu();
+  sah(a.panggilan.length === 2, 'Masuk semula ke Semak mesti mengulang permintaan bukti lapuk');
+  a.penyelesai[1].selesai({ kelas: [{ nama: 'KELAS UJIAN', moeisSelesai: true }] });
+  await tunggu();
+  sah(a.lukis() === 1 && semak(a.k.state.reviewData.kelas[0], []).kod === 'moeis',
+    'Bukti daripada permintaan baharu mesti menyegarkan kad selepas masuk semula');
+
+  // Jika pengguna keluar semula sebelum respons lama tamat, jangan buat
+  // permintaan susulan di pane tersembunyi; buka semula kemudian mesti memuat.
+  a = binaAliranMoeis();
+  a.k.muatBuktiMoeisSemakan_();
+  a.k.state.paneAktif = 'attendancePane';
+  a.k.state.paneAktif = 'reviewPane';
+  a.k.state.versiSemakan++;
+  a.k.muatBuktiMoeisSemakan_();
+  a.k.state.paneAktif = 'attendancePane';
+  a.penyelesai[0].selesai({ kelas: [{ nama: 'KELAS UJIAN', moeisSelesai: false }] });
+  await tunggu();
+  sah(a.panggilan.length === 1, 'Jangan muat semula MOEIS ketika pane Semak sudah tersembunyi');
+  a.k.state.paneAktif = 'reviewPane';
+  a.k.state.versiSemakan++;
+  a.k.muatBuktiMoeisSemakan_();
+  sah(a.panggilan.length === 2, 'Buka semula Semak kemudian mesti mendapatkan permintaan baharu');
+  a.penyelesai[1].selesai({ kelas: [{ nama: 'KELAS UJIAN', moeisSelesai: true }] });
+  await tunggu();
+  sah(semak(a.k.state.reviewData.kelas[0], []).kod === 'moeis', 'Permintaan selepas buka semula memaparkan status terkini');
 
   // Tarikh/data bertukar: respons lama mesti diabaikan.
   a = binaAliranMoeis();

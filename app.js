@@ -73,7 +73,8 @@
     uploadRecords: [], uploadHeaders: [], uploadFileName: '', muridDialog: null,
     guru: [], guruUploadRecords: [], guruUploadFileName: '',
     cacheSementara: false, tarikhEditIso: '', versiSemakan: 0,
-    moeisKelas: [], versiMoeisSemakan: 0, moeisSemakanSedang: false
+    moeisKelas: [], versiMoeisSemakan: 0, moeisSemakanSedang: false,
+    moeisSemakanAktif: null, moeisSemakanMuatSemula: false
   };
 
   function $(id) { return document.getElementById(id); }
@@ -479,9 +480,18 @@
      job/murid. Respons lapuk diabaikan jika tarikh/pane bertukar. */
   function muatBuktiMoeisSemakan_() {
     var tarikh = state.reviewData && state.reviewData.tarikhIso;
-    if (state.moeisSemakanSedang || !tarikh || tarikh !== tarikhMalaysiaHariIni_()) return;
+    if (!tarikh || tarikh !== tarikhMalaysiaHariIni_()) return;
+    if (state.moeisSemakanSedang) {
+      var aktif = state.moeisSemakanAktif;
+      if (aktif && (state.versiSemakan !== aktif.versi ||
+          state.versiMoeisSemakan !== aktif.versiBukti || state.reviewData !== aktif.data)) {
+        state.moeisSemakanMuatSemula = true;
+      }
+      return;
+    }
     var versi = state.versiSemakan, versiBukti = state.versiMoeisSemakan, dataSemasa = state.reviewData;
     state.moeisSemakanSedang = true;
+    state.moeisSemakanAktif = { versi: versi, versiBukti: versiBukti, data: dataSemasa };
     panggil('semakKehadiran', [tarikh], 30000).then(function (r) {
       if (state.versiSemakan !== versi || state.versiMoeisSemakan !== versiBukti ||
           state.reviewData !== dataSemasa || state.paneAktif !== 'reviewPane') return;
@@ -493,6 +503,10 @@
       lukisSemakan();
     }).catch(function () {}).then(function () {
       state.moeisSemakanSedang = false;
+      state.moeisSemakanAktif = null;
+      var perluMuatSemula = state.moeisSemakanMuatSemula;
+      state.moeisSemakanMuatSemula = false;
+      if (perluMuatSemula && state.paneAktif === 'reviewPane') muatBuktiMoeisSemakan_();
     });
   }
 
