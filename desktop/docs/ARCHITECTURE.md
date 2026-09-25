@@ -102,9 +102,11 @@ use, this must be tested explicitly, including:
 
 As of 2026-09-22 the shell has a staged, default-OFF path for exactly this:
 
-- **Shared DPAPI credential** (`KredensialIdMeStore`) reads/writes the SAME
-  `kredensial.dat` as the companion engine (DPAPI CurrentUser, null entropy) —
-  verified read-only compatible with the companion's real blob, no re-typing.
+- **DPAPI credential** (`KredensialIdMeStore`) uses the companion's
+  `kredensial.dat` format (DPAPI CurrentUser, null entropy). The file is now
+  Desktop-owned (`%LOCALAPPDATA%\HadirDesktop\enjin\kredensial.dat`);
+  an existing companion blob is carried over once by byte copy (see
+  "Desktop-owned data" below), so no re-typing.
 - **Masked owner entry** (`IdMeSettingsDialog`): the owner types the password
   into the app's own masked field; the value is never printed/logged/committed.
 - **Demand-only auto-login** (`IdMeLoginFlow` + `IdMeLoginManager` +
@@ -136,7 +138,121 @@ idMe session.
   NOT verify idMe SSO compatibility — that remains a separate, explicit test
   against the real idMe origin before any production use.
 
-## Browser transport adapter
+## Desktop-owned data and Companion retirement (1.0.13)
+
+- **Data dir.** Backend config (`tetapan.json` + DPAPI `rahsia.dat`) and the
+  idMe credential (`kredensial.dat`) live in `%LOCALAPPDATA%\HadirDesktop\enjin\`
+  (`LaluanDataDesktop.DirEnjin`). Runtime never reads
+  `%LOCALAPPDATA%\HADIR-MOEIS-Companion\`.
+- **One-time migration** (`MigrasiDataCompanion`, first thing in the `MainForm`
+  constructor): per unit (`backend`, `kredensial`), a byte copy is made only when
+  the companion source decrypts and validates on this Windows account and
+  Desktop has no valid data of its own. Valid Desktop data is never overwritten;
+  invalid Desktop data is overwritten only when Desktop's own
+  `migrasi-<unit>.belum-selesai` marker shows it is left over from an
+  interrupted copy. The copy is validated again before the marker is removed.
+  Final outcomes go to `migrasi-companion.json`, so a later deletion in Desktop
+  is not undone by copying from the companion again. A corrupt record stops the
+  migration. Companion files are never deleted or modified. Only outcome names
+  are logged.
+- **Migration gate at runtime.** While `migrasi-backend.belum-selesai` exists,
+  `DpapiRahsiaEnjinStore.Baca()` returns null even if the copied pair is
+  valid, and `MainForm` builds no client unless the backend migration is final.
+  A credential counts as valid only with user, password AND security phrase.
+- **Active-config gate.** The backend client is built once, through
+  `PagarKonfigurasiBackend`. The gate re-reads the Desktop config (SHA-256
+  fingerprint, in memory only) at three points: when each client method
+  starts; inside `HadirBackendClient` immediately before EVERY
+  `HttpClient.SendAsync`, including each retry after the 2 s/6 s wait; and
+  immediately before each MOEIS portal write (`pagarSebelumPortal`). If the
+  config was removed, corrupted or changed, the gate refuses with a
+  non-temporary `HadirBackendException`: no bytes are sent, no retry happens,
+  no portal write starts, and a claim already held is released.
+  Release/complete for a task claimed through this gate (and not yet
+  released) are still allowed, so a MOEIS write that already happened is
+  recorded rather than repeated. A held claim never allows a new portal
+  write. Limit: an HTTP request or portal write already in progress cannot
+  be recalled; revocation takes effect at the next check and is not atomic.
+- **Durable migration finality.** A unit becomes final only after
+  `migrasi-companion.json` is written and read back with the same value. The
+  unit's marker is first set to `muktamad:<outcome>`, then the record is
+  written and verified, and only then is the marker removed. If the record
+  fails, the result is `Ralat` and the marker stays. Both stores then report
+  no data, and `MainForm` also requires `Kredensial.Muktamad` before giving a
+  credential to `IdMeLoginManager`. A `muktamad:*` marker only completes the
+  record on the next run and never copies again. A leftover marker next to
+  an existing record is cleaned up without importing. A `menyalin` marker (a
+  copy that was never finalized) never allows a recopy. Valid Desktop data is
+  finalized as it is. Missing or invalid Desktop data yields `PerluPemulihan`
+  (fail-closed), because an interrupted copy cannot be told apart from a
+  completed copy the owner has since deleted. Recovery: the owner saves
+  settings or the credential in Desktop and restarts. For CORRUPT Desktop
+  backend files (unparseable `tetapan.json`, undecryptable `rahsia.dat`, or an
+  interrupted-save marker), normal Save refuses. The explicit "Pulihkan
+  tetapan rosak" button (`PulihkanGantiRosak`) needs a full valid URL and a
+  freshly entered secret. It backs up existing files to
+  `sandaran-pemulihan-*` and verifies the backup bytes. It then writes the
+  save marker, replaces both files atomically, reads them back, and only
+  then removes the marker. It never reads the Companion and never touches
+  the migration marker, so the current process builds no client; a restart
+  finalizes the Desktop data.
+- **Final pre-save gate.** The same config gate travels on
+  `TugasanPenghantaran.PagarSebelumSimpan` into `PenghantaranMoeisFlow` and is
+  re-checked immediately before the Save / Save & Confirm click. A refusal or
+  exception gives `disekat-pagar`: no click, no portal write, and the claim is
+  released.
+- **Report failure recovery.** If all three `moeisJobSelesai` attempts fail
+  after a MOEIS write, the pass reports `laporan-gagal`
+  (`BilLaporanGagal`, a `LAPOR_GAGAL` log line) and retains the claim. On
+  the next cycle the same owner can reclaim it, then the production flow
+  reads MOEIS again before any write or report. No outcome is cached or
+  replayed. A failed page/read check produces no success report and no Save;
+  the claim is released for a later attempt.
+  For every pre-existing absent student, category and reason must be readable
+  and match the current task; a confirmed badge alone cannot justify
+  `tidak-berubah`. If all rows match and the badge is confirmed, the fresh
+  result is `tidak-berubah` without Save. A missing or mismatching value
+  stops before Save and confirmation. A recreated task with the same ID also
+  gets this fresh check. If MOEIS changed or a `tersimpan` write was never
+  confirmed, another Save & Confirm is possible only after the normal
+  conflict checks, form checks and post-save re-read. This avoids duplicate
+  writes when the current portal state already matches.
+- **No loopback at runtime.** Demand and the full list come only from
+  `BackendKerjaHariIniSource` / `BackendKerjaPenuhSource`. With no valid config,
+  `TiadaBackendSource` reports "no backend" and nothing is claimed or sent.
+  The `Loopback*` classes remain for tests and `dev-fixture/verify` only.
+- **Backend URL compatibility.** The shared validator used by Save, recovery,
+  status/read and migration import accepts only a full deployed Web App URL:
+  `https://script.google.com/macros/s/<id>/exec` with a non-empty safe ID,
+  default HTTPS port, and no userinfo, query, fragment or extra path. The
+  Companion default and migration fixtures use this form. The redirect form
+  `script.googleusercontent.com/macros/echo` is not a base endpoint.
+- **Embedded browser only.** `NewWindowRequested` is always handled (no pop-out),
+  `LaunchingExternalUriScheme` is always cancelled, and the navigation guard is
+  unchanged. The only process Desktop starts is `icacls.exe` (no shell).
+- **Companion retirement** (`PersaraanAutostartCompanion`) happens only when
+  the owner clicks a button in Tetapan Tempatan. It is allowed only when
+  `DesktopBolehAmbilAlih` holds: an active backend client exists, the current
+  config matches its fingerprint, and both migration units are final. It
+  backs up the `HADIRMoeisCompanion` Run value ONCE to
+  `enjin\companion-autostart-sandaran.json` and never overwrites that first
+  backup. If a valid backup exists and the current value differs, or if the
+  backup file is unreadable, nothing changes. It re-reads the Run value
+  immediately before deleting, refuses if it changed, and confirms the value
+  is gone before reporting success. The Registry has no atomic
+  compare-and-delete, so a write by another process between the last read and
+  `DeleteValue` can still be lost; this narrows that window but does not
+  close it. "Pulihkan" refuses to overwrite a different existing
+  value, and it deletes the backup only after the written value reads back
+  identical. Any failure keeps the backup. It never stops the running
+  companion process, deletes its install/data, or touches the `HadirDesktop`
+  Run value. The companion's own `autostart-mati` / `autostart-hidup` commands
+  are equivalent manual steps.
+
+## Browser transport adapter (historical — superseded)
+
+> Superseded: since 1.0.9 the desktop runs idMe login and MOEIS submission
+> itself, and it no longer has any runtime loopback dependency (see above).
 
 The desktop app's job, both now and in later phases, is to **drive** the
 existing Node engine's business rules — never to reimplement them:

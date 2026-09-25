@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.23 · 24 September 2026**
+**Versi 2.24 · 25 September 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -625,23 +625,79 @@ kerana tulisan MOEIS dan auth idMe konon eksklusif dalam `companion/` —
 **kini tidak lagi (disemak 1.0.9)**: penghantaran MOEIS
 (`AliranPenghantaranMoeis` + `PenghantaranMoeisWebView2`, dirujuk terus
 dari `MainForm:200`) dan aliran log masuk idMe (`IdMeLoginFlow.JalankanAsync`
-pada `MainForm:166`, kredensial DPAPI kongsi dalam
-`%LOCALAPPDATA%\HADIR-MOEIS-Companion\kredensial.dat`) berjalan DALAM
-desktop; `companion/` kekal sebagai tuan enjin loopback pilihan — bukan
-lalauan wajib (lihat butiran jaluran di bawah).
+pada `MainForm`, kredensial DPAPI milik Desktop dalam
+`%LOCALAPPDATA%\HadirDesktop\enjin\kredensial.dat`) berjalan DALAM
+desktop. Runtime desktop tidak lagi bergantung pada `companion/` (tiada
+fallback loopback; lihat butiran jaluran dan migrasi di bawah).
 
-- **Jaluran sebenar: Apps Script terus; loopback hanya fallback (disemak
-  1.0.9).** `MainForm` membina `HadirBackendClient(ApiUrl, RahsiaEnjin)`
-  daripada `RahsiaEnjinStore` (blob DPAPI `rahsiaEnjin` + `apiUrl` —
-  gagal-tertutup) dan memilih `BackendKerjaHariIniSource` /
-  `BackendKerjaPenuhSource`; komen sumber: *"loopback is only a fallback
-  for a PC that has no engine secret configured yet"* — `LoopbackKerja*`
-  dan `LoopbackEngineStatusSource` (klien bergred-nonce: `GET /` → `302
-  /?n=<nonce>`, sahkan redirect kekal pada origin loopback sama, header
-  `X-HADIR-Lokal`, nonce tidak pernah dilog — digunakan
-  `TryGetNonceFromRedirect` dalam `KerjaHariIni.cs`/`KerjaPenuh.cs`)
-  hanya dipakai apabila tiada rahsia pada PC itu. Port 8747 TIDAK berjalan
-  secara lalai (diuji mati 23 Sep). Tiga label jalur status menunjukkan
+- **Jaluran sebenar: Apps Script terus; TIADA fallback loopback (1.0.13).**
+  `MainForm` membina `HadirBackendClient(ApiUrl, RahsiaEnjin)`
+  daripada `DpapiRahsiaEnjinStore` (blob DPAPI `rahsiaEnjin` + `apiUrl` dalam
+  `%LOCALAPPDATA%\HadirDesktop\enjin\` — gagal-tertutup) dan memilih
+  `BackendKerjaHariIniSource` / `BackendKerjaPenuhSource`. Klien itu dibina
+  melalui `PagarKonfigurasiBackend`, dan hanya jika keputusan migrasi backend
+  muktamad. URL yang diterima oleh simpanan biasa, pemulihan, status/bacaan
+  dan import migrasi ialah endpoint Web App penuh
+  `https://script.google.com/macros/s/{id-deployment}/exec` (ID tidak kosong
+  dan hanya aksara selamat). HTTPS dan port lalai diwajibkan; userinfo, query,
+  fragment, laluan tambahan, hos akar, `/exec` sahaja dan
+  `script.googleusercontent.com/macros/echo` ditolak. Companion Node lama
+  menerima hos `script.googleusercontent.com` secara luas, tetapi tiada
+  fixture migrasi Desktop memerlukannya sebagai URL asas; fixture sah memakai
+  bentuk `script.google.com/macros/s/{id}/exec`. Pagar membaca semula
+  konfigurasi Desktop di empat titik:
+  (a) sebelum setiap kaedah klien bermula; (b) di dalam `HadirBackendClient`
+  (`pagarSebelumHantar`), SEJURUS sebelum SETIAP `HttpClient.SendAsync`,
+  termasuk setiap cubaan semula selepas jeda 2 s/6 s; (c) dalam
+  `AliranPenghantaranMoeis` (`pagarSebelumPortal`), sebelum aliran portal
+  bermula; dan (d) pagar yang SAMA dibawa oleh
+  `TugasanPenghantaran.PagarSebelumSimpan` ke aliran produksi
+  `PenghantaranMoeisFlow`. Ia disemak semula SEJURUS sebelum klik
+  Simpan / Simpan & Sahkan, iaitu selepas borang yang mungkin lama disediakan.
+  Pagar yang menolak atau melontar memberi status `disekat-pagar`: butang
+  tidak ditekan, tiada tulisan portal, dan klaim dilepaskan. Jika konfigurasi tiada, rosak, atau cap jari SHA-256
+  dalam memorinya berbeza daripada klien, permintaan itu ditolak dengan
+  `HadirBackendException` kekal (tiada cubaan semula, tiada bait dihantar),
+  dan tulisan portal tidak dimulakan. Klaim yang sudah dipegang pula
+  dilepaskan. Label hanya melaporkan keadaan itu; ia bukan pagar.
+  Pengecualian yang disengajakan: `moeisJobLepas`/`moeisJobSelesai` bagi
+  tugasan yang diklaim melalui pagar itu dan belum dilepas/diselesaikan masih
+  dibenarkan, supaya klaim dilepaskan atau tulisan MOEIS yang SUDAH berlaku
+  direkod. Menyekatnya akan mengundang tulisan berganda. Klaim yang dipegang
+  tidak membenarkan tulisan portal baharu. **Had yang tidak dapat
+  dielakkan:** permintaan HTTP yang sudah dihantar, atau tulisan portal yang
+  sudah bermula, tidak boleh ditarik balik. Penarikan balik konfigurasi
+  berkuat kuasa pada titik semakan seterusnya dan bukan atomik. Jurang kecil
+  antara semakan terakhir dan klik simpan sebenar kekal wujud.
+  **Laporan gagal: tuntut semula dan baca MOEIS yang terkini.** Selepas
+  tulisan MOEIS (`disahkan` atau `tersimpan`), `LaporAsync` mencuba
+  `moeisJobSelesai` hingga 3 kali. Jika semuanya gagal, kitaran melaporkan
+  `laporan-gagal` dan `BilLaporanGagal`, serta mencatat `LAPOR_GAGAL`.
+  Klaim tidak dilepaskan selepas tulisan yang mungkin sudah berlaku. Pada
+  kitaran seterusnya, pemilik yang sama boleh menuntut semula tugasan
+  `sedang_dihantar`; aliran produksi menjalankan bacaan MOEIS baharu sebelum
+  sebarang tulisan atau laporan. Tiada keputusan disimpan atau dimainkan
+  semula daripada memori/cakera. Hanya hasil bacaan/pengesahan baharu yang
+  boleh dilaporkan; jika bacaan gagal, tiada laporan `berjaya`, tiada Simpan,
+  dan klaim dilepaskan untuk cubaan kemudian. Jika semua murid yang dijangka
+  sudah tidak hadir, kategori/sebab
+  setiap baris mesti dapat dibaca dan padan. Dengan badge "TELAH DISAHKAN",
+  hasilnya `tidak-berubah` tanpa Simpan; kategori/sebab yang hilang, tidak
+  boleh dibaca atau tidak padan berhenti sebagai `kategori-sebab-tidak-padan`
+  tanpa kejayaan, Simpan atau pengesahan. Jika MOEIS diubah antara kitaran,
+  aliran hanya boleh menulis melalui pagar konflik, isi borang, semak sebelum
+  Simpan dan baca-semula wajib yang sama seperti penghantaran biasa. Oleh itu
+  tulisan pendua dielakkan apabila rekod sudah betul; jika rekod berubah atau
+  `tersimpan` belum disahkan, satu tulisan baharu masih mungkin selepas
+  semakan tersebut. Tugasan yang dicipta semula dengan ID sama juga melalui
+  bacaan MOEIS baharu; keputusan lama tidak boleh menandakannya berjaya.
+  Jika konfigurasi
+  Desktop tiada/tidak sah, `TiadaBackendSource` menjawab "tidak dapat
+  dipastikan" untuk deman DAN senarai penuh — tiada klaim, tiada hantar, dan
+  Companion `127.0.0.1:8747` tidak dihubungi. Kelas `LoopbackKerja*` dan
+  `LoopbackEngineStatusSource` masih wujud untuk ujian dan
+  `dev-fixture/verify` sahaja; ujian sumber memastikan `MainForm` tidak
+  merujuknya. Tiga label jalur status menunjukkan
   fakta — bukan nadi enjin: `_stateLabel` (`Keadaan: … · portal: …` daripada
   `LabelKeadaanPortal`), `_backendLabel` (`LabelBackend.Teks(klienSedia,
   konfigSediaSekarang, cap-SHA-256-sepadan, sebab)` — sama ada klien AKTIF
@@ -672,8 +728,15 @@ lalauan wajib (lihat butiran jaluran di bawah).
 - **Tetapan Tempatan (1.0.12)** membuka `EngineSettingsDialog` WinForms dari
   menu dulang, tanpa Companion, Node, Edge atau navigasi WebView2. URL API
   dipaparkan; rahsia tidak pernah dipaparkan dan ruang kosong mengekalkan
-  rahsia lama. `DpapiRahsiaEnjinStore.Simpan` menerima hanya HTTPS pada hos
-  Apps Script yang dibenarkan, mengekalkan medan JSON lain termasuk `klien`,
+  rahsia lama. `DpapiRahsiaEnjinStore.Simpan` menerima hanya endpoint Web App
+  penuh `https://script.google.com/macros/s/<id>/exec` dengan id deployment
+  tidak kosong dan aksara selamat, port HTTPS lalai, tanpa userinfo, query,
+  fragment atau laluan tambahan. Validator yang sama dipakai oleh Simpan,
+  pemulihan, status/bacaan dan import migrasi. URL lalai
+  `companion/src/tetapan.mjs` serta fixture migrasi memakai bentuk ini; tiada
+  bentuk legasi lain diperlukan sebagai URL asas.
+  `script.googleusercontent.com/macros/echo` ditolak. Simpan mengekalkan
+  medan JSON lain termasuk `klien`,
   menolak fail rosak/tidak boleh dibaca tanpa menggantinya, melindungi
   `rahsia.dat` dengan DPAPI `CurrentUser`, dan mengganti setiap fail secara
   atomik. Penanda `tetapan-desktop-belum-selesai` membuat bacaan Desktop gagal
@@ -683,6 +746,104 @@ lalauan wajib (lihat butiran jaluran di bawah).
   Simpan semula menghabiskan pasangan fail dan membuang penanda. Dialog menyatakan Desktop perlu dimulakan semula kerana klien backend
   dibina sekali semasa mula. Ujian stor menggunakan direktori sementara dan
   nilai rekaan sahaja.
+- **Data milik Desktop + migrasi sekali daripada Companion (1.0.13).** `tetapan.json`, `rahsia.dat` dan `kredensial.dat`
+  kini dalam `%LOCALAPPDATA%\HadirDesktop\enjin\` (`LaluanDataDesktop`); kunci
+  icacls dikenakan pada subfolder itu sahaja. `MigrasiDataCompanion` ialah
+  langkah pertama dalam pembina `MainForm`. Ia menilai dua unit (`backend`,
+  `kredensial`) secara berasingan. Salinan bait demi bait dibuat hanya jika
+  sumber Companion boleh dinyahsulit dan disahkan pada akaun Windows ini
+  (DPAPI `CurrentUser`, format tepat, tiada sulit semula) DAN Desktop belum
+  ada data sah. Data Desktop yang sah tidak ditimpa. Data Desktop yang tidak
+  sah hanya ditimpa jika penanda `migrasi-<unit>.belum-selesai` milik Desktop
+  sendiri menunjukkan ia sisa salinan yang terputus; `rahsia.dat` disalin
+  terakhir, jadi salinan separa gagal-tertutup. Salinan disahkan semula
+  sebelum penanda dibuang. Selagi `migrasi-backend.belum-selesai` wujud,
+  `DpapiRahsiaEnjinStore.Baca()` memulangkan `null`, walaupun kedua-dua fail
+  yang disalin sah. Hanya pengesahan migrasi sendiri (`BacaPasangan`)
+  mengabaikan penanda itu. `MainForm` juga tidak membina klien kecuali
+  keputusan migrasi backend muktamad. Kredensial idMe dianggap sah hanya jika
+  pengguna, kata laluan DAN frasa kunci keselamatan semuanya ada. Kredensial
+  separa kekal `LegasiTidakSah` (dicuba semula) dan tidak direkod muktamad.
+  **Kemuktamadan bergantung pada rekod tahan lama.** Keputusan calon
+  (`Dipindahkan`, `SudahMilikDesktop`, `TiadaLegasi`) melalui tiga langkah:
+  (1) penanda unit ditulis sebagai `muktamad:<keputusan>` (tiada lagi salinan
+  daripada Companion selepas ini); (2) `migrasi-companion.json` ditulis dan
+  dibaca semula dengan nilai yang sama; (3) barulah penanda dibuang. Jika
+  (1) atau (2) gagal, keputusannya `Ralat` (tidak muktamad) dan penanda
+  dikekalkan. Oleh itu `DpapiRahsiaEnjinStore.Baca()` memulangkan `null`,
+  `DpapiKredensialIdMeStore.Ada()/Baca()` melaporkan tiada kredensial, tiada
+  klien backend dibina, dan `MainForm` tidak memberi kredensial kepada
+  `IdMeLoginManager` (ia juga memerlukan `Kredensial.Muktamad`). Pada
+  lancaran seterusnya, penanda `muktamad:*` hanya menyiapkan rekod, tanpa
+  salinan semula. Jadi kredensial yang dipadam pemilik tidak diimport semula
+  daripada Companion, walaupun rekod gagal ditulis sebelum itu. Jika terputus
+  selepas rekod ditulis tetapi sebelum penanda dibuang, rekod menang: sisa
+  penanda dibersihkan tanpa import. Penanda `menyalin` (salinan yang tidak
+  dimuktamadkan) TIDAK pernah membenarkan salinan semula. Jika data Desktop
+  masih sah, ia dimuktamadkan tanpa menyalin. Jika data Desktop tiada atau
+  tidak sah, keputusannya `PerluPemulihan` (tidak muktamad, gagal-tertutup,
+  penanda kekal). Keadaan itu boleh berpunca daripada salinan yang terputus
+  ATAU salinan lengkap yang penanda muktamadnya gagal ditulis lalu dipadam
+  pemilik; kedua-duanya tidak dapat dibezakan. Pemulihan eksplisit: pemilik
+  menyimpan tetapan/kredensial dalam HADIR Desktop dan memulakan semula. Data
+  sah itu kemudian dimuktamadkan tanpa import daripada Companion. Bagi fail
+  backend Desktop yang ROSAK (`tetapan.json` tidak boleh diparse,
+  `rahsia.dat` tidak boleh dinyahsulit, atau penanda simpanan terputus),
+  "Simpan" biasa menolak kerana ia tidak mengganti kerosakan dengan lalai.
+  Tetapan Tempatan menyediakan butang "Pulihkan tetapan rosak"
+  (`DpapiRahsiaEnjinStore.PulihkanGantiRosak`). Butang itu hanya bertindak
+  atas tekanan pemilik, dengan pengesahan. Ia memerlukan URL Apps Script
+  penuh yang sah DAN rahsia enjin yang dimasukkan semula. Fail sedia ada
+  (termasuk penanda simpanan) disalin dahulu ke `sandaran-pemulihan-*` dan
+  disahkan bait demi bait. Kemudian penanda simpanan ditulis, pasangan fail
+  diganti secara atomik, dan dibaca semula sebelum penanda dibuang. Medan
+  yang masih boleh dibaca (cth `klien`) dikekalkan. Laluan ini tidak
+  membaca Companion. Penanda migrasi TIDAK disentuh, jadi dalam proses semasa
+  `Baca()` kekal null, tiada klien backend dibina, dan mula semula
+  diperlukan. Lancaran seterusnya memuktamadkan data Desktop itu
+  (`Dipindahkan`) tanpa import. Kegagalan sebelum penggantian pertama
+  membiarkan fail lama utuh. Kegagalan selepasnya mengekalkan penanda
+  (gagal-tertutup). Rekod rosak menghentikan migrasi. Fail Companion tidak pernah dipadam atau
+  diubah. Log dan dialog hanya memaparkan nama keputusan. Selepas migrasi,
+  perubahan dalam Companion tidak diikuti.
+- **Pelayar terbenam sahaja.** Semua aliran idMe/MOEIS memakai WebView2
+  terbenam yang sedia ada, dengan allowlist navigasi yang tidak berubah.
+  `NewWindowRequested` sentiasa `Handled` (tiada pop-out) dan
+  `LaunchingExternalUriScheme` sentiasa dibatalkan. Desktop tidak
+  melancarkan Edge; satu-satunya proses yang dimulakan ialah `icacls.exe`
+  tanpa shell (dikunci oleh ujian sumber). Tetingkap Edge dengan amaran
+  `--no-sandbox` datang daripada Playwright Companion
+  (`companion/src/moeis/pelayar.mjs`, `channel: 'msedge'`, `headless: false`),
+  bukan daripada Desktop.
+- **Persaraan Companion berperingkat dan boleh diundur.**
+  `PersaraanAutostartCompanion` hanya berjalan apabila pemilik menekan
+  "Matikan autostart Companion lama" dalam Tetapan Tempatan. Syaratnya
+  (`DesktopBolehAmbilAlih`) diambil daripada runtime AKTIF, bukan daripada
+  cakera: klien backend aktif mesti wujud, konfigurasi semasa mesti sama cap
+  jari dengannya, dan kedua-dua unit migrasi mesti muktamad. Konfigurasi yang
+  baru disimpan tetapi belum dimuatkan (perlu mula semula) ditolak. Nilai
+  Run HKCU `HADIRMoeisCompanion` disandarkan SEKALI ke
+  `enjin\companion-autostart-sandaran.json`, dan sandaran pertama tidak
+  pernah ditimpa. Jika sandaran sah sudah wujud dan nilai Run semasa berbeza
+  daripadanya, atau jika fail sandaran wujud tetapi rosak, tiada apa diubah.
+  Sandaran baharu dibaca semula sebelum diteruskan. Nilai Run dibaca semula
+  SEJURUS sebelum `DeleteValue`; jika ia berubah sejak bacaan pertama, ia
+  tidak dipadam. Selepas padam, ia disemak semula dan mesti tiada sebelum
+  kejayaan dilaporkan. **Had OS:** Windows Registry tiada operasi
+  banding-dan-padam atomik. Proses lain yang menulis nilai itu di antara
+  bacaan terakhir dan `DeleteValue` masih boleh kehilangan tulisannya;
+  tetingkap itu dikecilkan, tidak dihapuskan. "Pulihkan autostart
+  Companion" menulisnya semula, membaca semula nilai Run, dan hanya memadam
+  sandaran jika nilai itu sama. Jika nilai Run LAIN sudah wujud, ia tidak
+  ditimpa: hasilnya gagal dan sandaran dikekalkan. Tulisan yang gagal atau
+  tidak dapat disahkan juga mengekalkan sandaran. Ia tidak menghentikan proses Companion yang
+  sedang berjalan, tidak memadam pemasangan/data/kredensial Companion, tidak
+  mengubah tetapan `loginAuto` Companion, dan tidak menyentuh nilai Run
+  `HadirDesktop`. Tiada apa berlaku semasa pasang/kemas kini. Sehingga
+  pemilik menekan butang itu, dan proses Companion yang sedang berjalan
+  ditamatkan (log keluar/mula semula atau tutup manual), Companion lama
+  masih boleh membuka Edge sendiri. Langkah manual yang setara:
+  `node companion/bin/hadir-companion.mjs autostart-mati` / `autostart-hidup`.
 - **CDP hanya mod dev opt-in, dengan get pintu masuk asal ketat.**
   `--remote-debugging-port` (loopback, port rawak, profil `webview2-dev-*`
   terasing) dihidupkan **hanya** bila `HADIR_DEV_DEBUG=1`; mod normal tidak
@@ -752,14 +913,16 @@ lalauan wajib (lihat butiran jaluran di bawah).
   sumber lawan destinasi — tidak sepadan = sandaran dipulihkan + keluar
   bukan-sifar. Folder pemasangan BERKONGSI dengan fail data pengguna, jadi
   skrip itu menulis `HadirDesktop.exe` (dan sandarannya) SAHAJA: tiada padam
-  rekursif, tiada nama fail data dalam mana-mana arahan, dan
+  rekursif, tiada nama fail data dalam mana-mana arahan (subfolder data
+  `enjin\` tidak disentuh), dan
   `%LOCALAPPDATA%/HADIR-MOEIS-Companion/` (termasuk `profil-pelayar/` yang
   memegang sesi MOEIS) tidak disentuh langsung. Panduan pengguna + rollback:
   `desktop/KEMASKINI.md`.
 - **Kredensial idMe + log masuk automatik atas-permintaan (lalai MATI).**
-  Shell kini berkongsi storan kredensial companion (`kredensial.dat`, DPAPI
-  CurrentUser entropy null — format SERASI, disahkan baca-sahaja tanpa cetak
-  nilai). Dialog "Akaun idMe" (medan bertopeng, "Simpan pada PC ini", "Padam
+  Shell memakai format kredensial companion (`kredensial.dat`, DPAPI
+  CurrentUser entropy null — format SERASI), tetapi failnya kini milik Desktop
+  sendiri (`%LOCALAPPDATA%\HadirDesktop\enjin\kredensial.dat`, disalin sekali
+  oleh `MigrasiDataCompanion`; lihat di atas). Dialog "Akaun idMe" (medan bertopeng, "Simpan pada PC ini", "Padam
   kredensial", status pengguna tersamar) + aliran tulen `IdMeLoginFlow` +
   jambatan `WebView2IdMeLoginDom` memandu log masuk DALAM WebView2 terbenam
   dengan pintu keselamatan yang sama. Permintaan sahaja (`IdMeLoginDemand`):
@@ -831,12 +994,14 @@ lalauan wajib (lihat butiran jaluran di bawah).
      pengesahan: data yang sudah padan tetapi badge belum sah tetap jatuh ke
      langkah 5 (kemaskini → dialog → `.simpansah`). Langkah 4 ialah gelung atas
      senarai KOSONG, jadi aliran tidak mengubah satu pun nilai borang — tetapi
-     langkah 5 tetap menghantar SELURUH borang, jadi **langkah 3b** membaca
-     dahulu kategori/sebab setiap murid tugasan yang sudah tidak hadir
-     (`BacaSebabMurid` + `PadananDropdown.Padan`) dan BERHENTI
-     (`kategori-sebab-tidak-padan`, tiada tulisan) jika borang itu tidak
-     sepadan. Mengesahkan ialah dakwaan bahawa rekod itu betul; ia tidak boleh
-     dibuat ke atas data yang tidak pernah diperiksa.
+     langkah 5 tetap menghantar SELURUH borang. Sebelum laluan pantas
+     `tidak-berubah` atau sebarang Simpan/Simpan & Sahkan, aliran membaca
+     kategori/sebab SETIAP murid tugasan yang sudah tidak hadir
+     (`BacaSebabMurid` + `PadananDropdown.Padan`) tanpa mengubah borang.
+     Nilai hilang, tidak boleh dibaca atau tidak padan berhenti sebagai
+     `kategori-sebab-tidak-padan` tanpa kejayaan, tulisan atau pengesahan.
+     Mesej kegagalan hanya menyebut ketidakpadanan secara umum; tiada ID,
+     nama, IC, URL, nilai kategori/sebab atau rahsia digemakan.
   2. **Selepas** — dalam baca-semula wajib, `VerifikasiPenghantaran.PengesahanPelayan`
      hanya `true` apabila badge berbunyi "TELAH DISAHKAN" pada dokumen yang
      baru dimuat semula. Baris yang betul membuktikan DATA, bukan penerimaan
@@ -1339,6 +1504,7 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 25 September 2026 | 2.24 / desktop 1.0.13 (diterbitkan) | HADIR Desktop kini memiliki konfigurasi backend dan kredensial idMe dalam `%LOCALAPPDATA%\HadirDesktop\enjin\`. `MigrasiDataCompanion` menyalinnya sekali, bait demi bait, daripada folder Companion: idempoten, gagal-tertutup, tidak menimpa data Desktop yang sah, tidak memadam fail Companion, dan pulih dengan selamat jika terputus separuh jalan. Fallback loopback 8747 dibuang daripada runtime; `TiadaBackendSource` melaporkan "tiada backend" dan tidak menghantar apa-apa. Semakan bebas (TOLAK) dibaiki: (1) `PagarKonfigurasiBackend` menolak setiap panggilan senarai/klaim apabila konfigurasi Desktop dipadam, rosak atau bertukar selepas lancar; (2) persaraan memerlukan klien aktif, cap jari sama dan migrasi muktamad; (3) penanda `migrasi-backend.belum-selesai` membuat stor gagal-tertutup, dan klien dibina hanya selepas migrasi backend muktamad; (4) "Pulihkan" tidak menimpa nilai Run lain, mengesahkan tulisan dengan bacaan semula, dan mengekalkan sandaran pada setiap kegagalan; (5) kredensial perlu frasa kunci keselamatan untuk dimuktamadkan. Semakan bebas kedua (TOLAK) dibaiki: (A) pagar konfigurasi juga dijalankan sejurus sebelum setiap `HttpClient.SendAsync` (termasuk cubaan semula selepas jeda) dan sebelum setiap tulisan portal MOEIS; klaim yang dipegang dilepaskan jika tulisan disekat, dan permintaan/tulisan yang sudah bermula diakui tidak boleh ditarik balik; (B) kemuktamadan migrasi bergantung pada `migrasi-companion.json` yang ditulis dan dibaca semula. Kegagalan rekod memberi `Ralat` dan mengekalkan penanda `muktamad:*`, jadi stor backend/kredensial gagal-tertutup dan tiada import semula; (C) sandaran autostart pertama tidak pernah ditimpa, nilai Run dibaca semula sejurus sebelum dipadam dan disemak tiada selepasnya, dengan had OS (tiada banding-dan-padam atomik) dinyatakan. Semakan bebas ketiga (TOLAK) dibaiki: (1) penanda `menyalin` dengan data Desktop yang tiada/tidak sah kini memberi `PerluPemulihan` (gagal-tertutup, tiada import semula automatik; pemulihan dengan menyimpan dalam Desktop). Salinan utuh dimuktamadkan tanpa salinan semula; (2) pagar konfigurasi disemak semula sejurus sebelum klik Simpan / Simpan & Sahkan (`disekat-pagar`, klaim dilepaskan); (3) laporan keputusan yang gagal kini eksplisit (`laporan-gagal`); klaim dikekalkan, dan kitaran berikutnya menuntut semula serta membaca MOEIS sebelum sebarang laporan atau tulisan. Keputusan lama tidak disimpan atau dimainkan semula. Semakan bebas keempat (TOLAK) dibaiki: (1) keputusan lama tidak pernah melengkapkan tugasan yang dicipta semula dengan ID sama; setiap klaim menjalankan bacaan MOEIS baharu, dan hanya keadaan yang disahkan segar boleh dilaporkan. Kegagalan baca tidak melaporkan kejayaan dan tidak menekan Simpan; (2) butang eksplisit "Pulihkan tetapan rosak" mengganti fail backend Desktop yang rosak selepas sandaran disahkan, dengan URL penuh dan rahsia baharu, tanpa Companion dan tanpa klien dalam proses semasa (mula semula diperlukan). WebView2 terbenam turut membatalkan `LaunchingExternalUriScheme`. Tetapan Tempatan memaparkan status migrasi dan menawarkan persaraan autostart `HADIRMoeisCompanion` yang eksplisit, bersandaran dan boleh dipulihkan. | `dotnet test desktop/HadirDesktop.sln`: ujian baharu memakai folder sementara, DPAPI rekaan dan registry palsu. Tiada registry, proses, fail pengguna, kredensial sebenar, portal, backend atau kehadiran disentuh. Proses Companion yang sedang berjalan tidak dihentikan. |
 | 24 September 2026 | 2.23 / web 1.11.37 | Kad **Semak Kehadiran** menunjukkan empat keadaan: **Belum diisi** merah; **Tidak lengkap** kuning jika rekod separa atau sebab tidak hadir tiada/tidak sah; **Telah diisi** hijau muda selepas simpan lengkap; **Selesai MOEIS** hijau pekat hanya dengan status tugasan `berjaya` dan bilangan tidak hadir sepadan. Simpanan baharu membuang bukti MOEIS lama kelas itu. | Ujian status dengan fixture sintetik, ujian warna CSS, dan semakan UI lebar telefon; tiada rekod kehadiran atau tugasan MOEIS sebenar diubah |
 | 24 September 2026 | 2.22 / web 1.11.36 / Apps Script @121 (diterbitkan) | Kad Hantar ke MOEIS memaparkan "Belum lengkap" merah sehingga semua murid aktif kelas bernilai 0/1 untuk tarikh hari ini (`hadirMoeisKehadiranKelasDisimpan_`; kosong, ruang, `null`/`undefined` atau nilai lain = belum disimpan). Laluan admin `moeisJobBuat` kini, di bawah `ScriptLock` yang sama dan sebelum membaca/menulis `HADIR_MOEIS_JOB`, menolak dengan "Kehadiran kelas belum disimpan sepenuhnya" jika mana-mana murid aktif belum 0/1 atau lajur hari ini belum wujud. Kedua-dua laluan membaca sel kehadiran dengan `getValues()` (mentah), bukan `getDisplayValues()`, supaya nilai seperti `0.4` yang dipapar `0` tidak dikira disimpan/tidak hadir; laluan dalaman dari `hadirSimpanKehadiran_` (`muridSimpanan`) tidak berubah. Label "Belum dihantar"/"Gagal" merah walaupun kad `pending`, dan butang Hantar ditahan jika simpanan hari ini belum disahkan. | Ujian menggunakan fixture sintetik; tiada data kehadiran produksi diubah. |
 | 23 September 2026 | 2.21 / desktop 1.0.12 / Apps Script @120 (diterbitkan); PWA 1.11.35 kekal | Simpanan kehadiran dan segar/batal job kini satu `ScriptLock`; klaim tidak boleh mengambil snapshot lama. Status `sedang_dihantar`/`tersimpan` menolak simpanan sebelum tulisan dan mengekalkan lease. Sifar tidak hadir memadam hanya job `menunggu`; sejarah gagal/berjaya dikekalkan. Simpanan DPAPI yang gagal sebelum penggantian pertama membuang penanda sementara, kegagalan selepas penggantian pertama mengekalkannya. Selang Desktop kekal 10 minit; perubahan PWA 1.11.36 yang belum diterbitkan dibatalkan. Dialog tetapan Windows kekal tanpa Companion. | Ujian VM/Windows lulus; smoke POST kaedah tidak sah pada Apps Script pulang 302→200 tanpa mutasi; Desktop 1.0.12 berjalan dengan status backend/API dan rahsia tersedia. Tiada rekod kehadiran sebenar dihantar; E2E guru→MOEIS belum dibuat. |

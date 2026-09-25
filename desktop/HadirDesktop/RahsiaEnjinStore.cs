@@ -45,26 +45,27 @@ public interface IRahsiaEnjinStore
 }
 
 /// <summary>
-/// Reads the companion engine's OWN stored configuration so the desktop app can
-/// take the engine's place on the wire:
+/// HADIR Desktop's OWN backend configuration, in the same file formats the
+/// companion engine used so a one-time byte copy (<see cref="MigrasiDataCompanion"/>)
+/// carries it over unchanged:
 ///
 ///   * <c>rahsia.dat</c> — a DPAPI (CurrentUser, NULL optional entropy) blob
 ///     whose plaintext is the JSON <c>{rahsiaEnjin, klien:[...]}</c>
 ///     (<c>companion/src/simpanan.mjs</c>). The exact same DPAPI shape as
-///     <see cref="DpapiKredensialIdMeStore"/>, which is already proven
-///     byte-compatible with the Node side on this machine.
+///     <see cref="DpapiKredensialIdMeStore"/>.
 ///   * <c>tetapan.json</c> — plaintext JSON carrying <c>apiUrl</c>
 ///     (<c>companion/src/tetapan.mjs</c>).
 ///
-/// Both live in <c>%LOCALAPPDATA%/HADIR-MOEIS-Companion/</c>.
+/// Both live in <c>%LOCALAPPDATA%/HadirDesktop/enjin/</c>
+/// (<see cref="LaluanDataDesktop.DirEnjin"/>). The companion's folder is read
+/// only by the migration, never by this store.
 ///
 /// FAIL CLOSED, in every direction: a missing file, a blob that will not
 /// decrypt, JSON that will not parse, an empty secret, or an <c>apiUrl</c> that
-/// is not an allowlisted HTTPS Apps Script host all yield <c>null</c>. There is
+/// is not a complete HTTPS Apps Script Web App endpoint all yield <c>null</c>. There is
 /// no plaintext fallback and no default URL — a corrupt config can never become
 /// a submission, and a tampered <c>apiUrl</c> can never redirect the engine
-/// secret to another host (the reason <c>sahkanApiUrl</c> exists on the Node
-/// side; this is a faithful port of it).
+/// secret to another host or a non-deployed path.
 ///
 /// Settings edits preserve all other JSON properties and never touch pairings.
 /// Neither the secret nor the URL is ever logged, returned in a status string,
@@ -72,12 +73,13 @@ public interface IRahsiaEnjinStore
 /// </summary>
 public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
 {
-    /// <summary>Port of <c>HOS_API_DIBENARKAN</c> in companion/src/tetapan.mjs.</summary>
-    public static readonly string[] HosApiDibenarkan = { "script.google.com", "script.googleusercontent.com" };
+    /// <summary>Stable deployed Web App host (redirect hosts are not base endpoints).</summary>
+    public static readonly string[] HosApiDibenarkan = { "script.google.com" };
 
     private readonly string _laluanRahsia;
     private readonly string _laluanTetapan;
     private readonly string _laluanPenanda;
+    private readonly string _laluanPenandaMigrasi;
     private readonly object _simpanLock = new();
     private readonly Action? _selepasPenandaDitulis;
 
@@ -90,7 +92,8 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
     {
         _laluanRahsia = Path.Combine(dirData, "rahsia.dat");
         _laluanTetapan = Path.Combine(dirData, "tetapan.json");
-        _laluanPenanda = Path.Combine(dirData, "tetapan-desktop-belum-selesai");
+        _laluanPenanda = Path.Combine(dirData, MigrasiDataCompanion.PenandaStoreBackend);
+        _laluanPenandaMigrasi = Path.Combine(dirData, MigrasiDataCompanion.PenandaMigrasiBackend);
     }
 
     internal DpapiRahsiaEnjinStore(string dirData, Action selepasPenandaDitulis) : this(dirData)
@@ -98,10 +101,8 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         _selepasPenandaDitulis = selepasPenandaDitulis;
     }
 
-    /// <summary>companion/src/tetapan.mjs <c>NAMA_FOLDER_DATA</c>.</summary>
-    public static string DirDataLalai() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "HADIR-MOEIS-Companion");
+    /// <summary>Desktop-owned data dir (<c>%LOCALAPPDATA%/HadirDesktop/enjin</c>).</summary>
+    public static string DirDataLalai() => LaluanDataDesktop.DirEnjin();
 
     /// <summary>Only the non-secret URL may be prefilled in a settings dialog.</summary>
     public string? BacaApiUrlUntukPaparan() => BacaApiUrl();
@@ -113,7 +114,7 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
     /// </summary>
     public void Simpan(string apiUrl, string? rahsiaBaharu)
     {
-        if (!SahkanApiUrl(apiUrl)) throw new InvalidOperationException("URL API mesti HTTPS pada hos Apps Script yang dibenarkan.");
+        if (!SahkanApiUrl(apiUrl)) throw new InvalidOperationException("URL API mesti endpoint Apps Script Web App /macros/s/{id}/exec yang sah.");
         lock (_simpanLock)
         {
             JsonObject tetapan = BacaObjekJson(_laluanTetapan, dilindungi: false);
@@ -160,6 +161,90 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         }
     }
 
+    /// <summary>
+    /// PEMULIHAN EKSPLISIT oleh pemilik bagi fail backend Desktop yang rosak,
+    /// separa, atau ditinggalkan oleh simpanan yang terputus. Tidak pernah
+    /// dipanggil secara automatik, dan tidak pernah membaca atau mengimport
+    /// data Companion — stor ini hanya mengenali folder Desktopnya sendiri.
+    ///
+    /// Syarat: URL Apps Script PENUH yang sah DAN rahsia enjin yang BARU
+    /// dimasukkan (tiada "kekalkan rahsia lama"). Susunan:
+    ///   1. sahkan input dan siapkan DPAPI sebelum menyentuh cakera;
+    ///   2. salin fail sedia ada (termasuk penanda simpanan) ke folder
+    ///      <c>sandaran-pemulihan-*</c> dan sahkan bait demi bait;
+    ///   3. tulis penanda simpanan, ganti <c>tetapan.json</c> dan
+    ///      <c>rahsia.dat</c> secara atomik;
+    ///   4. baca semula pasangan itu dan bandingkan; hanya kemudian penanda
+    ///      simpanan dibuang.
+    /// Medan yang MASIH boleh dibaca (cth pasangan <c>klien</c>) dikekalkan.
+    /// Penanda migrasi TIDAK disentuh: selagi ia wujud, <see cref="Baca"/> kekal
+    /// null, tiada klien backend dalam proses ini, dan lancaran seterusnya yang
+    /// memuktamadkan data Desktop yang sah ini.
+    /// </summary>
+    /// <returns>Nama folder sandaran (bukan rahsia).</returns>
+    public string PulihkanGantiRosak(string apiUrl, string rahsiaBaharu)
+    {
+        if (!SahkanApiUrl(apiUrl)) throw new InvalidOperationException("URL API mesti endpoint Apps Script Web App /macros/s/{id}/exec yang sah.");
+        if (string.IsNullOrWhiteSpace(rahsiaBaharu))
+            throw new InvalidOperationException("Pemulihan memerlukan rahsia enjin yang dimasukkan semula.");
+
+        lock (_simpanLock)
+        {
+            // Bahagian yang masih boleh dibaca dikekalkan; yang rosak diganti.
+            JsonObject tetapan, rahsia;
+            try { tetapan = BacaObjekJson(_laluanTetapan, dilindungi: false); } catch { tetapan = new JsonObject(); }
+            try { rahsia = BacaObjekJson(_laluanRahsia, dilindungi: true); } catch { rahsia = new JsonObject(); }
+            tetapan["apiUrl"] = apiUrl;
+            rahsia["rahsiaEnjin"] = rahsiaBaharu;
+            var tetapanBytes = Encoding.UTF8.GetBytes(tetapan.ToJsonString());
+            var rahsiaBytes = ProtectedData.Protect(Encoding.UTF8.GetBytes(rahsia.ToJsonString()), null,
+                DataProtectionScope.CurrentUser);
+
+            var dir = Path.GetDirectoryName(_laluanTetapan)!;
+            Directory.CreateDirectory(dir);
+
+            // Sandaran DISAHKAN sebelum apa-apa diganti.
+            var namaSandaran = "sandaran-pemulihan-" + DateTime.UtcNow.ToString("yyyyMMdd'T'HHmmss'Z'",
+                System.Globalization.CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..8];
+            var dirSandaran = Path.Combine(dir, namaSandaran);
+            Directory.CreateDirectory(dirSandaran);
+            foreach (var sumber in new[] { _laluanTetapan, _laluanRahsia, _laluanPenanda })
+            {
+                if (!File.Exists(sumber)) continue;
+                var asal = File.ReadAllBytes(sumber);
+                var sasaran = Path.Combine(dirSandaran, Path.GetFileName(sumber));
+                File.WriteAllBytes(sasaran, asal);
+                if (!asal.AsSpan().SequenceEqual(File.ReadAllBytes(sasaran)))
+                    throw new InvalidOperationException("Sandaran fail tetapan tidak dapat disahkan; tiada fail diganti.");
+            }
+
+            var penandaSediaAda = File.Exists(_laluanPenanda);
+            File.WriteAllText(_laluanPenanda, "pending", Encoding.ASCII);
+            var tetapanSudahDitulis = false;
+            try
+            {
+                _selepasPenandaDitulis?.Invoke();
+                TulisAtomik(_laluanTetapan, tetapanBytes);
+                tetapanSudahDitulis = true;
+                TulisAtomik(_laluanRahsia, rahsiaBytes);
+
+                // Baca semula SEBELUM penanda dibuang; tidak sepadan = kekal gagal-tertutup.
+                if (!string.Equals(BacaApiUrl(), apiUrl, StringComparison.Ordinal)
+                    || !string.Equals(BacaRahsia(), rahsiaBaharu, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Tetapan yang dipulihkan tidak sepadan selepas dibaca semula; penanda dikekalkan.");
+                File.Delete(_laluanPenanda);
+            }
+            catch
+            {
+                // Gagal sebelum penggantian pertama: fail lama kekal utuh, dan
+                // penanda kekal seperti sebelum ini. Selepas itu: penanda kekal.
+                if (!tetapanSudahDitulis && !penandaSediaAda) File.Delete(_laluanPenanda);
+                throw;
+            }
+            return namaSandaran;
+        }
+    }
+
     private static JsonObject BacaObjekJson(string laluan, bool dilindungi)
     {
         if (!File.Exists(laluan)) return new JsonObject();
@@ -178,7 +263,8 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         catch
         {
             // Never include file contents, path, URL, or DPAPI error text.
-            throw new InvalidOperationException("Fail tetapan sedia ada rosak atau tidak dapat dibaca; simpanan dibatalkan.");
+            throw new InvalidOperationException("Fail tetapan sedia ada rosak atau tidak dapat dibaca; simpanan dibatalkan. " +
+                "Gunakan \"Pulihkan tetapan rosak\" dengan URL dan rahsia enjin yang dimasukkan semula.");
         }
     }
 
@@ -196,7 +282,22 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         }
     }
 
+    /// <summary>
+    /// Null juga apabila penanda migrasi Companion masih wujud: pasangan yang
+    /// disalin tetapi belum dimuktamadkan tidak pernah diaktifkan.
+    /// </summary>
     public TetapanBackendEnjin? Baca()
+    {
+        if (File.Exists(_laluanPenandaMigrasi)) return null;
+        return BacaPasangan();
+    }
+
+    /// <summary>
+    /// Bacaan pasangan TANPA semakan penanda migrasi — untuk pengesahan salinan
+    /// oleh <see cref="MigrasiDataCompanion"/> sahaja. Tidak boleh dipakai untuk
+    /// membina klien.
+    /// </summary>
+    internal TetapanBackendEnjin? BacaPasangan()
     {
         if (File.Exists(_laluanPenanda)) return null;
         var rahsia = BacaRahsia();
@@ -210,6 +311,8 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
 
     public StatusRahsiaEnjin Status()
     {
+        if (File.Exists(_laluanPenandaMigrasi))
+            return new StatusRahsiaEnjin { Sebab = "Migrasi backend daripada Companion belum dimuktamadkan; tiada penghantaran." };
         if (File.Exists(_laluanPenanda))
             return new StatusRahsiaEnjin { Sebab = "Simpanan tetapan tempatan belum selesai; tiada penghantaran." };
         var ada = File.Exists(_laluanRahsia);
@@ -226,7 +329,7 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         var apiOk = BacaApiUrl() is not null;
 
         var sebab = rahsiaOk
-            ? (apiOk ? "" : "apiUrl dalam tetapan.json tiada atau bukan hos Apps Script yang dibenarkan; tiada penghantaran.")
+            ? (apiOk ? "" : "apiUrl dalam tetapan.json tiada atau bukan endpoint Apps Script Web App yang sah; tiada penghantaran.")
             : "Fail rahsia enjin tidak dapat dinyahsulit/dibaca pada akaun Windows ini; tiada penghantaran.";
 
         return new StatusRahsiaEnjin
@@ -293,8 +396,8 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
     }
 
     /// <summary>
-    /// PURE reader + validator of <c>tetapan.json</c>. Port of
-    /// <c>sahkanApiUrl</c>: HTTPS, no userinfo, host on the allowlist. Anything
+    /// PURE reader + validator of <c>tetapan.json</c>: a full deployed Web App
+    /// endpoint, with HTTPS, safe deployment ID and no extra URL components. Anything
     /// else is <c>null</c> — the engine secret is never sent to an unknown host.
     /// </summary>
     public static string? AmbilApiUrl(string? jsonTetapan)
@@ -317,18 +420,20 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         return SahkanApiUrl(mentah) ? mentah : null;
     }
 
-    /// <summary>Faithful port of <c>sahkanApiUrl</c> (companion/src/tetapan.mjs).</summary>
+    /// <summary>Accept only a complete deployed Apps Script Web App endpoint.</summary>
     public static bool SahkanApiUrl(string? nilai)
     {
         if (string.IsNullOrWhiteSpace(nilai)) return false;
         if (!Uri.TryCreate(nilai, UriKind.Absolute, out var u)) return false;
         if (u.Scheme != Uri.UriSchemeHttps) return false;
         if (!string.IsNullOrEmpty(u.UserInfo)) return false;
-        foreach (var hos in HosApiDibenarkan)
-        {
-            if (string.Equals(u.Host, hos, StringComparison.OrdinalIgnoreCase)) return true;
-        }
-        return false;
+        if (!u.IsDefaultPort || !string.Equals(u.Host, "script.google.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+        // Match the original input: Uri normalization must not turn an unsafe
+        // encoded/whitespace path into an apparently valid deployment ID.
+        return System.Text.RegularExpressions.Regex.IsMatch(nilai,
+            @"\Ahttps://script\.google\.com(?::443)?/macros/s/[A-Za-z0-9_-]+/exec\z",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     }
 }
 

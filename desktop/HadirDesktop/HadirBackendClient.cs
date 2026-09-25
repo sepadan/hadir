@@ -171,7 +171,15 @@ public sealed class HadirBackendClient : IHadirBackendClient
     private readonly IReadOnlyList<TimeSpan> _jedaCubaSemula;
     private readonly Func<TimeSpan, CancellationToken, Task> _tunggu;
     private readonly int _cubaanBaca;
+    private readonly Func<string, string?, string?>? _pagarSebelumHantar;
 
+    /// <param name="pagarSebelumHantar">
+    /// Dipanggil SEJURUS sebelum SETIAP <c>HttpClient.SendAsync</c>, termasuk
+    /// setiap cubaan semula selepas jeda: (kaedah RPC, id tugasan atau null) →
+    /// <c>null</c> = dibenarkan, selain itu sebab bebas nilai untuk MENOLAK tanpa
+    /// I/O rangkaian (<see cref="HadirBackendException"/> kekal, tidak dicuba
+    /// semula). Permintaan yang SUDAH dihantar tidak boleh ditarik balik.
+    /// </param>
     public HadirBackendClient(
         HttpClient http,
         string apiUrl,
@@ -179,8 +187,10 @@ public sealed class HadirBackendClient : IHadirBackendClient
         TimeSpan? tamatMasa = null,
         IReadOnlyList<TimeSpan>? jedaCubaSemula = null,
         Func<TimeSpan, CancellationToken, Task>? tunggu = null,
-        int? cubaanBaca = null)
+        int? cubaanBaca = null,
+        Func<string, string?, string?>? pagarSebelumHantar = null)
     {
+        _pagarSebelumHantar = pagarSebelumHantar;
         _http = http ?? throw new ArgumentNullException(nameof(http));
         _apiUrl = apiUrl ?? throw new ArgumentNullException(nameof(apiUrl));
         _rahsia = rahsia ?? throw new ArgumentNullException(nameof(rahsia));
@@ -201,7 +211,7 @@ public sealed class HadirBackendClient : IHadirBackendClient
     /// </summary>
     public async Task<IReadOnlyList<KerjaPenuh>> SenaraiAsync(CancellationToken ct = default)
     {
-        var hasil = await PanggilAsync("moeisJobSenarai", new object?[] { "", _rahsia }, bacaTulen: true, ct).ConfigureAwait(false);
+        var hasil = await PanggilAsync("moeisJobSenarai", null, new object?[] { "", _rahsia }, bacaTulen: true, ct).ConfigureAwait(false);
         return BacaSenarai(hasil);
     }
 
@@ -214,20 +224,20 @@ public sealed class HadirBackendClient : IHadirBackendClient
             _ => false,
         };
 
-        var hasil = await PanggilAsync("moeisJobKlaim", new object?[] { id, pemilik, benarkanCubaSemula, _rahsia }, bacaTulen: false, ct)
+        var hasil = await PanggilAsync("moeisJobKlaim", id, new object?[] { id, pemilik, benarkanCubaSemula, _rahsia }, bacaTulen: false, ct)
             .ConfigureAwait(false);
         return BacaKlaim(hasil);
     }
 
     public Task LepasAsync(string id, string pemilik, CancellationToken ct = default) =>
-        PanggilAsync("moeisJobLepas", new object?[] { id, pemilik, _rahsia }, bacaTulen: false, ct);
+        PanggilAsync("moeisJobLepas", id, new object?[] { id, pemilik, _rahsia }, bacaTulen: false, ct);
 
     public Task SelesaiAsync(string id, string keputusan, string mesej, int? bilHadirSelepas, string pemilik, CancellationToken ct = default)
     {
         // `bilHadirSelepas ?? ''` in the reference: an unknown count is the
         // EMPTY STRING, never 0 — 0 would assert "no student present".
         object bil = bilHadirSelepas.HasValue ? bilHadirSelepas.Value : "";
-        return PanggilAsync("moeisJobSelesai",
+        return PanggilAsync("moeisJobSelesai", id,
             new object?[] { id, keputusan, mesej ?? "", bil, pemilik ?? "", _rahsia }, bacaTulen: false, ct);
     }
 
@@ -356,7 +366,7 @@ public sealed class HadirBackendClient : IHadirBackendClient
     /// EXACTLY once. Between read attempts it waits the exponential ladder
     /// (2 s, then 6 s).
     /// </summary>
-    private async Task<string> PanggilAsync(string kaedah, object?[] argumen, bool bacaTulen, CancellationToken ct)
+    private async Task<string> PanggilAsync(string kaedah, string? idTugasan, object?[] argumen, bool bacaTulen, CancellationToken ct)
     {
         var cubaanMaks = bacaTulen ? _cubaanBaca : 1;
         Exception? ralatTerakhir = null;
@@ -366,7 +376,7 @@ public sealed class HadirBackendClient : IHadirBackendClient
             ct.ThrowIfCancellationRequested();
             try
             {
-                return await SekaliAsync(kaedah, argumen, ct).ConfigureAwait(false);
+                return await SekaliAsync(kaedah, idTugasan, argumen, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -402,7 +412,7 @@ public sealed class HadirBackendClient : IHadirBackendClient
         return _jedaCubaSemula[indeks];
     }
 
-    private async Task<string> SekaliAsync(string kaedah, object?[] argumen, CancellationToken ct)
+    private async Task<string> SekaliAsync(string kaedah, string? idTugasan, object?[] argumen, CancellationToken ct)
     {
         var badan = JsonSerializer.Serialize(new { mode = "hadir", kaedah, argumen });
 
@@ -416,6 +426,17 @@ public sealed class HadirBackendClient : IHadirBackendClient
         };
         request.Headers.UserAgent.Clear();
         request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+
+        // Pagar konfigurasi SEJURUS sebelum I/O rangkaian — setiap cubaan,
+        // termasuk selepas jeda cubaan semula. Penolakan = kekal (tiada cubaan
+        // semula) dan tiada bait dihantar. Pagar yang melontar juga menolak.
+        if (_pagarSebelumHantar is not null)
+        {
+            string? tolak;
+            try { tolak = _pagarSebelumHantar(kaedah, idTugasan); }
+            catch (Exception ex) { tolak = "Pagar konfigurasi gagal (" + ex.GetType().Name + "); tiada panggilan backend."; }
+            if (tolak is not null) throw new HadirBackendException(tolak);
+        }
 
         HttpResponseMessage response;
         try
@@ -559,12 +580,38 @@ public sealed class BackendKerjaPenuhSource : IKerjaPenuhSource
 }
 
 /// <summary>
+/// Used when HADIR Desktop has NO readable backend configuration of its own.
+/// Answers "tidak dapat dipastikan" for demand AND the full list, so nothing is
+/// claimed, typed or submitted. It deliberately does NOT fall back to the old
+/// companion engine on 127.0.0.1:8747 — a missing Desktop config must be
+/// visible as "no backend", never silently served by another process.
+/// </summary>
+public sealed class TiadaBackendSource : IKerjaHariIniSource, IKerjaPenuhSource
+{
+    public const string SebabLalai =
+        "Tiada konfigurasi backend HADIR Desktop yang sah; tiada klaim atau penghantaran (Companion tidak digunakan).";
+
+    private readonly string _sebab;
+
+    public TiadaBackendSource(string? sebab = null)
+    {
+        _sebab = string.IsNullOrWhiteSpace(sebab) ? SebabLalai : SebabLalai + " " + sebab.Trim();
+    }
+
+    Task<PermintaanKerja> IKerjaHariIniSource.SemakAsync(CancellationToken ct) =>
+        Task.FromResult(PermintaanKerja.TidakPasti(_sebab));
+
+    Task<SenaraiKerjaPenuh> IKerjaPenuhSource.SemakAsync(CancellationToken ct) =>
+        Task.FromResult(SenaraiKerjaPenuh.TidakPasti(_sebab));
+}
+
+/// <summary>
 /// The DEMAND seam read straight from the HADIR backend — the same "is there an
 /// unfinished MOEIS task TODAY?" answer <see cref="LoopbackKerjaHariIniSource"/>
 /// gives, but answered by Apps Script through <see cref="IHadirBackendClient"/>,
-/// so the desktop needs no companion engine. This is the last loopback
-/// dependency to fall: with both demand and submission on the backend client,
-/// the Node engine can be switched off.
+/// so the desktop needs no companion engine. With both demand and submission
+/// on the backend client, the runtime has no loopback path at all; a PC with
+/// no Desktop config gets <see cref="TiadaBackendSource"/> instead.
 ///
 /// A failed read is <see cref="PermintaanKerja.TidakPasti"/> — never "no work" —
 /// so a broken backend can never be read as "nothing to send".

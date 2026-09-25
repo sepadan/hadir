@@ -960,7 +960,7 @@ public class BarStatusBersihTests
     /// dan rentetan tak-berpasangan menelan baki fail (gagal merah-jujur —
     /// binaan C# akan gagal dahulu).
     /// </summary>
-    private static string BuangKomen(string sumber)
+    internal static string BuangKomen(string sumber)
     {
         // Semua pemisah baris C# (CR, LF, CRLF, NEL U+0085, LS U+2028, PS
         // U+2029) -> \n. Tanpa ini, "#if false\r#if true" menjadi SATU baris

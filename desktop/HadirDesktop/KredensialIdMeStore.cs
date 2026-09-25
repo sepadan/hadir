@@ -40,7 +40,7 @@ public sealed record KredensialStatus
     public bool KunciAda { get; init; }
 }
 
-/// <summary>Shared idMe credential store (read/write the SAME DPAPI entry as the companion).</summary>
+/// <summary>idMe credential store (Desktop-owned DPAPI file, companion-compatible format).</summary>
 public interface IKredensialIdMeStore
 {
     /// <summary>Persist the credential. Throws if any field is missing. Returns no value.</summary>
@@ -63,16 +63,16 @@ public interface IKredensialIdMeStore
 }
 
 /// <summary>
-/// DPAPI (CurrentUser) credential store, SHARED with the companion engine.
+/// DPAPI (CurrentUser) credential store OWNED by HADIR Desktop, at
+/// <c>LocalApplicationData/HadirDesktop/enjin/kredensial.dat</c>.
 ///
-/// The companion (Node) writes <c>kredensial.dat</c> under
-/// <c>LocalApplicationData/HADIR-MOEIS-Companion/</c> using PowerShell
-/// <c>[System.Security.Cryptography.ProtectedData]::Protect($b, $null,
+/// The format is the companion engine's (Node) <c>kredensial.dat</c> format:
+/// PowerShell <c>[System.Security.Cryptography.ProtectedData]::Protect($b, $null,
 /// [DataProtectionScope]::CurrentUser)</c> — i.e. DPAPI CurrentUser with NULL
-/// optional entropy. This store reads/writes the SAME file with .NET 8
-/// <see cref="ProtectedData"/> passing <c>null</c> entropy, so the two stores
-/// are byte-compatible (verified empirically against the live blob: decrypts,
-/// JSON parses, all three fields present). There is NO plaintext fallback: a
+/// optional entropy. This store uses .NET 8 <see cref="ProtectedData"/> with
+/// <c>null</c> entropy, so an existing companion blob is carried over by a
+/// one-time byte copy (<see cref="MigrasiDataCompanion"/>); the companion's own
+/// file is never read or written here. There is NO plaintext fallback: a
 /// failed unprotect/parse yields <c>null</c> / <c>Rosak=true</c>, never a guess.
 /// </summary>
 public sealed class DpapiKredensialIdMeStore : IKredensialIdMeStore
@@ -83,6 +83,7 @@ public sealed class DpapiKredensialIdMeStore : IKredensialIdMeStore
     };
 
     private readonly string _laluan;
+    private readonly string _laluanPenandaMigrasi;
 
     public DpapiKredensialIdMeStore() : this(LaluanLalai())
     {
@@ -92,15 +93,19 @@ public sealed class DpapiKredensialIdMeStore : IKredensialIdMeStore
     public DpapiKredensialIdMeStore(string laluan)
     {
         _laluan = laluan;
+        _laluanPenandaMigrasi = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(laluan)) ?? "",
+            MigrasiDataCompanion.PenandaMigrasiKredensial);
     }
 
     /// <summary>
-    /// Companion's shared data dir + file (companion/src/tetapan.mjs
-    /// NAMA_FOLDER_DATA = "HADIR-MOEIS-Companion"; companion/src/kredensial.mjs).
+    /// Migrasi kredensial daripada Companion belum dimuktamadkan (rekod tahan
+    /// lama belum disahkan). Selagi benar, stor ini melaporkan TIADA kredensial
+    /// kepada log masuk — walaupun blob yang disalin sah.
     /// </summary>
-    private static string LaluanLalai() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "HADIR-MOEIS-Companion", "kredensial.dat");
+    public bool MigrasiBelumSelesai => File.Exists(_laluanPenandaMigrasi);
+
+    /// <summary>Desktop-owned credential file (<see cref="LaluanDataDesktop.DirEnjin"/>).</summary>
+    public static string LaluanLalai() => Path.Combine(LaluanDataDesktop.DirEnjin(), "kredensial.dat");
 
     public void Simpan(string pengguna, string kataLaluan, string kunciKeselamatan)
     {
@@ -133,7 +138,13 @@ public sealed class DpapiKredensialIdMeStore : IKredensialIdMeStore
         if (!string.IsNullOrEmpty(direktori)) KunciFolder(direktori);
     }
 
-    public KredensialIdMe? Baca()
+    public KredensialIdMe? Baca() => MigrasiBelumSelesai ? null : BacaTanpaPenandaMigrasi();
+
+    /// <summary>
+    /// Bacaan TANPA semakan penanda migrasi — untuk pengesahan salinan oleh
+    /// <see cref="MigrasiDataCompanion"/> sahaja; tidak pernah untuk log masuk.
+    /// </summary>
+    internal KredensialIdMe? BacaTanpaPenandaMigrasi()
     {
         try
         {
@@ -151,7 +162,7 @@ public sealed class DpapiKredensialIdMeStore : IKredensialIdMeStore
 
     public KredensialStatus Status()
     {
-        if (!File.Exists(_laluan))
+        if (MigrasiBelumSelesai || !File.Exists(_laluan))
         {
             return new KredensialStatus { Ada = false, Rosak = false, PenggunaSamar = "", KunciAda = false };
         }
@@ -173,7 +184,7 @@ public sealed class DpapiKredensialIdMeStore : IKredensialIdMeStore
         };
     }
 
-    public bool Ada() => File.Exists(_laluan);
+    public bool Ada() => !MigrasiBelumSelesai && File.Exists(_laluan);
 
     public void Padam()
     {
@@ -199,7 +210,7 @@ public sealed class DpapiKredensialIdMeStore : IKredensialIdMeStore
     /// companion's <c>kunciFolderIcacls</c>. Failure never blocks the store (the
     /// blob is already DPAPI-protected), and never leaks anything to logs.
     /// </summary>
-    private static void KunciFolder(string direktori)
+    internal static void KunciFolder(string direktori)
     {
         var pengguna = Environment.UserName;
         if (string.IsNullOrEmpty(pengguna)) return;

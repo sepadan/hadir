@@ -49,6 +49,10 @@ public interface IKerjaHariIniSource
 }
 
 /// <summary>
+/// NOT WIRED at runtime: MainForm uses <see cref="BackendKerjaHariIniSource"/>
+/// or the fail-closed <see cref="TiadaBackendSource"/> and never contacts the
+/// companion. Kept for its shared pure helpers and existing tests.
+///
 /// Read-only demand probe against the LOCAL companion engine, using the SAME
 /// authenticated loopback path as <see cref="LoopbackEngineStatusSource"/>:
 ///

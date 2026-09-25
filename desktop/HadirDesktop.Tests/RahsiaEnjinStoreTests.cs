@@ -44,7 +44,7 @@ public class RahsiaEnjinStoreTests : IDisposable
     public void Simpan_UrlSahajaGagalSebelumCommit_MembuangPenandaDanKonfigurasiLamaBolehDibaca()
     {
         TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
-        TulisTetapan("""{"apiUrl":"https://script.google.com/old"}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/macros/s/OLD-FIXTURE/exec"}""");
         var store = new DpapiRahsiaEnjinStore(_dir);
         var tetapan = Path.Combine(_dir, "tetapan.json");
         using (File.Open(tetapan, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
@@ -52,7 +52,7 @@ public class RahsiaEnjinStoreTests : IDisposable
             Assert.Throws<InvalidOperationException>(() => store.Simpan(ApiUrlSah, ""));
         }
         Assert.False(File.Exists(Path.Combine(_dir, "tetapan-desktop-belum-selesai")));
-        Assert.Equal("https://script.google.com/old", store.Baca()!.ApiUrl);
+        Assert.Equal("https://script.google.com/macros/s/OLD-FIXTURE/exec", store.Baca()!.ApiUrl);
         Assert.Equal("fixture-old", store.Baca()!.RahsiaEnjin);
     }
 
@@ -60,7 +60,7 @@ public class RahsiaEnjinStoreTests : IDisposable
     public void Simpan_GagalMenggantiFailTetapanSelepasPenanda_MembuangPenanda()
     {
         TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
-        TulisTetapan("""{"apiUrl":"https://script.google.com/old"}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/macros/s/OLD-FIXTURE/exec"}""");
         var tetapan = Path.Combine(_dir, "tetapan.json");
         FileStream? kunci = null;
         var store = new DpapiRahsiaEnjinStore(_dir,
@@ -68,7 +68,7 @@ public class RahsiaEnjinStoreTests : IDisposable
         try { Assert.Throws<UnauthorizedAccessException>(() => store.Simpan(ApiUrlSah, "")); }
         finally { kunci?.Dispose(); }
         Assert.False(File.Exists(Path.Combine(_dir, "tetapan-desktop-belum-selesai")));
-        Assert.Equal("https://script.google.com/old", store.Baca()!.ApiUrl);
+        Assert.Equal("https://script.google.com/macros/s/OLD-FIXTURE/exec", store.Baca()!.ApiUrl);
         Assert.Equal("fixture-old", store.Baca()!.RahsiaEnjin);
     }
 
@@ -76,7 +76,7 @@ public class RahsiaEnjinStoreTests : IDisposable
     public void Simpan_GagalMenggantiRahsiaSelepasTetapanDitulis_MengekalkanPenanda()
     {
         TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
-        TulisTetapan("""{"apiUrl":"https://script.google.com/old"}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/macros/s/OLD-FIXTURE/exec"}""");
         var rahsia = Path.Combine(_dir, "rahsia.dat");
         FileStream? kunci = null;
         var store = new DpapiRahsiaEnjinStore(_dir,
@@ -93,7 +93,7 @@ public class RahsiaEnjinStoreTests : IDisposable
     public void Simpan_MengekalkanMedanLainDanKlien_DanRahsiaKosongTidakMengganti()
     {
         TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[{"id":"pasangan-fixture","hash":"fixture-hash"}],"masa":7}""");
-        TulisTetapan("""{"apiUrl":"https://script.google.com/old","originDibenarkan":"https://example.test","selang":90}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/macros/s/OLD-FIXTURE/exec","originDibenarkan":"https://example.test","selang":90}""");
         var store = new DpapiRahsiaEnjinStore(_dir);
 
         store.Simpan(ApiUrlSah, "");
@@ -117,7 +117,7 @@ public class RahsiaEnjinStoreTests : IDisposable
     public void Simpan_FailRosakDanUrlTidakSah_TidakMenggantiFail()
     {
         TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
-        TulisTetapan("""{"apiUrl":"https://script.google.com/old","lain":true}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/macros/s/OLD-FIXTURE/exec","lain":true}""");
         var secretPath = Path.Combine(_dir, "rahsia.dat");
         var settingsPath = Path.Combine(_dir, "tetapan.json");
         var store = new DpapiRahsiaEnjinStore(_dir);
@@ -146,7 +146,7 @@ public class RahsiaEnjinStoreTests : IDisposable
     public void SimpananDuaFailTerputus_PenandaMenyekatBackend_SehinggaSimpanSemula()
     {
         TulisRahsia("""{"rahsiaEnjin":"fixture-old","klien":[]}""");
-        TulisTetapan("""{"apiUrl":"https://script.google.com/old"}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/macros/s/OLD-FIXTURE/exec"}""");
         var marker = Path.Combine(_dir, "tetapan-desktop-belum-selesai");
         File.WriteAllText(marker, "pending");
         var store = new DpapiRahsiaEnjinStore(_dir);
@@ -174,6 +174,21 @@ public class RahsiaEnjinStoreTests : IDisposable
         Assert.NotNull(tetapan);
         Assert.Equal("rahsia-ujian-123", tetapan!.RahsiaEnjin);
         Assert.Equal(ApiUrlSah, tetapan.ApiUrl);
+    }
+
+    [Fact]
+    public void HosAkar_DitolakOlehBacaStatusDanSimpan_TiadaFailBerubah()
+    {
+        const string akar = "https://script.google.com/";
+        TulisRahsia("""{"rahsiaEnjin":"rahsia-rekaan"}""");
+        TulisTetapan("""{"apiUrl":"https://script.google.com/"}""");
+        var store = new DpapiRahsiaEnjinStore(_dir);
+        var asal = File.ReadAllBytes(Path.Combine(_dir, "tetapan.json"));
+
+        Assert.Null(store.Baca());
+        Assert.False(store.Status().Sedia);
+        Assert.Throws<InvalidOperationException>(() => store.Simpan(akar, "rahsia-baharu-rekaan"));
+        Assert.Equal(asal, File.ReadAllBytes(Path.Combine(_dir, "tetapan.json")));
     }
 
     [Fact]
@@ -256,10 +271,19 @@ public class RahsiaEnjinStoreTests : IDisposable
     }
 
     [Theory]
-    // Allowlisted Apps Script hosts only, HTTPS only, no userinfo — a faithful
-    // port of sahkanApiUrl: a tampered apiUrl must never receive the secret.
+    // Only the complete deployed Apps Script endpoint may receive the secret.
     [InlineData("https://script.google.com/macros/s/X/exec", true)]
-    [InlineData("https://script.googleusercontent.com/macros/echo", true)]
+    [InlineData("https://script.google.com/", false)]
+    [InlineData("https://script.google.com/exec", false)]
+    [InlineData("https://script.google.com/macros/echo", false)]
+    [InlineData("https://script.googleusercontent.com/macros/echo", false)]
+    [InlineData("https://script.google.com/macros/s//exec", false)]
+    [InlineData("https://script.google.com/macros/s/a%2Fb/exec", false)]
+    [InlineData("https://script.google.com/macros/s/a b/exec", false)]
+    [InlineData("https://script.google.com/macros/s/X/exec/extra", false)]
+    [InlineData("https://script.google.com/macros/s/X/exec?q=1", false)]
+    [InlineData("https://script.google.com/macros/s/X/exec#part", false)]
+    [InlineData("https://script.google.com:444/macros/s/X/exec", false)]
     [InlineData("http://script.google.com/macros/s/X/exec", false)]
     [InlineData("https://evil.example.com/macros/s/X/exec", false)]
     [InlineData("https://script.google.com.evil.example/exec", false)]
@@ -276,8 +300,9 @@ public class RahsiaEnjinStoreTests : IDisposable
     public void AmbilApiUrl_HosTidakDibenarkan_MemulangkanNull()
     {
         Assert.Null(DpapiRahsiaEnjinStore.AmbilApiUrl("""{"apiUrl":"https://evil.example.com/exec"}"""));
-        Assert.Equal("https://script.google.com/exec",
-            DpapiRahsiaEnjinStore.AmbilApiUrl("""{"apiUrl":"https://script.google.com/exec"}"""));
+        Assert.Equal(ApiUrlSah,
+            DpapiRahsiaEnjinStore.AmbilApiUrl($$"""{"apiUrl":"{{ApiUrlSah}}"}"""));
+        Assert.Null(DpapiRahsiaEnjinStore.AmbilApiUrl("""{"apiUrl":"https://script.google.com/exec"}"""));
     }
 
     // ---------- owner id ----------

@@ -699,6 +699,37 @@ public class PenghantaranMoeisTests
         Assert.Equal(0, dom.BilKemaskini);
         Assert.Equal(0, dom.BilSimpanSah);
     }
+
+    [Theory]
+    [InlineData("U", "S2")]
+    [InlineData("S", "S2")]
+    [InlineData("", "")]
+    public async Task BadgeSudahSah_SebabAtauKategoriSediaAdaTidakPadan_TiadaKejayaanAtauSimpan(
+        string kategori, string sebab)
+    {
+        var dom = Dom("101");
+        dom.SudahTidakHadir("101", "S", "S1");
+        var baris = Assert.Single(dom.Murid);
+        baris.KategoriNilai = baris.KategoriTeks = kategori;
+        baris.SebabNilai = baris.SebabTeks = sebab;
+        dom.Simpan();
+        dom.BadgeDisahkan = true;
+
+        var hasil = await new PenghantaranMoeis(dom).HantarAsync(new TugasanPenghantaran
+        {
+            Kelas = "PRASEKOLAH", TarikhIso = "2026-09-22", Sahkan = true,
+            TidakHadir = new[] { Sakit("101") },
+        });
+
+        Assert.Equal("kategori-sebab-tidak-padan", hasil.Status);
+        Assert.False(hasil.Berjaya);
+        Assert.Equal(0, dom.BilKemaskini);
+        Assert.Equal(0, dom.BilSimpan);
+        Assert.Equal(0, dom.BilSimpanSah);
+        Assert.DoesNotContain("101", hasil.Sebab);
+        Assert.DoesNotContain("SAKIT", hasil.Sebab);
+        Assert.DoesNotContain("DEMAM", hasil.Sebab);
+    }
 }
 
 /// <summary>

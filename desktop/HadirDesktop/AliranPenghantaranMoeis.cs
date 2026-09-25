@@ -15,7 +15,8 @@ public sealed record HasilHantarKerja(
     string Sebab,
     int BilDicuba,
     int BilDilangkau,
-    IReadOnlyList<HasilPenghantaran> Hasil)
+    IReadOnlyList<HasilPenghantaran> Hasil,
+    int BilLaporanGagal = 0)
 {
     /// <summary>True only when at least one task was attempted and every attempt was CONFIRMED.</summary>
     public bool Berjaya => Status == AliranPenghantaranMoeis.StatusDihantar;
@@ -69,6 +70,15 @@ public sealed record HasilHantarKerja(
 /// write was recorded as failed only because Apps Script answered the report
 /// with a 404 HTML page). Claim and release are never retried.
 ///
+/// When every report attempt fails after a MOEIS write, the failure is EXPLICIT
+/// (<see cref="AliranPenghantaranMoeis.StatusLaporanGagal"/>, a
+/// <c>LAPOR_GAGAL</c> log line) and the task is NOT released. NO result is
+/// retained for later replay: an old outcome can never be applied to a task
+/// whose identity the backend claim cannot prove (a same-ID recreate). The
+/// next cycle claims the task normally and the production flow reads MOEIS
+/// BEFORE any write — MOEIS already showing the confirmed state =
+/// <c>tidak-berubah</c>, no Save, and only that NEW verified result is reported.
+///
 /// The pass never throws at the caller (a faulted task in an async void caller
 /// would take the app down): an adapter that throws is recorded as a failed
 /// attempt. Cancellation is the ONE thing that propagates.
@@ -89,6 +99,12 @@ public sealed class AliranPenghantaranMoeis
     public const string StatusGagal = "gagal";
     /// <summary>A claim cycle was requested but this PC has no stable owner id.</summary>
     public const string StatusTiadaPemilik = "tiada-pemilik";
+    /// <summary>
+    /// Sekurang-kurangnya satu tulisan MOEIS berlaku tetapi laporan statusnya
+    /// kepada HADIR gagal selepas semua cubaan. Bukan <see cref="StatusDihantar"/>:
+    /// rekod HADIR belum mencerminkan tulisan itu.
+    /// </summary>
+    public const string StatusLaporanGagal = "laporan-gagal";
 
     /// <summary>Report attempts, mirroring giliran.mjs <c>laporHasil</c>.</summary>
     private const int CubaanLapor = 3;
@@ -101,7 +117,14 @@ public sealed class AliranPenghantaranMoeis
     private readonly bool _sahkan;
     private readonly IHadirBackendClient? _backend;
     private readonly Func<string> _pemilik;
+    private readonly Func<string?>? _pagarSebelumPortal;
 
+    /// <param name="pagarSebelumPortal">
+    /// Dipanggil SEJURUS sebelum setiap tulisan portal MOEIS: <c>null</c> =
+    /// dibenarkan, selain itu sebab. Apabila menolak, tiada tulisan portal dibuat
+    /// dan klaim yang sudah dipegang DILEPASKAN. Tulisan yang sudah bermula tidak
+    /// boleh dihentikan oleh pagar ini.
+    /// </param>
     public AliranPenghantaranMoeis(
         IKerjaPenuhSource sumber,
         IPenghantaranMoeis penghantar,
@@ -110,8 +133,10 @@ public sealed class AliranPenghantaranMoeis
         Action<string>? log = null,
         bool sahkan = false,
         IHadirBackendClient? backend = null,
-        Func<string>? pemilik = null)
+        Func<string>? pemilik = null,
+        Func<string?>? pagarSebelumPortal = null)
     {
+        _pagarSebelumPortal = pagarSebelumPortal;
         _sumber = sumber;
         _penghantar = penghantar;
         _dihidupkan = dihidupkan ?? (() => false);   // DEFAULT OFF
@@ -186,6 +211,7 @@ public sealed class AliranPenghantaranMoeis
 
         var hasil = new List<HasilPenghantaran>();
         var dilangkau = 0;
+        var laporanGagal = 0;
         var sebabLangkau = new List<string>();
 
         foreach (var kerja in senarai.Senarai ?? Array.Empty<KerjaPenuh>())
@@ -242,7 +268,7 @@ public sealed class AliranPenghantaranMoeis
                 };
             }
 
-            var pembinaan = PembinaTugasanPenghantaran.DaripadaKerja(sumberKerja, _sahkan);
+            var pembinaan = PembinaTugasanPenghantaran.DaripadaKerja(sumberKerja, _sahkan, _pagarSebelumPortal);
             if (!pembinaan.Boleh)
             {
                 dilangkau++;
@@ -250,6 +276,24 @@ public sealed class AliranPenghantaranMoeis
                 // Never strand a claimed task in 'sedang_dihantar'.
                 if (memegangKlaim) await LepasSenyapAsync(kerja.Id, pemilik, ct).ConfigureAwait(false);
                 continue;
+            }
+
+            // Pagar konfigurasi SEJURUS sebelum tulisan portal: konfigurasi yang
+            // ditarik/bertukar selepas klaim bermakna TIADA tulisan MOEIS. Klaim
+            // yang dipegang dilepaskan (pengecualian pemilik klaim di pagar).
+            if (_pagarSebelumPortal is not null)
+            {
+                string? tolak;
+                try { tolak = _pagarSebelumPortal(); }
+                catch (Exception ex) { tolak = "Pagar konfigurasi gagal (" + ex.GetType().Name + ")."; }
+                if (tolak is not null)
+                {
+                    dilangkau++;
+                    sebabLangkau.Add(tolak + " Tiada tulisan portal bagi tugasan ini.");
+                    _log?.Invoke("PORTAL_DISEKAT_PAGAR: id=" + kerja.Id);
+                    if (memegangKlaim) await LepasSenyapAsync(kerja.Id, pemilik, ct).ConfigureAwait(false);
+                    continue;
+                }
             }
 
             var tugasan = pembinaan.Tugasan!;
@@ -291,14 +335,22 @@ public sealed class AliranPenghantaranMoeis
                     // bilHadirSelepas is null: this adapter proves each student
                     // individually but never reads MOEIS's own present-count, and
                     // an invented number is worse than none ('' on the wire).
-                    await LaporAsync(kerja.Id, "berjaya", satu.Sebab, pemilik, ct).ConfigureAwait(false);
+                    if (!await LaporAsync(kerja.Id, "berjaya", satu.Sebab, pemilik, ct).ConfigureAwait(false))
+                    {
+                        // Tiada apa disimpan untuk dimainkan semula: kitaran seterusnya
+                        // menuntut semula dan membaca MOEIS dahulu (baca-sebelum-tulis).
+                        laporanGagal++;
+                    }
                 }
                 else if (satu.Status == "tersimpan")
                 {
                     // Saved but unverified: record it, do NOT release. Releasing
                     // would queue an automatic re-submission of a write that may
                     // already be on MOEIS (port of giliran.mjs).
-                    await LaporAsync(kerja.Id, "tersimpan", satu.Sebab, pemilik, ct).ConfigureAwait(false);
+                    if (!await LaporAsync(kerja.Id, "tersimpan", satu.Sebab, pemilik, ct).ConfigureAwait(false))
+                    {
+                        laporanGagal++;
+                    }
                 }
                 else
                 {
@@ -307,26 +359,33 @@ public sealed class AliranPenghantaranMoeis
             }
         }
 
+        var notaLaporan = laporanGagal > 0
+            ? " " + laporanGagal + " laporan keputusan kepada HADIR gagal; tugasan tidak dilepaskan dan akan dibaca semula dari MOEIS pada kitaran seterusnya (tiada keputusan lama disimpan)."
+            : "";
+
         if (hasil.Count == 0)
         {
             var sebab = dilangkau > 0
                 ? dilangkau + " tugasan belum siap dilangkau (tiada penghantaran sah dibina): " + string.Join(" ", sebabLangkau)
                 : "Tiada tugasan belum siap untuk " + hariIni + "; tiada penghantaran dibuat.";
-            return new HasilHantarKerja(StatusTiadaPenghantaran, sebab, 0, dilangkau, hasil);
+            return new HasilHantarKerja(laporanGagal > 0 ? StatusLaporanGagal : StatusTiadaPenghantaran,
+                sebab + notaLaporan, 0, dilangkau, hasil, laporanGagal);
         }
 
         var berjayaSemua = true;
         foreach (var h in hasil) if (!h.Berjaya) { berjayaSemua = false; break; }
 
         var ringkasan = hasil.Count + " tugasan dihantar (" + hasil.Count + " dicuba, " + dilangkau + " dilangkau); " +
-                        (berjayaSemua ? "semua disahkan." : "sekurang-kurangnya satu tidak disahkan — semak bukti.");
+                        (berjayaSemua ? "semua disahkan." : "sekurang-kurangnya satu tidak disahkan — semak bukti.") +
+                        notaLaporan;
 
         return new HasilHantarKerja(
-            berjayaSemua ? StatusDihantar : StatusGagal,
+            laporanGagal > 0 ? StatusLaporanGagal : berjayaSemua ? StatusDihantar : StatusGagal,
             ringkasan,
             hasil.Count,
             dilangkau,
-            hasil);
+            hasil,
+            laporanGagal);
     }
 
     /// <summary>

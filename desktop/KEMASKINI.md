@@ -3,10 +3,29 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.13 — Data milik HADIR Desktop; Companion boleh dipersarakan
+
+Terbitan 1.0.13. Tiada kebergantungan runtime pada Companion atau Edge.
+
+- Semasa lancaran pertama, URL API, rahsia enjin dan kredensial idMe disalin **sekali** daripada `%LOCALAPPDATA%\HADIR-MOEIS-Companion\` ke `%LOCALAPPDATA%\HadirDesktop\enjin\`. Fail disalin bait demi bait dan disahkan dahulu. Data Desktop yang sah tidak ditimpa, dan fail Companion tidak dipadam atau diubah. Keputusan (nama sahaja) ditulis ke `hadir-desktop.log` dan dipaparkan dalam **Tetapan Tempatan**.
+- Selepas itu Desktop membaca foldernya sendiri sahaja. Tetapan atau kredensial yang diubah dalam Companion **tidak** lagi diikuti; ubah dalam HADIR Desktop.
+- Tiada lagi fallback ke Companion (`127.0.0.1:8747`). Tanpa konfigurasi yang sah, label Backend menyatakan klaim & hantar MATI dan tiada apa dihantar.
+- Jika tetapan backend dipadam, rosak atau ditukar semasa aplikasi berjalan, HADIR Desktop tidak menghantar permintaan backend baharu (termasuk cubaan semula) dan tidak memulakan tulisan MOEIS baharu. Klaim yang sudah dipegang dilepaskan. Permintaan atau tulisan yang sudah bermula tidak boleh ditarik balik. Mulakan semula aplikasi untuk memakai tetapan baharu.
+- Jika rekod migrasi tidak dapat disimpan, tetapan dan kredensial yang disalin tidak digunakan. Rekod dicuba semula pada lancaran seterusnya tanpa menyalin semula daripada Companion.
+- Jika salinan terdahulu tidak dimuktamadkan dan datanya kini tiada dalam HADIR Desktop, tiada apa disalin semula secara automatik (status `PerluPemulihan`). Simpan tetapan/kredensial dalam HADIR Desktop, kemudian mulakan semula.
+- Jika **Simpan** menolak kerana fail tetapan backend rosak, isi URL penuh DAN rahsia enjin, kemudian tekan **Pulihkan tetapan rosak**. Fail lama disandarkan ke folder `sandaran-pemulihan-*` dahulu, dan tiada data diambil daripada Companion. **Mulakan semula HADIR Desktop** selepas itu; tiada penghantaran sebelum mula semula.
+- Selepas laporan kepada HADIR gagal, klaim dikekalkan. Kitaran seterusnya menuntut semula dan membaca MOEIS secara baharu sebelum menulis atau melapor; hanya keputusan yang baru disahkan dilaporkan. Tiada keputusan lama disimpan atau dimainkan semula. Tugasan yang dicipta semula dengan ID sama juga diperiksa terhadap keadaan portal terkini.
+- Tetapan backend disemak semula sejurus sebelum butang Simpan / Simpan & Sahkan MOEIS ditekan. Jika ia berubah semasa borang diisi, butang tidak ditekan dan tugasan dilepaskan.
+- Jika tulisan MOEIS berjaya tetapi laporannya kepada HADIR gagal, status kitaran ialah `laporan-gagal`. Bacaan MOEIS yang gagal pada kitaran berikutnya tidak melaporkan kejayaan, tidak menekan Simpan dan melepaskan klaim untuk cubaan kemudian. Baris yang sudah tidak hadir mesti mempunyai kategori/sebab yang boleh dibaca dan padan; badge disahkan sahaja tidak memadai. Keadaan yang sudah betul memberi `tidak-berubah` tanpa Simpan, manakala perubahan portal hanya boleh ditulis selepas semakan konflik dan borang serta disahkan melalui baca-semula. Dengan itu tulisan pendua dielakkan apabila rekod sudah betul.
+- Migrasi yang terputus tidak mengaktifkan tetapan yang separuh disalin. Kredensial idMe tanpa frasa kunci keselamatan tidak dipindahkan; isi semula dalam **Akaun idMe**.
+- **Matikan autostart Companion lama** hanya dibenarkan selepas HADIR Desktop benar-benar memegang klien backend yang sah (mulakan semula selepas menyimpan tetapan). **Pulihkan** tidak menimpa entri autostart lain dan mengekalkan sandaran jika pemulihan tidak dapat disahkan. Sandaran pertama tidak pernah ditimpa; jika entri autostart berubah semasa operasi, ia tidak dipadam.
+- idMe/MOEIS kekal dalam WebView2 terbenam. Tetingkap baharu dan skema luaran (cth `microsoft-edge:`) disekat.
+- Tetingkap Edge dengan amaran `--no-sandbox` datang daripada Companion lama (Playwright), bukan Desktop. Untuk menghentikannya: buka **Tetapan Tempatan** → **Matikan autostart Companion lama** (sandaran disimpan; **Pulihkan autostart Companion** membatalkannya). Proses Companion yang sedang berjalan tidak dihentikan; log keluar/mula semula Windows, atau tutup proses `node` Companion secara manual.
+
 ## 1.0.12 — Tetapan Tempatan dalam HADIR Desktop
 
 - Menu dulang **Tetapan Tempatan** membuka dialog Windows untuk URL Apps Script dan rahsia enjin. Companion dan Edge tidak diperlukan.
-- URL mesti HTTPS pada hos Apps Script yang dibenarkan. Rahsia tidak dipaparkan; biarkan kosong untuk mengekalkan nilai sedia ada. Simpanan melindungi rahsia dengan DPAPI akaun Windows semasa dan mengekalkan medan tetapan serta klien pasangan yang lain.
+- URL mesti endpoint Web App penuh `https://script.google.com/macros/s/{id-deployment}/exec` tanpa query, fragment, userinfo atau port bukan lalai. URL akar hos, `/exec` sahaja dan `script.googleusercontent.com/macros/echo` ditolak; fixture migrasi Companion memakai bentuk `/macros/s/{id}/exec` yang sama. Rahsia tidak dipaparkan; biarkan kosong untuk mengekalkan nilai sedia ada. Simpanan melindungi rahsia dengan DPAPI akaun Windows semasa dan mengekalkan medan tetapan serta klien pasangan yang lain.
 - Selepas menyimpan, **mulakan semula HADIR Desktop** supaya klien backend menggunakan tetapan baharu. Kitaran biasa berjalan setiap 10 minit apabila pilihan automatik dihidupkan.
 - Job `menunggu` disegarkan oleh Simpan kehadiran berikutnya sebelum klaim, pada baris dan ID yang sama. Simpan semua hadir membatalkan job menunggu; job yang sudah aktif menolak perubahan kehadiran sehingga selesai.
 

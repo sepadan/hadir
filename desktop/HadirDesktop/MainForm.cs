@@ -78,7 +78,7 @@ public sealed class MainForm : Form
     private readonly DevicePanel _devicePanel;
     private readonly string? _observationLogPath;
 
-    // --- idMe credential (shared DPAPI store) + demand-only auto-login ---
+    // --- idMe credential (Desktop-owned DPAPI store) + demand-only auto-login ---
     private readonly DpapiKredensialIdMeStore _kredensialStore = new();
     private readonly JsonIdMeLoginSettingsStore _idMeSettingsStore = new();
     private readonly PenolakanKredensialStateStore _penolakanStateStore = new();
@@ -87,16 +87,27 @@ public sealed class MainForm : Form
     private readonly IdMeLoginManager _loginManager;
     private readonly IdMeLoginDemand _loginDemand;
     // Read-only demand probe + demand-only portal lifecycle (default OFF).
-    // Backend-direct when the engine secret is readable, loopback only as a
-    // fallback — so the desktop needs no companion engine.
+    // Backend-direct when Desktop's own engine secret is readable; otherwise a
+    // fail-closed "no backend" source. There is NO companion/loopback fallback.
     private readonly IKerjaHariIniSource _kerjaHariIni;
     private readonly PortalLifecycle _lifecycle;
 
+    // One-time, idempotent copy of the old companion's backend config and idMe
+    // credential into %LOCALAPPDATA%\HadirDesktop\enjin. Runs BEFORE any store
+    // is read. Status names only — never a value.
+    private readonly HasilMigrasi _hasilMigrasi;
+
     // Submission pass: full task list source + WebView2 adapter + opt-in pass.
-    private readonly LoopbackKerjaPenuhSource _kerjaPenuh = new();
     private readonly DpapiRahsiaEnjinStore _rahsiaStore = new();
+    private readonly PersaraanAutostartCompanion _persaraanCompanion;
     private readonly PemilikTugasanStore _pemilikStore = new();
-    private readonly HadirBackendClient? _backendClient;
+    /// <summary>
+    /// Pagar klien backend: klien dibina sekali (hanya jika migrasi backend
+    /// muktamad), dan SETIAP panggilan backend membaca semula konfigurasi
+    /// Desktop — tiada/rosak/bertukar = tiada panggilan, tiada klaim.
+    /// </summary>
+    private readonly PagarKonfigurasiBackend _pagarBackend;
+    private readonly IHadirBackendClient? _backendClient;
     /// <summary>
     /// Cap jari konfigurasi yang dipegang oleh <see cref="_backendClient"/> ketika
     /// ia dibina. DALAM MEMORI SAHAJA: dibandingkan dengan cap konfigurasi semasa
@@ -139,6 +150,13 @@ public sealed class MainForm : Form
 
     public MainForm()
     {
+        // Mesti mendahului SEMUA bacaan stor: selepas ini Desktop hanya membaca
+        // folder datanya sendiri. Tidak pernah melontar; tidak memadam fail Companion.
+        _hasilMigrasi = new MigrasiDataCompanion().Jalankan();
+        DevAutoKitaran.TulisKe(
+            KitaranAuto.LaluanLog(),
+            DevAutoKitaran.BarisLangkah(DateTimeOffset.Now, _hasilMigrasi.Ringkasan()));
+
         _realPortal = RealPortalDevMode.FromEnvironment();
         _devAutoKitaran = DevAutoKitaran.DariPersekitaran();
         // Bina penjaga navigasi DARI TETAPAN TERSIMPAN semasa mula, bukan hanya
@@ -148,9 +166,9 @@ public sealed class MainForm : Form
         // (`_idMeSettingsStore` ialah pengawal medan, jadi ia sudah sedia di sini.)
         RebuildNavigationGuard();
 
-        // idMe auto-login plumbing (default OFF). The credential store is the
-        // SAME shared DPAPI file as the companion engine (HADIR-MOEIS-Companion/
-        // kredensial.dat). The only auto-retry stop is the owner-configurable
+        // idMe auto-login plumbing (default OFF). The credential store is
+        // Desktop's own DPAPI file (HadirDesktop/enjin/kredensial.dat, migrated
+        // once from the companion). The only auto-retry stop is the owner-configurable
         // consecutive-credential-rejection guard (0 = never stop, default 5);
         // transient failures retry indefinitely with exponential backoff. No
         // hourly/daily ceiling — a needed login is never blocked by earlier
@@ -161,9 +179,13 @@ public sealed class MainForm : Form
             _penolakanStateStore.Tulis,
             () => _idMeSettingsStore.Baca().MaksPenolakanBerturut);
         _loginDom = new WebView2IdMeLoginDom(() => _webView.CoreWebView2);
+        // Kredensial hanya dipakai selepas migrasinya MUKTAMAD (rekod tahan lama
+        // disahkan). Stor sendiri juga gagal-tertutup selagi penanda migrasi wujud.
         _loginManager = new IdMeLoginManager(
-            () => _kredensialStore.Ada(),
-            () => IdMeLoginFlow.JalankanAsync(_loginDom, _kredensialStore.Baca(), _idMeSettingsStore.Baca().BenarkanTerusTanpaFrasa),
+            () => _hasilMigrasi.Kredensial.Muktamad && _kredensialStore.Ada(),
+            () => IdMeLoginFlow.JalankanAsync(_loginDom,
+                _hasilMigrasi.Kredensial.Muktamad ? _kredensialStore.Baca() : null,
+                _idMeSettingsStore.Baca().BenarkanTerusTanpaFrasa),
             _penjaga,
             sesiSah: SesiSahProbeAsync);
         _loginDemand = new IdMeLoginDemand(_idMeSettingsStore, _loginManager, AdaKerjaMenungguAsync);
@@ -175,22 +197,44 @@ public sealed class MainForm : Form
         // the stored settings on EVERY cycle, so it survives a restart and a
         // corrupt/missing settings file reads back as OFF.
         // Claim->submit->complete talks STRAIGHT to the Apps Script backend
-        // (engine-independent) using the shared engine secret via DPAPI.
-        // Fail-closed: no readable secret/URL = no backend = no claim, no send.
-        var tetapanBackend = _rahsiaStore.Baca();
-        if (tetapanBackend != null)
+        // (engine-independent) using Desktop's own engine secret via DPAPI.
+        // Fail-closed: no readable secret/URL, or a backend migration that is not
+        // final = no backend = no claim, no send. After start, the gate re-reads
+        // the config before EVERY backend call and refuses when it was removed,
+        // corrupted or changed (the label alone is not the guard).
+        _pagarBackend = new PagarKonfigurasiBackend(
+            _rahsiaStore,
+            _hasilMigrasi.Backend.Muktamad,
+            // Pagar juga dijalankan SEJURUS sebelum setiap HttpClient.SendAsync
+            // (termasuk cubaan semula selepas jeda) di dalam klien sebenar.
+            (t, pagarRangkaian) => new HadirBackendClient(_deviceHttp, t.ApiUrl, t.RahsiaEnjin,
+                pagarSebelumHantar: pagarRangkaian));
+        _backendClient = _pagarBackend.Klien;
+        // Cap jari NILAI yang klien ini pegang, dirakam pada saat yang sama ia
+        // dibina — supaya label dapat membezakan "konfigurasi masih sama"
+        // daripada "bertukar kepada nilai lain yang juga sah".
+        _capKonfigurasiKlien = _pagarBackend.CapKlien;
+        // Demand probe and full list come from the backend client only. No
+        // config = TiadaBackendSource: "tidak dapat dipastikan", nothing sent,
+        // and the old companion on 127.0.0.1:8747 is never consulted.
+        IKerjaPenuhSource sumberPenuh;
+        if (_backendClient != null)
         {
-            _backendClient = new HadirBackendClient(_deviceHttp, tetapanBackend.ApiUrl, tetapanBackend.RahsiaEnjin);
-            // Cap jari NILAI yang klien ini pegang, dirakam pada saat yang sama
-            // ia dibina — supaya label kemudian dapat membezakan "konfigurasi
-            // masih sama" daripada "bertukar kepada nilai lain yang juga sah".
-            _capKonfigurasiKlien = CapKonfigurasiBackend.Kira(tetapanBackend.ApiUrl, tetapanBackend.RahsiaEnjin);
+            _kerjaHariIni = new BackendKerjaHariIniSource(_backendClient);
+            sumberPenuh = new BackendKerjaPenuhSource(_backendClient);
         }
-        // Demand probe also backend-direct when the secret is readable; loopback
-        // is only a fallback for a PC that has no engine secret configured yet.
-        _kerjaHariIni = _backendClient != null
-            ? new BackendKerjaHariIniSource(_backendClient)
-            : new LoopbackKerjaHariIniSource();
+        else
+        {
+            var tiadaBackend = new TiadaBackendSource(_hasilMigrasi.Backend.Muktamad
+                ? _rahsiaStore.Status().Sebab
+                : _hasilMigrasi.Backend.Sebab);
+            _kerjaHariIni = tiadaBackend;
+            sumberPenuh = tiadaBackend;
+        }
+        _persaraanCompanion = new PersaraanAutostartCompanion(
+            new RegistryRunKey(), LaluanDataDesktop.DirEnjin(),
+            // Runtime AKTIF, bukan cakera: klien sedia + cap sama + migrasi muktamad.
+            () => PersaraanAutostartCompanion.DesktopBolehAmbilAlih(_hasilMigrasi, _pagarBackend));
         // Adaptor MOEIS mesti menyentuh WebView2 di BENANG UI. Membungkus
         // panggilan JalankanAsync di bawah dengan PadaUiAsync tidak mencukupi:
         // aliran menunggu I/O backend sebenar dengan ConfigureAwait(false), jadi
@@ -199,7 +243,7 @@ public sealed class MainForm : Form
         // CoreWebView2 dihantar semula ke benang UI, bukan hanya titik masuk.
         _penghantarMoeis = new PenghantaranMoeisWebView2(() => _webView.CoreWebView2, new MarshalUiBorang(this));
         _aliranPenghantaran = new AliranPenghantaranMoeis(
-            _backendClient != null ? new BackendKerjaPenuhSource(_backendClient) : _kerjaPenuh,
+            sumberPenuh,
             _penghantarMoeis,
             dihidupkan: () => _idMeSettingsStore.Baca().HantarAuto,
             // Sahkan: pengguna 23 Sep — "sudah terisi tetapi tak disahkan.
@@ -211,7 +255,9 @@ public sealed class MainForm : Form
             // Log langkah klaim/hantar/selesai — HANYA dalam mod pembangun.
             log: LogLangkah,
             backend: _backendClient,
-            pemilik: () => _pemilikStore.Dapatkan());
+            pemilik: () => _pemilikStore.Dapatkan(),
+            // Konfigurasi ditarik/bertukar selepas klaim = tiada tulisan MOEIS.
+            pagarSebelumPortal: _pagarBackend.SemakSebelumPortal);
 
         // Demand-only lifecycle decides when AUTOMATION may probe a session,
         // type credentials, or submit. The initial WebView2 navigation now
@@ -374,6 +420,7 @@ public sealed class MainForm : Form
 
         _webView.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
         _webView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
+        _webView.CoreWebView2.LaunchingExternalUriScheme += CoreWebView2_LaunchingExternalUriScheme;
         _webView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
 
         NavigateToStartPage();
@@ -616,6 +663,19 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
+    /// Pertahanan berlapis: skema luaran (cth <c>microsoft-edge:</c>,
+    /// <c>mailto:</c>) tidak pernah dilancarkan ke aplikasi atau pelayar lain.
+    /// Penjaga navigasi sudah menolak skema bukan HTTP(S); ini menutup laluan
+    /// yang tidak melalui NavigationStarting.
+    /// </summary>
+    private void CoreWebView2_LaunchingExternalUriScheme(object? sender, CoreWebView2LaunchingExternalUriSchemeEventArgs e)
+    {
+        e.Cancel = true;
+        ShowNavBlocked(e.Uri);
+        LogObservation("external-uri-scheme", e.Uri, allowed: false);
+    }
+
+    /// <summary>
     /// Dev-only: appends one sanitized line (no query/fragment, no values) to the
     /// local observation log during a real-portal run. No-op in normal mode.
     /// </summary>
@@ -726,7 +786,9 @@ public sealed class MainForm : Form
             klienSedia: _backendClient != null,
             konfigSediaSekarang: status.Sedia,
             samaDenganKlien: CapKonfigurasiBackend.Sepadan(_capKonfigurasiKlien, CapKonfigurasiSekarang()),
-            sebab: status.Sebab);
+            // Migrasi yang tidak muktamad menerangkan KENAPA tiada konfigurasi
+            // (cth data Companion tidak dapat disahkan). Sebab bebas nilai sahaja.
+            sebab: _hasilMigrasi.Backend.Muktamad ? status.Sebab : status.Sebab + " " + _hasilMigrasi.Backend.Sebab);
         KemasKiniLabelKitaran();
     }
 
@@ -827,7 +889,7 @@ public sealed class MainForm : Form
     private void OpenEngineSettings()
     {
         ShowFromTray();
-        using var dialog = new EngineSettingsDialog(_rahsiaStore);
+        using var dialog = new EngineSettingsDialog(_rahsiaStore, _hasilMigrasi, _persaraanCompanion);
         dialog.ShowDialog(this);
         KemasKiniStatus();
     }
@@ -1214,13 +1276,13 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Waiting-HADIR-task probe — the ONE and only demand signal, now WIRED to
-    /// the real engine: a read-only, nonce-authenticated `GET /api/kerja` for
-    /// today's jobs in status menunggu / sedang_dihantar / tersimpan. Answered
+    /// Waiting-HADIR-task probe — the ONE and only demand signal: a read-only
+    /// backend list read (<see cref="BackendKerjaHariIniSource"/>) for today's
+    /// jobs in status menunggu / sedang_dihantar / tersimpan, or
+    /// <see cref="TiadaBackendSource"/> when Desktop has no config. Answered
     /// false — with the reason recorded in the lifecycle state — whenever the
-    /// answer is not provably positive (no job, engine not running, nonce
-    /// rejected, unreadable body). Never guesses "ada kerja"; never navigates,
-    /// never probes a session, never logs in.
+    /// answer is not provably positive. Never guesses "ada kerja"; never
+    /// navigates, never probes a session, never logs in.
     /// </summary>
     private async Task<bool> AdaKerjaMenungguAsync()
     {
@@ -1282,7 +1344,6 @@ public sealed class MainForm : Form
             _devicePanel.Dispose();
             _portalServer.Dispose();
             (_kerjaHariIni as IDisposable)?.Dispose();
-            _kerjaPenuh.Dispose();
             _deviceHttp.Dispose();
             _tray.Dispose();
             return;
