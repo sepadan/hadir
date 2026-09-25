@@ -3,6 +3,14 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.14 — Kemas kini dalam aplikasi
+
+- Menu dulang **Semak kemas kini…** membaca manifest awam `desktop/kemas-kini/latest.json` daripada GitHub Pages repo ini. Ia hanya menghantar permintaan GET biasa — tiada rahsia, tiada kredensial, tiada data murid.
+- Jika versi manifest lebih baharu, HADIR Desktop menawarkan **Muat turun dan pasang**. Fail dimuat turun ke `%LOCALAPPDATA%\HadirDesktop\kemas-kini\`, disahkan **panjang + SHA256**, dan hanya fail yang disahkan dinamakan sedia-pakai. Fail yang gagal disahkan dipadam.
+- Pemasangan diserahkan kepada `update.ps1` (disalin ke folder pemasangan oleh `setup.ps1`): hentikan → sandarkan `HadirDesktop.exe.bak-<versi-lama>` → salin → sahkan SHA256 → lancar semula. Jika cincang tidak sepadan, exe lama dipulihkan dan skrip keluar dengan ralat.
+- URL muat turun mesti HTTPS pada hos keluaran GitHub (`github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`); URL lain ditolak sebelum sebarang muat turun.
+- Pengecualian proses: hanya `PemasangKemasKini.cs` boleh melancarkan `powershell.exe`, tanpa shell, pada `update.ps1` dalam folder pemasangan.
+
 ## 1.0.13 — Data milik HADIR Desktop; Companion boleh dipersarakan
 
 Terbitan 1.0.13. Tiada kebergantungan runtime pada Companion atau Edge.

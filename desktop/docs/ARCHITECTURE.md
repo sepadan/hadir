@@ -236,7 +236,19 @@ idMe session.
   `script.googleusercontent.com/macros/echo` is not a base endpoint.
 - **Embedded browser only.** `NewWindowRequested` is always handled (no pop-out),
   `LaunchingExternalUriScheme` is always cancelled, and the navigation guard is
-  unchanged. The only process Desktop starts is `icacls.exe` (no shell).
+  unchanged. Desktop starts exactly two kinds of process, both without a shell:
+  `icacls.exe` (folder ACL) and, only from `PemasangKemasKini.cs`,
+  `powershell.exe` running `update.ps1` from the install directory.
+- **In-app update.** The tray item "Semak kemas kini…" GETs the public manifest
+  `desktop/kemas-kini/latest.json` (GitHub Pages). `ManifestKemasKini.Baca`
+  accepts an offer only when the version is strictly newer, the URL is HTTPS on
+  an allowed GitHub release host (no userinfo, default port), the SHA-256 is 64
+  hex characters and the size is within the cap. The download is written to
+  `kemas-kini\HadirDesktop-<versi>.exe.part`, verified by length AND SHA-256,
+  and only then renamed; anything that fails verification is deleted. Applying
+  is delegated to the tested `update.ps1 -Sumber <file>` (stop → backup → copy →
+  SHA-256 verify → relaunch), so there is one apply implementation, not two.
+  No secret, credential or student datum is sent — the request is a plain GET.
 - **Companion retirement** (`PersaraanAutostartCompanion`) happens only when
   the owner clicks a button in Tetapan Tempatan. It is allowed only when
   `DesktopBolehAmbilAlih` holds: an active backend client exists, the current

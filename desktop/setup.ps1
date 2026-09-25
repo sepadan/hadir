@@ -27,6 +27,20 @@ $null = Stop-HadirDesktop -ExePath $targetExe -HadMasaSaat 20
 Copy-Item -Path $src -Destination $targetExe -Force
 Write-Host "Salin: $targetExe"
 
+# (a0b) Salin juga skrip kemas kini ke folder pemasangan. HADIR Desktop
+#       memanggil update.ps1 DARI SINI apabila pemilik menekan
+#       "Muat turun & pasang" pada kemas kini yang ditemui — jadi laluan itu
+#       tidak bergantung pada folder repo yang mungkin tiada di PC sekolah.
+foreach ($namaSkrip in @("update.ps1", "hentikan-hadir.ps1")) {
+    $dari = Join-Path $PSScriptRoot $namaSkrip
+    if (Test-Path $dari) {
+        Copy-Item -Path $dari -Destination (Join-Path $installDir $namaSkrip) -Force
+        Write-Host "Salin skrip: $namaSkrip"
+    } else {
+        Write-Host "Amaran: $namaSkrip tiada dalam pakej - kemas kini dalam aplikasi tidak akan berfungsi."
+    }
+}
+
 # (a1) Sahkan binaan mana yang baru dipasang.
 $versi = Get-VersiExe -ExePath $targetExe
 if ($versi) {

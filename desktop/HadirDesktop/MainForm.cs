@@ -310,6 +310,7 @@ public sealed class MainForm : Form
         _tray.IdMeSettingsRequested += (_, _) => OpenIdMeSettings();
         _tray.LoginAutoRequested += async (_, _) => await CubaLoginAutoAtasPermintaanAsync();
         _tray.CubaLagiRequested += async (_, _) => await CubaLagiPortalAsync();
+        _tray.SemakKemasKiniRequested += async (_, _) => await SemakKemasKiniAsync();
         _tray.ExitRequested += (_, _) => ExitForReal();
 
         // Pemasa kitaran produksi. Ia TIDAK dimulakan di sini: keputusan ada pada
@@ -883,6 +884,94 @@ public sealed class MainForm : Form
         {
             // Borang dilupuskan antara marshal dan penulisan.
         }
+    }
+
+    /// <summary>
+    /// Semak kemas kini HADIR Desktop daripada manifest awam. Ia HANYA membaca
+    /// manifest awam — tiada rahsia, kredensial atau data murid dihantar. Muat
+    /// turun disahkan panjang + SHA256 sebelum fail dinamakan sedia-pakai, dan
+    /// pemasangan diserahkan kepada <c>update.ps1</c> yang sudah terbukti
+    /// (hentikan → sandaran → salin → sahkan → lancar semula).
+    /// </summary>
+    private async Task SemakKemasKiniAsync()
+    {
+        string json;
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            json = await SumberKemasKini.BacaManifestAsync(http) ?? "";
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+        {
+            DevAutoKitaran.TulisKe(KitaranAuto.LaluanLog(), "KEMASKINI: semakan gagal (" + ex.GetType().Name + ")");
+            MessageBox.Show(this,
+                "Tidak dapat membaca senarai kemas kini. Semak sambungan Internet dan cuba lagi.",
+                "Kemas kini", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var versiSemasa = VersiAplikasi.Versi;
+        var tawaran = ManifestKemasKini.Baca(json, versiSemasa, out var sebab);
+        if (tawaran is null)
+        {
+            var mesej = sebab == "sudah versi terkini"
+                ? "HADIR Desktop " + versiSemasa + " ialah versi terkini."
+                : "Tiada kemas kini ditawarkan (" + sebab + ").";
+            MessageBox.Show(this, mesej, "Kemas kini", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var jawapan = MessageBox.Show(this,
+            "Kemas kini " + tawaran.Versi + " tersedia (anda guna " + versiSemasa + ").\n\n" +
+            "Muat turun dan pasang sekarang? HADIR Desktop akan ditutup dan dibuka semula.\n\n" +
+            "Saiz muat turun: " + (tawaran.SaizBait / (1024 * 1024)) + " MB",
+            "Kemas kini tersedia", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (jawapan != DialogResult.Yes) return;
+
+        var folderPasang = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            DevAutoKitaran.NamaFolder);
+        var folderMuatTurun = Path.Combine(folderPasang, "kemas-kini");
+        var skrip = PerintahKemasKini.LaluanSkrip(folderPasang);
+        if (!File.Exists(skrip))
+        {
+            MessageBox.Show(this,
+                "Skrip pemasangan tidak dijumpai:\n" + skrip +
+                "\n\nPasang semula HADIR Desktop daripada pakej, kemudian cuba lagi.",
+                "Kemas kini", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        string fail;
+        try
+        {
+            UseWaitCursor = true;
+            fail = await new MuatTurunKemasKini().MuatTurunAsync(tawaran, folderMuatTurun);
+        }
+        catch (Exception ex)
+        {
+            DevAutoKitaran.TulisKe(KitaranAuto.LaluanLog(), "KEMASKINI: muat turun gagal (" + ex.GetType().Name + ")");
+            MessageBox.Show(this,
+                "Muat turun kemas kini gagal. Tiada fail dipasang.\n\n" + ex.Message,
+                "Kemas kini", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        finally
+        {
+            UseWaitCursor = false;
+        }
+
+        if (!PemasangKemasKini.Jalankan(folderPasang, fail))
+        {
+            MessageBox.Show(this,
+                "Kemas kini sudah dimuat turun dan disahkan, tetapi pemasangan tidak dapat dimulakan.\n\n" +
+                "Pasang manual:\n" + PerintahKemasKini.PerintahPenuh(folderPasang, fail),
+                "Kemas kini", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        DevAutoKitaran.TulisKe(KitaranAuto.LaluanLog(), "KEMASKINI: memasang " + tawaran.Versi);
+        ExitForReal();
     }
 
     /// <summary>Opens native local settings without a Companion or browser.</summary>

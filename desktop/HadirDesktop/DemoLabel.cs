@@ -49,6 +49,12 @@ public static class DemoLabel
     public const string TrayAutostart = "Mula bersama Windows";
 
     /// <summary>
+    /// Item dulang untuk menyemak keluaran baharu HADIR Desktop. Ia hanya
+    /// MEMBACA manifest awam; ia tidak pernah menghantar rahsia, kredensial atau
+    /// data murid ke mana-mana.
+    /// </summary>
+    public const string TraySemakKemasKini = "Semak kemas kini…";
+
     /// Togol pemilik untuk penghantaran MOEIS automatik. Lalai MATI — item ini
     /// ialah satu-satunya tempat pemilik menghidupkannya dari dulang.
     /// </summary>

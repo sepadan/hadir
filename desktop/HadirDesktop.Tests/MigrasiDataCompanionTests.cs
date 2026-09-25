@@ -1039,7 +1039,7 @@ public class DesktopTanpaCompanionSumberTests
             Assert.DoesNotContain("msedge", s, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("UseShellExecute = true", s);
             Assert.DoesNotContain("microsoft-edge:", s, StringComparison.OrdinalIgnoreCase);
-            if (nama != "KredensialIdMeStore.cs")
+            if (nama != "KredensialIdMeStore.cs" && nama != "PemasangKemasKini.cs")
             {
                 Assert.DoesNotContain("Process.Start", s);
                 Assert.DoesNotContain("ProcessStartInfo", s);
@@ -1051,5 +1051,18 @@ public class DesktopTanpaCompanionSumberTests
             File.ReadAllText(Path.Combine(DesktopDir(), "HadirDesktop", "KredensialIdMeStore.cs")));
         Assert.Contains("new ProcessStartInfo(\"icacls.exe\")", kredensial);
         Assert.Contains("UseShellExecute = false", kredensial);
+
+        // Pengecualian KEDUA, sengaja dan sempit: pemasang kemas kini memanggil
+        // powershell.exe pada skrip DALAM folder pemasangan sahaja. Ia mesti
+        // kekal tanpa shell, tanpa pelayar, dan mengekalkan hujah yang dibina
+        // oleh PerintahKemasKini (bukan daripada manifest/rangkaian).
+        var pemasang = BarStatusBersihTests.BuangKomen(
+            File.ReadAllText(Path.Combine(DesktopDir(), "HadirDesktop", "PemasangKemasKini.cs")));
+        Assert.Contains("new ProcessStartInfo(\"powershell.exe\")", pemasang);
+        Assert.Contains("UseShellExecute = false", pemasang);
+        Assert.Contains("PerintahKemasKini.Hujah(", pemasang);
+        Assert.Contains("PerintahKemasKini.LaluanSkrip(", pemasang);
+        Assert.DoesNotContain("ProcessStartInfo(psi.ArgumentList", pemasang);
+        Assert.DoesNotContain("UseShellExecute = true", pemasang);
     }
 }

@@ -18,6 +18,7 @@ public sealed class TrayHost : IDisposable
     public event EventHandler? IdMeSettingsRequested;
     public event EventHandler? LoginAutoRequested;
     public event EventHandler? CubaLagiRequested;
+    public event EventHandler? SemakKemasKiniRequested;
     public event EventHandler? ExitRequested;
 
     /// <param name="hantarAutoBaca">Baca togol "hantar ke MOEIS" tersimpan.</param>
@@ -84,6 +85,8 @@ public sealed class TrayHost : IDisposable
             menu.Items.Add(new ToolStripSeparator());
         }
 
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(DemoLabel.TraySemakKemasKini, null, (_, _) => SemakKemasKiniRequested?.Invoke(this, EventArgs.Empty));
         menu.Items.Add(DemoLabel.TrayExit, null, (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty));
 
         _notifyIcon = new NotifyIcon

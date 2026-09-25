@@ -9,11 +9,18 @@
 # Idempoten: jalankan semula dengan dist yang sama = exe sama, cuma dilaporkan
 # "tidak berubah". Lihat KEMASKINI.md untuk langkah penuh + rollback.
 
+param(
+    # Fail exe BAHARU yang hendak dipasang. Lalai: binaan dalam repo
+    # (dist\win-x64\HadirDesktop.exe). HADIR Desktop sendiri menghantar laluan
+    # fail yang sudah dimuat turun dan DISAHKAN cincangnya.
+    [string] $Sumber = ""
+)
+
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "hentikan-hadir.ps1")
 
-$src        = Join-Path $PSScriptRoot "dist\win-x64\HadirDesktop.exe"
+$src        = if ($Sumber) { $Sumber } else { Join-Path $PSScriptRoot "dist\win-x64\HadirDesktop.exe" }
 $installDir = Join-Path $env:LOCALAPPDATA "HadirDesktop"
 $targetExe  = Join-Path $installDir "HadirDesktop.exe"
 

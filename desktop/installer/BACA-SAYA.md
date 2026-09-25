@@ -3,6 +3,22 @@
 Pakej ini mengandungi **HADIR Desktop** sahaja. Tiada Node, tiada Companion,
 tiada Edge automatik, tiada data rahsia di dalamnya.
 
+## Kemas kini selepas dipasang
+
+Selepas dipasang, aplikasi ini boleh menerima keluaran baharu sendiri:
+
+1. Klik kanan ikon **HADIR Desktop** dalam dulang sistem.
+2. Pilih **Semak kemas kini…**.
+3. Jika ada versi baharu, tekan **Yes** pada tawaran itu. Fail dimuat turun dan
+   disahkan (panjang + SHA256), kemudian aplikasi ditutup, exe lama disandarkan
+   sebagai `HadirDesktop.exe.bak-<versi>`, exe baharu dipasang, dan aplikasi
+   dibuka semula.
+
+Kemas kini hanya datang daripada manifest awam
+`https://sepadan.github.io/hadir/desktop/kemas-kini/latest.json` dan aset
+keluaran GitHub repo `sepadan/hadir`. Tiada rahsia, kredensial atau data murid
+dihantar semasa semakan — ia hanya permintaan GET biasa.
+
 ## Apa yang ada dalam pakej
 
 | Fail | Guna |
