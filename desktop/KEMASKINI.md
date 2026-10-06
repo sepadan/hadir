@@ -3,6 +3,27 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.15 — Kitaran pintar dan waktu aktif
+
+**Kitaran pintar (automatik, tiada tetapan).**
+
+- Selepas setiap kitaran, HADIR Desktop melihat hasil pass penghantaran MOEIS kitaran itu. Jika ada tanda kerja belum siap — status `gagal`, `backend-sementara-gagal`, `laporan-gagal`, `enjin-luar-talian`, `tiada-pemilik`, atau ada cubaan yang tidak disahkan / tugasan hari ini yang dilangkau — kitaran seterusnya berjalan **90 saat** kemudian, bukan 10 minit. Contoh: kelas yang gagal dengan `halaman-tidak-sedia` kini dicuba semula dalam masa kira-kira satu setengah minit.
+- Apabila semua cubaan disahkan (`dihantar`) atau tiada tugasan (`tiada-penghantaran`) tanpa apa-apa tertinggal, selang kembali kepada **10 minit**.
+- Tiada maklumat (tiada kerja hari ini, log masuk belum sah, penghantaran automatik MATI, kitaran ditolak oleh gate) = **10 minit**. Kitaran tidak dipercepat tanpa bukti.
+- Kitaran pertama 45 saat selepas lancar tidak berubah. Kitaran masih tidak bertindan: 90 saat ialah jarak antara kitaran, bukan kerja selari.
+- Label **Kitaran** pada bar status memaparkan selang sebenar: `(setiap 90 saat)` atau `(setiap 10 minit)`.
+- Jika tugasan dilangkau kerana masalah yang tidak hilang sendiri (contohnya klaim tanpa senarai murid), kitaran terus mencubanya setiap 90 saat. Kitaran membaca HADIR dan cuba menuntut tugasan itu, tetapi tidak menulis ke MOEIS untuknya.
+
+**Waktu aktif (opt-in, lalai MATI).**
+
+- Menu dulang → **Akaun idMe…** → tandakan **Hadkan masa aktif kitaran automatik (opt-in)**. Isi **Mula** dan **Tamat** dalam format `HH:mm` (lalai `06:30` dan `17:00`). **Isnin–Jumaat sahaja** (lalai ditanda) menolak kitaran pada hari Sabtu dan Ahad. Tekan **Simpan**.
+- Medan masa dan kotak hari hanya boleh disunting dan hanya berkuat kuasa apabila kotak **Hadkan masa aktif** ditanda.
+- Tetingkap ialah dari **Mula** (termasuk) hingga **Tamat** (tidak termasuk): dengan 06:30–17:00, kitaran pada 06:30 berjalan dan kitaran pada 17:00 ditolak. Jika Tamat lebih awal daripada Mula (contoh `22:00`–`06:30`), tetingkap itu merentasi tengah malam. Hari ditentukan oleh tarikh kalendar semasa, jadi Sabtu 02:00 tetap dikira hujung minggu.
+- Di luar waktu, setiap kitaran automatik ditolak sebelum HADIR dibaca, portal dibuka atau log masuk dicuba. Label menjadi `Kitaran: mati — di luar waktu aktif (06:30–17:00, Isnin–Jumaat) — disambung sendiri dalam waktu itu`. Pemasa terus berjalan, jadi kitaran pertama dalam tetingkap berlaku dalam masa kira-kira 10 minit selepas waktu Mula. Label itu dikemas kini pada kitaran berikutnya.
+- Masa yang tidak sah (contoh `7:00`, `24:00`, atau Mula sama dengan Tamat) ditolak semasa **Simpan**, dan tiada perubahan disimpan. Jika `idme-login.json` disunting dengan tangan dan mengandungi masa tidak sah semasa ciri ini hidup, semua kitaran automatik ditolak dan label memaparkan `waktu aktif tidak sah`.
+- Item dulang **Log masuk idMe (atas permintaan)** ialah tindakan manual, jadi ia tidak disekat oleh waktu aktif.
+- Tetapan ini disimpan dalam `idme-login.json` yang sama (`WaktuAktifDidayakan`, `WaktuAktifMula`, `WaktuAktifTamat`, `WaktuAktifIsninJumaat`). Fail daripada 1.0.14 dibaca dengan ciri ini MATI, dan tetapan lama kekal.
+
 ## 1.0.14 — Kemas kini dalam aplikasi
 
 - Menu dulang **Semak kemas kini…** membaca manifest awam `desktop/kemas-kini/latest.json` daripada GitHub Pages repo ini. Ia hanya menghantar permintaan GET biasa — tiada rahsia, tiada kredensial, tiada data murid.
@@ -73,6 +94,7 @@ sebab paling kerap seseorang menyangka ia "rosak":
 |---|---|---|
 | `LoginAuto` | Menu dulang → "Akaun idMe…" | Log masuk automatik MATI; halaman idMe masih boleh dibuka untuk log masuk manual dalam WebView2 HADIR Desktop. Redirect ke MOEIS/automasi kekal berpagar. |
 | `HantarAuto` | Menu dulang → "Hantar ke MOEIS (automatik)" | Kitaran boleh log masuk, tetapi tidak pernah menghantar kehadiran |
+| `WaktuAktifDidayakan` (pilihan, 1.0.15) | Menu dulang → "Akaun idMe…" → "Hadkan masa aktif" | Tiada had waktu; kitaran berjalan sepanjang hari (tingkah laku asal) |
 
 Kedua-duanya disimpan dalam `%LOCALAPPDATA%\HadirDesktop\idme-login.json`.
 Menukarnya berkuat kuasa **serta-merta** — tiada mula semula perlu.
@@ -85,7 +107,10 @@ menjalankan kitaran sendiri:
 - satu kitaran **45 saat** selepas aplikasi dimulakan (PC yang baru dihidupkan
   tidak menunggu lama untuk kerja yang sudah menunggu);
 - kemudian **setiap 10 minit** (`KitaranAuto.SelangMinit` dalam
-  `HadirDesktop\KitaranAuto.cs` — ubah di situ dan terbit semula jika perlu).
+  `HadirDesktop\KitaranAuto.cs` — ubah di situ dan terbit semula jika perlu);
+- sejak 1.0.15, **setiap 90 saat** (`KitaranAuto.SelangCepatSaat`) selepas
+  kitaran yang meninggalkan kerja belum siap (lihat seksyen 1.0.15 di atas);
+- jika **waktu aktif** dihidupkan, kitaran di luar waktu itu ditolak.
 
 Kitaran itu **tidak** membuka portal apabila tiada tugasan MOEIS yang belum
 siap: ia cuma membaca senarai tugasan (murah) dan berhenti. Ia juga tidak
@@ -100,9 +125,10 @@ Setiap kitaran meninggalkan satu baris bukti dalam
 ```
 
 Baris `keadaan=diam` bermaksud kitaran BERJALAN dan memutuskan tiada kerja —
-bukan bermakna pemasa mati. Selang biasa ialah kira-kira 10 minit ditambah
-masa proses; jika log berhenti dikemas kini sedangkan tetapan HIDUP, semak
-keadaan aplikasi.
+bukan bermakna pemasa mati. Selang biasa ialah kira-kira 10 minit (atau 90
+saat selepas kerja yang belum siap). Jika log berhenti dikemas kini sedangkan
+tetapan HIDUP, semak keadaan aplikasi. Kitaran yang ditolak kerana di luar waktu
+aktif tidak menulis baris log. Rujuk label **Kitaran** untuk melihat keadaannya.
 
 ## Di mana data disimpan — dan apa yang KEKAL
 

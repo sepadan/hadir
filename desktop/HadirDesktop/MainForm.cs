@@ -74,6 +74,17 @@ public sealed class MainForm : Form
     private string? _kitaranSebabMati;
     /// <summary>Sebab aliran penghantaran terakhir dalam kitaran ini (untuk log pembangun).</summary>
     private string? _sebabPenghantaranTerakhir;
+    /// <summary>
+    /// Hasil PENUH pass penghantaran terakhir dalam kitaran ini, atau <c>null</c>
+    /// apabila tiada pass berjalan (tiada kerja, log masuk tidak sah, gate).
+    /// Sumber selang kitaran pintar — dibaca, bukan diteka.
+    /// </summary>
+    private HasilHantarKerja? _hasilPenghantaranTerakhir;
+    /// <summary>
+    /// Selang AKTIF pemasa kitaran dalam saat (kitaran pintar: 90 saat atau 10
+    /// minit). Label membaca nilai ini supaya tidak menjanjikan selang yang salah.
+    /// </summary>
+    private int _selangKitaranSaat = KitaranAuto.SelangBiasaSaat;
     private readonly HttpClient _deviceHttp = new();
     private readonly DevicePanel _devicePanel;
     private readonly string? _observationLogPath;
@@ -277,6 +288,7 @@ public sealed class MainForm : Form
             {
                 var hasilAliran = await _aliranPenghantaran.JalankanAsync(ct);
                 _sebabPenghantaranTerakhir = hasilAliran.Sebab;
+                _hasilPenghantaranTerakhir = hasilAliran;
                 return hasilAliran.Sebab;
             }),
             lapor: LaporKeadaanPortal);
@@ -315,7 +327,7 @@ public sealed class MainForm : Form
 
         // Pemasa kitaran produksi. Ia TIDAK dimulakan di sini: keputusan ada pada
         // KemasKiniKitaranAuto(), yang membaca pilihan pemilik.
-        _pemasaKitaran.Interval = KitaranAuto.SelangMinit * 60 * 1000;
+        _pemasaKitaran.Interval = KitaranAuto.SelangBiasaSaat * 1000;
         _pemasaKitaran.Tick += PemasaKitaran_Tick;
 
         // Pemasa paparan: HANYA menulis teks label. Ia sengaja tidak memanggil
@@ -522,6 +534,26 @@ public sealed class MainForm : Form
                 // keputusan untuk pulang di sini, tidak berubah.
                 _gateTerakhirLulus = false;
                 _kitaranSebabMati = "tetapan automatik dibaca sebagai mati";
+                TetapkanSelangKitaran(KitaranAuto.SelangBiasaSaat);   // gate ditolak = tiada bukti kerja
+                KemasKiniLabelKitaran();
+                return;
+            }
+
+            // Tetingkap waktu aktif (opt-in pemilik, lalai MATI). Di luar waktu
+            // kitaran DITOLAK di sini — sebelum deman, portal atau log masuk —
+            // sementara pemasa terus berdenyut (murah) supaya kitaran disambung
+            // sendiri sebaik tetingkap dibuka. Masa tidak sah = ditolak.
+            if (!KitaranAuto.WaktuAktifLulus(
+                    DateTime.Now,
+                    tetapan.WaktuAktifDidayakan,
+                    tetapan.WaktuAktifMula,
+                    tetapan.WaktuAktifTamat,
+                    tetapan.WaktuAktifIsninJumaat))
+            {
+                _gateTerakhirLulus = false;
+                _kitaranSebabMati = KitaranAuto.SebabLuarWaktuAktif(
+                    tetapan.WaktuAktifMula, tetapan.WaktuAktifTamat, tetapan.WaktuAktifIsninJumaat);
+                TetapkanSelangKitaran(KitaranAuto.SelangBiasaSaat);
                 KemasKiniLabelKitaran();
                 return;
             }
@@ -533,6 +565,7 @@ public sealed class MainForm : Form
         {
             _gateTerakhirLulus = false;
             _kitaranSebabMati = "tetapan tidak dapat dibaca";
+            TetapkanSelangKitaran(KitaranAuto.SelangBiasaSaat);
             KemasKiniLabelKitaran();
             return;   // tetapan tidak boleh dibaca = jangan berdenyut
         }
@@ -542,6 +575,7 @@ public sealed class MainForm : Form
         try
         {
             _sebabPenghantaranTerakhir = null;
+            _hasilPenghantaranTerakhir = null;
             await CubaLoginAutoAtasPermintaanAsync();
 
             // Satu baris bagi satu kitaran, ke log produksi yang sama seperti
@@ -569,10 +603,36 @@ public sealed class MainForm : Form
         finally
         {
             _kitaranAutoSedangJalan = false;
-            // Tiada anggaran ditulis di sini: jadual milik pemasa, dan pemasa
-            // tidak bermula semula kerana kerja ini tamat. Label mengiranya
-            // semula daripada _asasJadualTick.
+            // Kitaran pintar: selang seterusnya daripada HASIL pass penghantaran
+            // kitaran ini (null = tiada pass = selang biasa). Jika selang
+            // berubah, pemasa memulakan kiraan semula dan TetapkanSelangKitaran
+            // menggerakkan _asasJadualTick bersamanya; jika tidak, jadual kekal
+            // milik pemasa dan label mengiranya daripada _asasJadualTick.
+            TetapkanSelangKitaran(KitaranAuto.SelangSaat(_hasilPenghantaranTerakhir));
             KemasKiniLabelKitaran();
+        }
+    }
+
+    /// <summary>
+    /// Menukar selang pemasa kitaran kepada <paramref name="saat"/> (kitaran
+    /// pintar). Tiada apa-apa berlaku jika selang tidak berubah. Pemasa WinForms
+    /// yang HIDUP memulakan kiraan SEMULA dari sekarang apabila Interval berubah,
+    /// jadi titik rujukan jadual digerakkan bersamanya — label kekal jujur.
+    /// Pemasa yang mati tidak dimulakan oleh kaedah ini.
+    /// </summary>
+    private void TetapkanSelangKitaran(int saat)
+    {
+        _selangKitaranSaat = saat;
+        var ms = saat * 1000;
+        try
+        {
+            if (_pemasaKitaran.Interval == ms) return;
+            _pemasaKitaran.Interval = ms;
+            if (_pemasaKitaran.Enabled) _asasJadualTick = DateTime.Now;
+        }
+        catch (ObjectDisposedException)
+        {
+            // Aplikasi sedang ditutup — tiada jadual lagi untuk dikemas kini.
         }
     }
 
@@ -824,7 +884,7 @@ public sealed class MainForm : Form
         try { hidup = _pemasaKitaran.Enabled; }
         catch (ObjectDisposedException) { hidup = false; }
 
-        var tick = JadualKitaran.TickSeterusnya(hidup, _asasJadualTick, KitaranAuto.SelangMinit);
+        var tick = JadualKitaran.TickSeterusnyaSaat(hidup, _asasJadualTick, _selangKitaranSaat);
         var (seterusnya, pertama) = JadualKitaran.Pilih(tick, _oneShotPada);
 
         return new FaktaKitaran(
@@ -834,7 +894,8 @@ public sealed class MainForm : Form
             SedangJalan: _kitaranAutoSedangJalan,
             Seterusnya: seterusnya,
             Pertama: pertama,
-            SebabMati: _kitaranSebabMati);
+            SebabMati: _kitaranSebabMati,
+            SelangSaat: _selangKitaranSaat);
     }
 
     /// <summary>
@@ -1138,6 +1199,22 @@ public sealed class MainForm : Form
             }
 
             if (!kena) _kitaranSebabMati = null;   // sebab biasa: pemilik belum opt-in
+
+            // Paparan sahaja: di luar waktu aktif, tick seterusnya akan ditolak
+            // oleh gate dalam kitaran — label mengatakannya sekarang, bukan
+            // menjanjikan kitaran. Pemasa tetap hidup (syarat mula/henti di atas
+            // tidak berubah) supaya kitaran disambung sendiri dalam waktu aktif.
+            if (kena && !KitaranAuto.WaktuAktifLulus(
+                    DateTime.Now,
+                    tetapan.WaktuAktifDidayakan,
+                    tetapan.WaktuAktifMula,
+                    tetapan.WaktuAktifTamat,
+                    tetapan.WaktuAktifIsninJumaat))
+            {
+                _gateTerakhirLulus = false;
+                _kitaranSebabMati = KitaranAuto.SebabLuarWaktuAktif(
+                    tetapan.WaktuAktifMula, tetapan.WaktuAktifTamat, tetapan.WaktuAktifIsninJumaat);
+            }
         }
         catch
         {

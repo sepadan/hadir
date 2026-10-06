@@ -43,6 +43,23 @@ public class JadualKitaranTests
     }
 
     [Fact]
+    public void TickSeterusnyaSaat_SelangCepat_90SaatSelepasAsas()
+    {
+        Assert.Equal(Mula.AddSeconds(90),
+            JadualKitaran.TickSeterusnyaSaat(pemasaHidup: true, asasTick: Mula, selangSaat: KitaranAuto.SelangCepatSaat));
+        Assert.Null(JadualKitaran.TickSeterusnyaSaat(pemasaHidup: false, asasTick: Mula, selangSaat: 90));
+        Assert.Null(JadualKitaran.TickSeterusnyaSaat(pemasaHidup: true, asasTick: null, selangSaat: 90));
+    }
+
+    [Fact]
+    public void TickSeterusnyaSaat_SamaDenganVersiMinit()
+    {
+        Assert.Equal(
+            JadualKitaran.TickSeterusnya(true, Mula, KitaranAuto.SelangMinit),
+            JadualKitaran.TickSeterusnyaSaat(true, Mula, KitaranAuto.SelangBiasaSaat));
+    }
+
+    [Fact]
     public void TickSeterusnya_PemasaMati_TiadaJadual()
     {
         Assert.Null(JadualKitaran.TickSeterusnya(pemasaHidup: false, asasTick: Mula, selangMinit: 10));
@@ -413,6 +430,81 @@ public class LabelKitaranTests
 
         Assert.Equal(10, KitaranAuto.SelangMinit);
         Assert.Equal("Kitaran: seterusnya lebih kurang 09:25 (setiap 10 minit)", teks);
+    }
+
+    // ---------- selang AKTIF (kitaran pintar 1.0.15) ----------
+
+    /// <summary>
+    /// Kitaran pintar: selepas pass yang meninggalkan kerja, pemasa berdenyut
+    /// setiap 90 saat. Label yang masih berkata "setiap 10 minit" ketika itu
+    /// menipu pemilik.
+    /// </summary>
+    [Fact]
+    public void Menunggu_SelangCepat_LabelSebut90Saat()
+    {
+        var teks = LabelKitaran.Teks(
+            new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddSeconds(90), SelangSaat: KitaranAuto.SelangCepatSaat),
+            Kini);
+
+        Assert.Equal("Kitaran: seterusnya lebih kurang 09:16 (setiap 90 saat)", teks);
+        Assert.DoesNotContain("minit", teks);
+    }
+
+    [Fact]
+    public void Menunggu_SelangBiasaEksplisit_LabelSebut10Minit()
+    {
+        var teks = LabelKitaran.Teks(
+            new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddMinutes(10), SelangSaat: KitaranAuto.SelangBiasaSaat),
+            Kini);
+
+        Assert.Equal("Kitaran: seterusnya lebih kurang 09:25 (setiap 10 minit)", teks);
+    }
+
+    [Fact]
+    public void Menunggu_SelangCepat_SebentarLagi_MasihSebut90Saat()
+    {
+        var teks = LabelKitaran.Teks(
+            new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddSeconds(-5), SelangSaat: KitaranAuto.SelangCepatSaat),
+            Kini);
+
+        Assert.Equal("Kitaran: seterusnya sebentar lagi (setiap 90 saat)", teks);
+    }
+
+    [Theory]
+    [InlineData(90, "setiap 90 saat")]
+    [InlineData(600, "setiap 10 minit")]
+    [InlineData(60, "setiap 1 minit")]
+    [InlineData(45, "setiap 45 saat")]
+    [InlineData(150, "setiap 150 saat")]
+    public void TeksSelang_MinitBulatAtauSaat(int saat, string dijangka)
+    {
+        Assert.Equal(dijangka, LabelKitaran.TeksSelang(saat));
+    }
+
+    /// <summary>Kitaran pertama one-shot tetap dinamakan begitu walaupun selang cepat.</summary>
+    [Fact]
+    public void KitaranPertama_SelangCepat_TetapOneShot()
+    {
+        var teks = LabelKitaran.Teks(
+            new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddSeconds(45), Pertama: true, SelangSaat: KitaranAuto.SelangCepatSaat),
+            Kini);
+
+        Assert.Contains("kitaran pertama", teks);
+        Assert.DoesNotContain("90 saat", teks);
+    }
+
+    /// <summary>Di luar waktu aktif: label menyebut sebab sebenar, bukan selang.</summary>
+    [Fact]
+    public void LuarWaktuAktif_LabelMenyebutSebab()
+    {
+        var sebab = KitaranAuto.SebabLuarWaktuAktif("06:30", "17:00", isninJumaat: true);
+
+        var teks = LabelKitaran.Teks(
+            new FaktaKitaran(Aktif: false, Seterusnya: Kini.AddMinutes(10), SebabMati: sebab),
+            Kini);
+
+        Assert.StartsWith("Kitaran: mati — di luar waktu aktif (06:30–17:00", teks);
+        Assert.DoesNotContain("setiap", teks);
     }
 
     /// <summary>
@@ -1815,6 +1907,74 @@ public class BarStatusBersihTests
         Assert.True(hujung > mula);
 
         Assert.DoesNotContain("_oneShotPada = null", sumber[mula..hujung]);
+    }
+
+    private static string BadanJalankanKitaranAuto(string sumber)
+    {
+        var mula = sumber.IndexOf("private async Task JalankanKitaranAutoAsync()", StringComparison.Ordinal);
+        Assert.True(mula >= 0);
+        var hujung = sumber.IndexOf("private async Task KitaranAutoDevAsync()", StringComparison.Ordinal);
+        Assert.True(hujung > mula);
+        return sumber[mula..hujung];
+    }
+
+    /// <summary>
+    /// Gate waktu aktif dipasang SELEPAS KenaJalan dan SEBELUM kitaran bermula
+    /// (sebelum _kitaranAutoSedangJalan = true): di luar waktu, tiada portal
+    /// dibuka dan tiada log masuk dicuba.
+    /// </summary>
+    [Fact]
+    public void MainForm_GateWaktuAktif_SelepasKenaJalan_SebelumKitaranBermula()
+    {
+        var badan = BadanJalankanKitaranAuto(SumberMainForm());
+
+        var kena = badan.IndexOf("KitaranAuto.KenaJalan(", StringComparison.Ordinal);
+        var waktu = badan.IndexOf("KitaranAuto.WaktuAktifLulus(", StringComparison.Ordinal);
+        var jalan = badan.IndexOf("_kitaranAutoSedangJalan = true;", StringComparison.Ordinal);
+        var login = badan.IndexOf("await CubaLoginAutoAtasPermintaanAsync();", StringComparison.Ordinal);
+
+        Assert.True(kena >= 0, "KenaJalan mesti kekal dalam kitaran.");
+        Assert.True(waktu > kena, "WaktuAktifLulus mesti dinilai SELEPAS KenaJalan.");
+        Assert.True(jalan > waktu, "WaktuAktifLulus mesti dinilai SEBELUM kitaran bermula.");
+        Assert.True(login > jalan);
+        Assert.Contains("KitaranAuto.SebabLuarWaktuAktif(", badan);
+    }
+
+    /// <summary>
+    /// Selang pemasa dikemas kini daripada HASIL pass penghantaran sebenar
+    /// (bukan teka), dan label menerima selang AKTIF itu.
+    /// </summary>
+    [Fact]
+    public void MainForm_SelangKitaranDaripadaHasilPenghantaran_DanLabelMenerimanya()
+    {
+        var sumber = SumberMainForm();
+        var badan = BadanJalankanKitaranAuto(sumber);
+
+        Assert.Contains("_hasilPenghantaranTerakhir = hasilAliran;", sumber);
+        Assert.Contains("TetapkanSelangKitaran(KitaranAuto.SelangSaat(_hasilPenghantaranTerakhir));", badan);
+        Assert.Contains("_hasilPenghantaranTerakhir = null;", badan);
+        Assert.Contains("JadualKitaran.TickSeterusnyaSaat(hidup, _asasJadualTick, _selangKitaranSaat)", sumber);
+        Assert.Contains("SelangSaat: _selangKitaranSaat", sumber);
+        // Label tidak lagi mengira jadual daripada pemalar 10 minit.
+        Assert.DoesNotContain("JadualKitaran.TickSeterusnya(hidup, _asasJadualTick, KitaranAuto.SelangMinit)", sumber);
+    }
+
+    /// <summary>
+    /// Pemasa WinForms yang hidup memulakan kiraan SEMULA apabila Interval
+    /// berubah, jadi titik rujukan jadual mesti bergerak bersamanya — jika
+    /// tidak, label menjanjikan waktu yang salah.
+    /// </summary>
+    [Fact]
+    public void MainForm_TukarSelang_MenggerakkanAsasJadual()
+    {
+        var sumber = SumberMainForm();
+        var mula = sumber.IndexOf("private void TetapkanSelangKitaran(int saat)", StringComparison.Ordinal);
+        Assert.True(mula >= 0);
+        var badan = sumber[mula..sumber.IndexOf("private ", mula + 10, StringComparison.Ordinal)];
+
+        Assert.Contains("_pemasaKitaran.Interval = ms;", badan);
+        Assert.Contains("_asasJadualTick = DateTime.Now;", badan);
+        Assert.Contains("_selangKitaranSaat = saat;", badan);
     }
 }
 

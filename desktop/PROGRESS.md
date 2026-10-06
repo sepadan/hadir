@@ -1,5 +1,87 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## 1.0.15 — Kitaran pintar (90 s) + tetingkap waktu aktif (2026-10-06)
+
+Log menunjukkan kegagalan MOEIS sementara (cth `halaman-tidak-sedia`) hanya
+dicuba semula oleh kitaran berikutnya, 10 minit kemudian. Satu kitaran memproses
+semua tugasan hari itu satu demi satu (~30 s bagi setiap kelas yang berjaya), jadi
+selang tetap 10 minit melambatkan pemulihan tanpa memberi apa-apa faedah.
+
+### `KitaranAuto.cs` — fungsi TULEN baharu
+
+- `SelangCepatSaat = 90`, `SelangBiasaSaat = SelangMinit * 60`.
+- `SelangSaat(status, bilGagal, bilBelumSiap)`: selang pantas untuk `gagal` /
+  `backend-sementara-gagal` / `laporan-gagal` / `enjin-luar-talian` /
+  `tiada-pemilik`. Untuk `tiada-penghantaran` / `dihantar`, selang pantas hanya
+  jika ada kiraan > 0. Status null, `dimatikan` atau tidak dikenali diberi selang
+  biasa.
+- `SelangSaat(HasilHantarKerja?)`: gagal = cubaan yang `!Berjaya`; belum siap =
+  `BilDilangkau`; `null` (tiada pass) = selang biasa.
+- `WaktuAktifLulus(kini, didayakan, mula, tamat, isninJumaat)`: ciri MATI
+  sentiasa lulus. Masa yang bukan `HH:mm` ketat (ASCII, 00:00–23:59) atau
+  mula == tamat tidak lulus (gagal tertutup). Tetingkap ialah `[mula, tamat)`,
+  boleh merentasi tengah malam. Sabtu/Ahad ditentukan oleh hari kalendar `kini`.
+- `MasaSah`, `SebabLuarWaktuAktif` (nilai masa yang tidak sah tidak dipaparkan
+  semula).
+
+### `LabelKitaran.cs`
+
+`FaktaKitaran` menerima medan baharu `SelangSaat` (pilihan).
+`JadualKitaran.TickSeterusnyaSaat` mengira jadual dalam saat, dan
+`LabelKitaran.TeksSelang` memaparkan "setiap N minit" atau "setiap N saat". Label
+memaparkan selang AKTIF pemasa, bukan pemalar.
+
+### `MainForm.cs`
+
+- `_hasilPenghantaranTerakhir` diisi daripada `hasilAliran` dalam
+  `selepasLoginSah` dan dikosongkan pada permulaan setiap kitaran.
+- `finally` dalam `JalankanKitaranAutoAsync` memanggil
+  `TetapkanSelangKitaran(KitaranAuto.SelangSaat(_hasilPenghantaranTerakhir))`.
+  Kaedah itu hanya menukar `Interval` apabila nilainya berubah. Jika pemasa
+  hidup, `_asasJadualTick` turut dianjak kerana pemasa WinForms memulakan kiraan
+  semula. Setiap laluan gate yang menolak kitaran memulihkan selang biasa.
+- Gate waktu aktif terletak SELEPAS `KenaJalan` dan sebelum
+  `_kitaranAutoSedangJalan = true`, dengan gaya yang sama seperti gate lain
+  (`_gateTerakhirLulus = false`, sebab, label, `return`). Pemasa tidak dihentikan.
+- `KemasKiniKitaranAuto` turut menilai waktu aktif untuk PAPARAN sahaja, supaya
+  label betul sebaik dialog ditutup. Syarat mula/henti pemasa tidak berubah.
+- Kitaran pertama (one-shot 45 s) tidak berubah.
+
+### `IdMeLoginSettings.cs` / `IdMeSettingsDialog.cs`
+
+- Medan JSON baharu `WaktuAktifDidayakan` (false), `WaktuAktifMula` ("06:30"),
+  `WaktuAktifTamat` ("17:00") dan `WaktuAktifIsninJumaat` (true). Fail yang
+  hilang atau rosak memberi lalai dengan ciri MATI. Medan lama kekal.
+- Dialog menambah kotak semak "Hadkan masa aktif…", medan Mula/Tamat dan
+  "Isnin–Jumaat sahaja". Medan hanya aktif apabila kotak semak ditanda. Masa yang
+  tidak sah semasa kotak ditanda ditolak SEBELUM apa-apa ditulis. Teks rosak
+  dalam medan semasa kotak tidak ditanda tidak menimpa nilai sah yang tersimpan.
+  Simpanan menggunakan `IIdMeLoginSettingsStore` sedia ada, dan stor kredensial
+  tidak disentuh.
+
+### Tingkah laku sempadan (mengikut reka bentuk)
+
+- Label "di luar waktu aktif" hanya berubah pada tick berikutnya selepas
+  tetingkap dibuka (paling lama ~10 minit).
+- Tugasan yang dilangkau secara kekal (contohnya klaim tanpa murid) mengekalkan
+  selang 90 s. Setiap kitaran membuat klaim lalu melepaskannya, tetapi tiada
+  tulisan MOEIS berlaku.
+
+### Ujian
+
+Bukti terhad kepada ujian unit dan pengawal sumber; aplikasi tidak dijalankan
+pada PC sebenar dalam slice ini.
+
+
+1058 lulus / 0 gagal (sebelum ini 954; **+104**):
+`KitaranAutoTests` (selang mengikut setiap status, kiraan, dan `HasilHantarKerja`),
+`WaktuAktifTests` (ciri mati/hidup, sempadan mula/tamat, lintas tengah malam,
+hujung minggu, format tidak sah, mula == tamat), `WaktuAktifTetapanTests`
+(round-trip, fail lama/rosak, medan lama kekal),
+`IdMeSettingsDialogWaktuAktifTests` (muat/simpan/tolak/aktifkan medan), dan
+`LabelKitaranTests` (90 saat / 10 minit, `TickSeterusnyaSaat`, pengawal sumber
+bagi susunan gate dan selang dalam MainForm).
+
 ## Pepijat BLOK: tahun MOEIS tidak pernah diterbitkan daripada nama kelas (2026-09-23)
 
 Bukti ujian hidup 12:13 (`dev-kitaran.log`):

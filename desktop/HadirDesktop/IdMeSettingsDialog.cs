@@ -9,7 +9,8 @@ namespace HadirDesktop;
 /// a "Simpan pada PC ini" consent checkbox (default OFF), a "Padam kredensial"
 /// button, the opt-in auto-login switches (default OFF), the owner-configurable
 /// consecutive-rejection guard (0 = never stop, default 5) with a one-click
-/// "Cuba lagi" that clears the counter immediately, and status lines that show
+/// "Cuba lagi" that clears the counter immediately, the opt-in active-hours
+/// window for the automatic cycle (default OFF), and status lines that show
 /// ONLY whether a credential exists / how many rejections — never any value.
 ///
 /// SECURITY INVARIANT: the password/phrase typed here are read from the masked
@@ -26,6 +27,12 @@ public sealed class IdMeSettingsDialog : Form
     /// </summary>
     public const string LabelHantarAuto = "Hantar ke MOEIS secara automatik selepas log masuk (opt-in)";
 
+    /// <summary>Teks kotak semak tetingkap waktu aktif (opt-in, lalai MATI).</summary>
+    public const string LabelWaktuAktif = "Hadkan masa aktif kitaran automatik (opt-in)";
+
+    /// <summary>Teks kotak semak had hari bekerja.</summary>
+    public const string LabelIsninJumaat = "Isnin–Jumaat sahaja";
+
     private readonly IKredensialIdMeStore _kredensial;
     private readonly IIdMeLoginSettingsStore _tetapan;
     private readonly IdMeLoginManager? _pengurus;
@@ -38,6 +45,10 @@ public sealed class IdMeSettingsDialog : Form
     private readonly CheckBox _chkLoginAuto = new() { Text = "Log masuk idMe automatik atas permintaan (opt-in)", Checked = false };
     private readonly CheckBox _chkTanpaFrasa = new() { Text = "Teruskan jika frasa keselamatan tidak dapat dibaca (imej/canvas) — opt-in", Checked = false };
     private readonly CheckBox _chkHantarAuto = new() { Text = LabelHantarAuto, Checked = false };
+    private readonly CheckBox _chkWaktuAktif = new() { Text = LabelWaktuAktif, Checked = false, AutoSize = true };
+    private readonly TextBox _txtWaktuMula = new() { PlaceholderText = "HH:mm", Width = 80, MaxLength = 5 };
+    private readonly TextBox _txtWaktuTamat = new() { PlaceholderText = "HH:mm", Width = 80, MaxLength = 5 };
+    private readonly CheckBox _chkIsninJumaat = new() { Text = LabelIsninJumaat, Checked = true, AutoSize = true };
     private readonly NumericUpDown _numMaksPenolakan = new() { Minimum = 0, Maximum = 50, Value = 5, Width = 80 };
     private readonly Label _lblPenolakan = new() { AutoSize = true, ForeColor = Color.DimGray };
     private readonly Button _btnSimpan = new() { Text = "Simpan" };
@@ -56,7 +67,7 @@ public sealed class IdMeSettingsDialog : Form
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(560, 430);
+        ClientSize = new Size(560, 540);
         ShowInTaskbar = false;
 
         var panel = new TableLayoutPanel
@@ -64,7 +75,7 @@ public sealed class IdMeSettingsDialog : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(12),
             ColumnCount = 2,
-            RowCount = 11,
+            RowCount = 15,
         };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
@@ -97,13 +108,23 @@ public sealed class IdMeSettingsDialog : Form
         panel.Controls.Add(_chkHantarAuto, 0, 7);
         panel.SetColumnSpan(_chkHantarAuto, 2);
 
-        TambahLabel("Berhenti selepas penolakan kata laluan berturut-turut (0 = jangan berhenti)", 8);
-        panel.Controls.Add(_numMaksPenolakan, 1, 8);
+        // Tetingkap waktu aktif: medan masa dan had hari hanya berkuat kuasa
+        // (dan hanya boleh disunting) apabila kotak semak dihidupkan.
+        panel.Controls.Add(_chkWaktuAktif, 0, 8);
+        panel.SetColumnSpan(_chkWaktuAktif, 2);
+        TambahLabel("    Mula (HH:mm, cth 06:30)", 9);
+        panel.Controls.Add(_txtWaktuMula, 1, 9);
+        TambahLabel("    Tamat (HH:mm, cth 17:00)", 10);
+        panel.Controls.Add(_txtWaktuTamat, 1, 10);
+        panel.Controls.Add(_chkIsninJumaat, 1, 11);
+
+        TambahLabel("Berhenti selepas penolakan kata laluan berturut-turut (0 = jangan berhenti)", 12);
+        panel.Controls.Add(_numMaksPenolakan, 1, 12);
 
         _lblPenolakan.AutoSize = false;
         _lblPenolakan.Dock = DockStyle.Fill;
         _lblPenolakan.TextAlign = ContentAlignment.MiddleLeft;
-        panel.Controls.Add(_lblPenolakan, 0, 9);
+        panel.Controls.Add(_lblPenolakan, 0, 13);
         panel.SetColumnSpan(_lblPenolakan, 2);
 
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, AutoSize = true };
@@ -111,11 +132,12 @@ public sealed class IdMeSettingsDialog : Form
         flow.Controls.Add(_btnCubaLagi);
         flow.Controls.Add(_btnPadam);
         flow.Controls.Add(_btnSimpan);
-        panel.Controls.Add(flow, 0, 10);
+        panel.Controls.Add(flow, 0, 14);
         panel.SetColumnSpan(flow, 2);
 
         Controls.Add(panel);
 
+        _chkWaktuAktif.CheckedChanged += (_, _) => SegerakkanMedanWaktuAktif();
         _btnSimpan.Click += (_, _) => Simpan();
         _btnPadam.Click += (_, _) => Padam();
         _btnCubaLagi.Click += (_, _) => CubaLagi();
@@ -131,6 +153,29 @@ public sealed class IdMeSettingsDialog : Form
     /// (corak sama seperti <c>TrayHost.ItemMenu</c>).
     /// </summary>
     public CheckBox KotakHantarAuto => _chkHantarAuto;
+
+    /// <summary>Kotak semak "Hadkan masa aktif" — untuk ujian sahaja.</summary>
+    public CheckBox KotakWaktuAktif => _chkWaktuAktif;
+
+    /// <summary>Medan masa mula (HH:mm) — untuk ujian sahaja.</summary>
+    public TextBox MedanWaktuMula => _txtWaktuMula;
+
+    /// <summary>Medan masa tamat (HH:mm) — untuk ujian sahaja.</summary>
+    public TextBox MedanWaktuTamat => _txtWaktuTamat;
+
+    /// <summary>Kotak semak "Isnin–Jumaat sahaja" — untuk ujian sahaja.</summary>
+    public CheckBox KotakIsninJumaat => _chkIsninJumaat;
+
+    /// <summary>Teks baris status semasa (tiada nilai rahsia) — untuk ujian sahaja.</summary>
+    public string TeksStatus => _lblStatus.Text;
+
+    private void SegerakkanMedanWaktuAktif()
+    {
+        var hidup = _chkWaktuAktif.Checked;
+        _txtWaktuMula.Enabled = hidup;
+        _txtWaktuTamat.Enabled = hidup;
+        _chkIsninJumaat.Enabled = hidup;
+    }
 
     private void MuatSemulaStatus()
     {
@@ -159,6 +204,11 @@ public sealed class IdMeSettingsDialog : Form
         _chkTanpaFrasa.Checked = t.BenarkanTerusTanpaFrasa;
         _chkHantarAuto.Checked = t.HantarAuto;
         _numMaksPenolakan.Value = Math.Clamp(t.MaksPenolakanBerturut, 0, 50);
+        _chkWaktuAktif.Checked = t.WaktuAktifDidayakan;
+        _txtWaktuMula.Text = t.WaktuAktifMula ?? "";
+        _txtWaktuTamat.Text = t.WaktuAktifTamat ?? "";
+        _chkIsninJumaat.Checked = t.WaktuAktifIsninJumaat;
+        SegerakkanMedanWaktuAktif();
     }
 
     private void MuatSemulaPenolakan()
@@ -197,6 +247,17 @@ public sealed class IdMeSettingsDialog : Form
         // Persist the opt-in switches + rejection guard N (non-secret).
         // Baca dahulu, ubah hanya medan yang dialog ini kawal: sebuah medan yang
         // tidak dipaparkan di sini TIDAK BOLEH ditetapkan semula secara senyap.
+        var mula = _txtWaktuMula.Text.Trim();
+        var tamat = _txtWaktuTamat.Text.Trim();
+        var masaSah = KitaranAuto.MasaSah(mula) && KitaranAuto.MasaSah(tamat) && mula != tamat;
+        if (_chkWaktuAktif.Checked && !masaSah)
+        {
+            // Ditolak SEBELUM apa-apa ditulis: tiada tetapan separuh disimpan.
+            _lblStatus.Text = "Gagal simpan: masa aktif mesti format HH:mm (cth 06:30 dan 17:00), dan mula tidak sama dengan tamat.";
+            _lblStatus.ForeColor = Color.Firebrick;
+            return;
+        }
+
         var tetapan = _tetapan.Baca();
         tetapan.LoginAuto = _chkLoginAuto.Checked;
         tetapan.BenarkanTerusTanpaFrasa = _chkTanpaFrasa.Checked;
@@ -204,6 +265,15 @@ public sealed class IdMeSettingsDialog : Form
         // Kotak semak ini diikat pada nilai tersimpan semasa dialog dibuka, jadi
         // "tidak disentuh" bermakna nilai tersimpan ditulis semula, bukan MATI.
         tetapan.HantarAuto = _chkHantarAuto.Checked;
+        tetapan.WaktuAktifDidayakan = _chkWaktuAktif.Checked;
+        tetapan.WaktuAktifIsninJumaat = _chkIsninJumaat.Checked;
+        // Kotak MATI: medan tidak berkuat kuasa, jadi teks yang tidak sah di situ
+        // tidak menimpa nilai tersimpan yang sah.
+        if (masaSah)
+        {
+            tetapan.WaktuAktifMula = mula;
+            tetapan.WaktuAktifTamat = tamat;
+        }
         _tetapan.Simpan(tetapan);
 
         if (!_chkSimpan.Checked)

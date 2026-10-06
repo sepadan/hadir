@@ -37,6 +37,28 @@ public sealed record IdMeLoginTetapan
     /// makes the desktop a real submitter.
     /// </summary>
     public bool HantarAuto { get; set; }
+
+    /// <summary>
+    /// Opt-in pemilik untuk mengehadkan kitaran automatik kepada tetingkap
+    /// waktu aktif (<see cref="WaktuAktifMula"/>–<see cref="WaktuAktifTamat"/>).
+    /// Lalai MATI = tingkah laku tidak berubah. Di luar waktu, pemasa terus
+    /// berdenyut tetapi setiap kitaran ditolak (lihat
+    /// <see cref="KitaranAuto.WaktuAktifLulus"/>). Tidak menyentuh log masuk
+    /// manual atau item dulang.
+    /// </summary>
+    public bool WaktuAktifDidayakan { get; set; }
+
+    /// <summary>Mula tetingkap, "HH:mm" (inklusif). Lalai 06:30.</summary>
+    public string WaktuAktifMula { get; set; } = "06:30";
+
+    /// <summary>
+    /// Tamat tetingkap, "HH:mm" (eksklusif). Lalai 17:00. Tamat lebih awal
+    /// daripada mula = tetingkap melintasi tengah malam.
+    /// </summary>
+    public string WaktuAktifTamat { get; set; } = "17:00";
+
+    /// <summary>Hanya Isnin–Jumaat apabila didayakan (Sabtu/Ahad ditolak). Lalai HIDUP.</summary>
+    public bool WaktuAktifIsninJumaat { get; set; } = true;
 }
 
 public interface IIdMeLoginSettingsStore

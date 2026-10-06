@@ -58,4 +58,130 @@ public class KitaranAutoTests
         // penyelenggaraan kehilangan jejak kitaran dalam log.
         Assert.Equal("hadir-desktop.log", KitaranAuto.NamaFailLog);
     }
+
+    // ---------- kitaran pintar (1.0.15) ----------
+
+    [Fact]
+    public void SelangCepat_90Saat_LebihPantasDaripadaSelangBiasa()
+    {
+        Assert.Equal(90, KitaranAuto.SelangCepatSaat);
+        Assert.Equal(KitaranAuto.SelangMinit * 60, KitaranAuto.SelangBiasaSaat);
+        Assert.True(KitaranAuto.SelangCepatSaat < KitaranAuto.SelangBiasaSaat);
+    }
+
+    /// <summary>
+    /// Pass penghantaran terakhir MENUNJUKKAN kerja mungkin belum siap: kitaran
+    /// seterusnya dalam 90 saat, bukan 10 minit (bukti log: kegagalan
+    /// <c>halaman-tidak-sedia</c> hanya dibaiki 10 minit kemudian).
+    /// </summary>
+    [Theory]
+    [InlineData(AliranPenghantaranMoeis.StatusGagal)]
+    [InlineData(AliranPenghantaranMoeis.StatusBackendSementara)]
+    [InlineData(AliranPenghantaranMoeis.StatusLaporanGagal)]
+    [InlineData(AliranPenghantaranMoeis.StatusEnjinLuarTalian)]
+    [InlineData(AliranPenghantaranMoeis.StatusTiadaPemilik)]
+    public void SelangSaat_KerjaMungkinBelumSiap_Pantas(string status)
+    {
+        Assert.Equal(KitaranAuto.SelangCepatSaat, KitaranAuto.SelangSaat(status, bilGagal: 0, bilBelumSiap: 0));
+        Assert.Equal(KitaranAuto.SelangCepatSaat, KitaranAuto.SelangSaat(status, bilGagal: 2, bilBelumSiap: 1));
+    }
+
+    [Theory]
+    [InlineData(AliranPenghantaranMoeis.StatusTiadaPenghantaran)]
+    [InlineData(AliranPenghantaranMoeis.StatusDihantar)]
+    public void SelangSaat_TiadaKerjaTertinggal_Perlahan(string status)
+    {
+        Assert.Equal(KitaranAuto.SelangBiasaSaat, KitaranAuto.SelangSaat(status, bilGagal: 0, bilBelumSiap: 0));
+    }
+
+    /// <summary>
+    /// Status "baik" tetapi kiraan menunjukkan sesuatu tertinggal (tugasan
+    /// dilangkau / cubaan tidak disahkan) = masih ada kerja → pantas.
+    /// </summary>
+    [Theory]
+    [InlineData(AliranPenghantaranMoeis.StatusTiadaPenghantaran, 0, 1)]
+    [InlineData(AliranPenghantaranMoeis.StatusTiadaPenghantaran, 1, 0)]
+    [InlineData(AliranPenghantaranMoeis.StatusDihantar, 1, 0)]
+    [InlineData(AliranPenghantaranMoeis.StatusDihantar, 0, 3)]
+    public void SelangSaat_StatusBaikTetapiAdaYangTertinggal_Pantas(string status, int bilGagal, int bilBelumSiap)
+    {
+        Assert.Equal(KitaranAuto.SelangCepatSaat, KitaranAuto.SelangSaat(status, bilGagal, bilBelumSiap));
+    }
+
+    /// <summary>
+    /// Tiada maklumat (tiada pass penghantaran, gate ditolak, penghantaran
+    /// dimatikan, status tidak dikenali) TIDAK BOLEH mempercepat kitaran secara
+    /// senyap — lebih banyak aktiviti portal mesti berasaskan bukti.
+    /// </summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(AliranPenghantaranMoeis.StatusDimatikan)]
+    [InlineData("status-entah-apa")]
+    public void SelangSaat_TiadaMaklumat_Perlahan(string? status)
+    {
+        Assert.Equal(KitaranAuto.SelangBiasaSaat, KitaranAuto.SelangSaat(status, bilGagal: 0, bilBelumSiap: 0));
+        // Kiraan tanpa status yang dikenali juga tidak mempercepat.
+        Assert.Equal(KitaranAuto.SelangBiasaSaat, KitaranAuto.SelangSaat(status, bilGagal: 4, bilBelumSiap: 4));
+    }
+
+    [Fact]
+    public void SelangSaat_KiraanNegatif_DianggapSifar()
+    {
+        Assert.Equal(KitaranAuto.SelangBiasaSaat,
+            KitaranAuto.SelangSaat(AliranPenghantaranMoeis.StatusDihantar, bilGagal: -1, bilBelumSiap: -5));
+    }
+
+    // ---------- SelangSaat(HasilHantarKerja) — kiraan dibaca daripada hasil sebenar ----------
+
+    private static HasilPenghantaran Satu(bool berjaya) => new()
+    {
+        Status = berjaya ? "disahkan" : "halaman-tidak-sedia",
+        Berjaya = berjaya,
+        Sebab = "ujian",
+        Kelas = "KELAS UJIAN",
+        TarikhIso = "2026-10-06",
+    };
+
+    [Fact]
+    public void SelangSaatHasil_Null_Perlahan()
+    {
+        Assert.Equal(KitaranAuto.SelangBiasaSaat, KitaranAuto.SelangSaat((HasilHantarKerja?)null));
+    }
+
+    [Fact]
+    public void SelangSaatHasil_SemuaDisahkan_Perlahan()
+    {
+        var hasil = new HasilHantarKerja(AliranPenghantaranMoeis.StatusDihantar, "ok", 2, 0,
+            new[] { Satu(true), Satu(true) });
+
+        Assert.Equal(KitaranAuto.SelangBiasaSaat, KitaranAuto.SelangSaat(hasil));
+    }
+
+    [Fact]
+    public void SelangSaatHasil_SatuGagal_Pantas()
+    {
+        var hasil = new HasilHantarKerja(AliranPenghantaranMoeis.StatusGagal, "x", 2, 0,
+            new[] { Satu(true), Satu(false) });
+
+        Assert.Equal(KitaranAuto.SelangCepatSaat, KitaranAuto.SelangSaat(hasil));
+    }
+
+    [Fact]
+    public void SelangSaatHasil_TiadaPenghantaranTetapiAdaDilangkau_Pantas()
+    {
+        var hasil = new HasilHantarKerja(AliranPenghantaranMoeis.StatusTiadaPenghantaran, "x", 0, 1,
+            Array.Empty<HasilPenghantaran>());
+
+        Assert.Equal(KitaranAuto.SelangCepatSaat, KitaranAuto.SelangSaat(hasil));
+    }
+
+    [Fact]
+    public void SelangSaatHasil_TiadaPenghantaranKosong_Perlahan()
+    {
+        var hasil = new HasilHantarKerja(AliranPenghantaranMoeis.StatusTiadaPenghantaran, "x", 0, 0,
+            Array.Empty<HasilPenghantaran>());
+
+        Assert.Equal(KitaranAuto.SelangBiasaSaat, KitaranAuto.SelangSaat(hasil));
+    }
 }

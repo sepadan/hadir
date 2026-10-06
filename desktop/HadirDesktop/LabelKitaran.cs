@@ -72,7 +72,15 @@ public static class JadualKitaran
     /// mempunyai titik rujukan.
     /// </summary>
     public static DateTime? TickSeterusnya(bool pemasaHidup, DateTime? asasTick, int selangMinit) =>
-        pemasaHidup && asasTick is DateTime asas ? asas.AddMinutes(selangMinit) : null;
+        TickSeterusnyaSaat(pemasaHidup, asasTick, selangMinit * 60);
+
+    /// <summary>
+    /// Sama seperti <see cref="TickSeterusnya"/>, tetapi dengan selang dalam
+    /// SAAT — selang AKTIF pemasa boleh jadi 90 saat (kitaran pintar), bukan
+    /// semestinya minit bulat.
+    /// </summary>
+    public static DateTime? TickSeterusnyaSaat(bool pemasaHidup, DateTime? asasTick, int selangSaat) =>
+        pemasaHidup && asasTick is DateTime asas ? asas.AddSeconds(selangSaat) : null;
 
     /// <summary>
     /// Memilih jadual yang benar-benar akan tiba DAHULU antara tick berkala dan
@@ -129,12 +137,17 @@ public static class JadualKitaran
 /// Sebab kitaran tidak aktif, jika ada sebab yang lebih tepat daripada "pemilik
 /// belum menghidupkannya". Tiada rahsia, tiada PII.
 /// </param>
+/// <param name="SelangSaat">
+/// Selang AKTIF pemasa kitaran dalam saat (kitaran pintar: 90 saat atau 10
+/// minit). <c>null</c> = selang biasa <see cref="KitaranAuto.SelangBiasaSaat"/>.
+/// </param>
 public sealed record FaktaKitaran(
     bool Aktif,
     bool SedangJalan = false,
     DateTime? Seterusnya = null,
     bool Pertama = false,
-    string? SebabMati = null);
+    string? SebabMati = null,
+    int? SelangSaat = null);
 
 /// <summary>
 /// Teks label "Kitaran" pada bar status — fungsi TULEN.
@@ -178,9 +191,12 @@ public static class LabelKitaran
             return Awalan + "hidup — belum dijadualkan";
         }
 
+        // Selang yang dipaparkan ialah selang AKTIF pemasa (kitaran pintar), bukan
+        // pemalar: label yang berkata "setiap 10 minit" semasa pemasa berdenyut
+        // setiap 90 saat menjanjikan jadual yang salah.
         var ekor = fakta.Pertama
             ? $" (kitaran pertama, {KitaranAuto.TundaanMulaSaat} saat selepas mula)"
-            : $" (setiap {KitaranAuto.SelangMinit} minit)";
+            : " (" + TeksSelang(fakta.SelangSaat ?? KitaranAuto.SelangBiasaSaat) + ")";
 
         if (seterusnya <= kini)
         {
@@ -190,6 +206,15 @@ public static class LabelKitaran
         var jam = seterusnya.ToString("HH:mm", CultureInfo.InvariantCulture);
         return Awalan + "seterusnya lebih kurang " + jam + ekor;
     }
+
+    /// <summary>
+    /// "setiap N minit" untuk minit bulat, selain itu "setiap N saat"
+    /// (90 saat tidak dibundarkan kepada "2 minit" atau "1.5 minit").
+    /// </summary>
+    public static string TeksSelang(int saat) =>
+        saat >= 60 && saat % 60 == 0
+            ? "setiap " + (saat / 60).ToString(CultureInfo.InvariantCulture) + " minit"
+            : "setiap " + saat.ToString(CultureInfo.InvariantCulture) + " saat";
 }
 
 /// <summary>
