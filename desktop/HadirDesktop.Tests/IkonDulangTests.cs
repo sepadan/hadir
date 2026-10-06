@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Threading.Tasks;
 using HadirDesktop;
 using Xunit;
 
@@ -9,7 +10,12 @@ namespace HadirDesktop.Tests;
 
 /// <summary>
 /// Ikon menu dulang yang dilukis dalam kod (1.0.16). Tiada fail imej: setiap
-/// ikon mesti wujud, bersaiz 16x16, dicache, dan berbeza antara fungsi.
+/// ikon mesti wujud, bersaiz 16x16, dan berbeza antara fungsi.
+///
+/// Sejak 1.0.19 <see cref="IkonDulang.Untuk"/> memulangkan SALINAN PERSENDIRIAN
+/// (bukan Bitmap dikongsi): satu Bitmap dikongsi antara benang ujian selari
+/// pernah melontar "Object is currently in use elsewhere". Ujian di sini
+/// menyemak KANDUNGAN (piksel) yang sama dan instance yang BERBEZA.
 /// </summary>
 public class IkonDulangTests
 {
@@ -24,37 +30,95 @@ public class IkonDulangTests
     [MemberData(nameof(SetiapFungsi))]
     public void SetiapIkon_BukanNull_16x16(FungsiDulang fungsi)
     {
-        var ikon = IkonDulang.Untuk(fungsi);
+        using var ikon = IkonDulang.Untuk(fungsi);
 
         Assert.NotNull(ikon);
         Assert.Equal(new Size(16, 16), ikon.Size);
     }
 
     [Fact]
-    public void PenamaIkon_SamaDenganUntuk()
+    public void PenamaIkon_KandunganSamaDenganUntuk()
     {
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.Tunjuk), IkonDulang.Tunjuk());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.SemuaFungsi), IkonDulang.SemuaFungsi());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.TetapanTempatan), IkonDulang.TetapanTempatan());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.AkaunIdMe), IkonDulang.AkaunIdMe());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.Autostart), IkonDulang.Autostart());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.LoginIdMe), IkonDulang.LoginIdMe());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.CubaLagi), IkonDulang.CubaLagi());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.HantarAuto), IkonDulang.HantarAuto());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.SemakKemasKini), IkonDulang.SemakKemasKini());
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.Keluar), IkonDulang.Keluar());
+        Func<Image>[] penama =
+        {
+            IkonDulang.Tunjuk, IkonDulang.SemuaFungsi, IkonDulang.TetapanTempatan, IkonDulang.AkaunIdMe,
+            IkonDulang.Autostart, IkonDulang.LoginIdMe, IkonDulang.CubaLagi, IkonDulang.HantarAuto,
+            IkonDulang.SemakKemasKini, IkonDulang.Keluar,
+        };
+        FungsiDulang[] fungsi =
+        {
+            FungsiDulang.Tunjuk, FungsiDulang.SemuaFungsi, FungsiDulang.TetapanTempatan, FungsiDulang.AkaunIdMe,
+            FungsiDulang.Autostart, FungsiDulang.LoginIdMe, FungsiDulang.CubaLagi, FungsiDulang.HantarAuto,
+            FungsiDulang.SemakKemasKini, FungsiDulang.Keluar,
+        };
+
+        for (var i = 0; i < penama.Length; i++)
+        {
+            using var dariPenama = penama[i]();
+            using var dariUntuk = IkonDulang.Untuk(fungsi[i]);
+            Assert.NotSame(dariUntuk, dariPenama);
+            Assert.Equal(CapPiksel(dariUntuk), CapPiksel(dariPenama));
+        }
     }
 
     [Fact]
-    public void Ikon_Dicache_TidakDijanaSemula()
+    public void Untuk_SetiapPanggilanSalinanPersendirian_KandunganSama()
     {
-        Assert.Same(IkonDulang.Untuk(FungsiDulang.Keluar), IkonDulang.Untuk(FungsiDulang.Keluar));
+        using var a = IkonDulang.Untuk(FungsiDulang.Keluar);
+        using var b = IkonDulang.Untuk(FungsiDulang.Keluar);
+
+        Assert.NotSame(a, b);
+        Assert.Equal(a.Size, b.Size);
+        Assert.Equal(CapPiksel(a), CapPiksel(b));
+    }
+
+    [Theory]
+    [MemberData(nameof(SetiapFungsi))]
+    public void Untuk_RupaSamaTepatDenganLukis(FungsiDulang fungsi)
+    {
+        using var salinan = IkonDulang.Untuk(fungsi);
+        using var lukisan = IkonDulang.Lukis(fungsi);
+
+        Assert.Equal(CapPiksel(lukisan), CapPiksel(salinan));
+    }
+
+    [Fact]
+    public void MelupuskanSalinan_TidakMenjejaskanPanggilanBerikutnya()
+    {
+        var pertama = IkonDulang.Untuk(FungsiDulang.HantarAuto);
+        var cap = CapPiksel(pertama);
+        pertama.Dispose();
+
+        using var kedua = IkonDulang.Untuk(FungsiDulang.HantarAuto);
+
+        Assert.Equal(16, kedua.Width);
+        Assert.Equal(cap, CapPiksel(kedua));
+    }
+
+    [Fact]
+    public void BanyakBenangSerentak_TiadaObjekDikongsi()
+    {
+        // Pepijat 1.0.18: bacaan Size/Width selari pada Bitmap dikongsi melontar
+        // "Object is currently in use elsewhere". Setiap benang kini memegang
+        // salinannya sendiri, jadi tiada pengecualian.
+        var fungsi = Enum.GetValues<FungsiDulang>();
+        Parallel.For(0, 400, new ParallelOptions { MaxDegreeOfParallelism = 8 }, i =>
+        {
+            using var ikon = IkonDulang.Untuk(fungsi[i % fungsi.Length]);
+            Assert.Equal(16, ikon.Width);
+            Assert.Equal(16, ikon.Height);
+            using var sasaran = new Bitmap(4, 4);
+            using var g = Graphics.FromImage(sasaran);
+            g.DrawImage(ikon, 0, 0);
+        });
     }
 
     [Fact]
     public void SetiapFungsi_IkonBerbeza()
     {
-        var cap = Enum.GetValues<FungsiDulang>().Select(CapPiksel).ToList();
+        var cap = Enum.GetValues<FungsiDulang>()
+            .Select(f => { using var ikon = IkonDulang.Untuk(f); return CapPiksel(ikon); })
+            .ToList();
 
         Assert.Equal(cap.Count, cap.Distinct().Count());
     }
@@ -75,24 +139,29 @@ public class IkonDulangTests
     }
 
     [Fact]
-    public void IkonCache_KekalSah_SelepasTrayDanPanelDilupus()
+    public void IkonKekalSah_SelepasTrayPanelDanButangMelupuskanSalinanMereka()
     {
-        // Item menu dan butang tidak memiliki Bitmap yang dikongsi: melupuskan
-        // dulang/panel tidak boleh merosakkan cache untuk instance berikutnya.
+        // Dulang, panel dan butang Autohadir kini MELUPUSKAN salinan ikon
+        // mereka sendiri; itu tidak boleh merosakkan cache untuk pemanggil lain.
         using (new TrayHost(SystemIcons.Application)) { }
         using (new PanelFungsi(_ => { }, _ => null, (_, _) => { }, () => "")) { }
+        using (var tray = new TrayHost(SystemIcons.Application))
+        using (ButangAutohadir.BinaTerapung(tray)) { }
 
-        Assert.Equal(16, IkonDulang.Tunjuk().Width);
-        Assert.Equal(16, IkonDulang.Untuk(FungsiDulang.HantarAuto).Height);
+        using var tunjuk = IkonDulang.Tunjuk();
+        using var hantar = IkonDulang.Untuk(FungsiDulang.HantarAuto);
+        Assert.Equal(16, tunjuk.Width);
+        Assert.Equal(16, hantar.Height);
     }
 
-    private static string CapPiksel(FungsiDulang fungsi)
+    /// <summary>Cap SHA-256 bagi piksel ARGB — kesamaan KANDUNGAN, bukan identiti.</summary>
+    internal static string CapPiksel(Image imej)
     {
-        using var bmp = IkonDulang.Lukis(fungsi);
-        var bait = new byte[16 * 16 * 4];
+        var bmp = (Bitmap)imej;
+        var bait = new byte[bmp.Width * bmp.Height * 4];
         var n = 0;
-        for (var y = 0; y < 16; y++)
-        for (var x = 0; x < 16; x++)
+        for (var y = 0; y < bmp.Height; y++)
+        for (var x = 0; x < bmp.Width; x++)
         {
             var p = bmp.GetPixel(x, y);
             bait[n++] = p.A; bait[n++] = p.R; bait[n++] = p.G; bait[n++] = p.B;

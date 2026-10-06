@@ -20,6 +20,7 @@ public sealed class TrayHost : IDisposable
     private bool _shownBalloonOnce;
     /// <summary>Environment.TickCount64 semasa menu terakhir ditutup oleh klik di luarnya.</summary>
     private long _ditutupKlikLuarTick = long.MinValue / 2;
+    private bool _dilupus;
 
     public event EventHandler? ShowRequested;
     public event EventHandler? SemuaFungsiRequested;
@@ -258,7 +259,18 @@ public sealed class TrayHost : IDisposable
 
     public void Dispose()
     {
+        if (_dilupus) return;
+        _dilupus = true;
+
+        var menu = MenuDulang;
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
+
+        // Ikon item ialah salinan milik TrayHost (IkonDulang.Untuk memberi
+        // salinan persendirian): menu dilupuskan DAHULU supaya tiada lukisan
+        // semula menyentuh imej yang sudah dilupuskan.
+        var ikon = menu.Items.Cast<ToolStripItem>().Select(i => i.Image).OfType<Image>().ToList();
+        menu.Dispose();
+        foreach (var imej in ikon) imej.Dispose();
     }
 }

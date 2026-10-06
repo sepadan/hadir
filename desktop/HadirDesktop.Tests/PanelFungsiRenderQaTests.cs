@@ -25,7 +25,8 @@ public class PanelFungsiRenderQaTests
                 g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
                 for (var i = 0; i < fungsi.Length; i++)
                 {
-                    g.DrawImage(IkonDulang.Untuk(fungsi[i]), new Rectangle(i * 120 + 12, 12, 96, 96));
+                    using var ikon = IkonDulang.Untuk(fungsi[i]);   // salinan persendirian (1.0.19)
+                    g.DrawImage(ikon, new Rectangle(i * 120 + 12, 12, 96, 96));
                 }
             }
             besar.Save(Path.Combine(dir, latar == Color.White ? "terang.png" : "gelap.png"), ImageFormat.Png);

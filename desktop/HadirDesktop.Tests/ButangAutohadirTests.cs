@@ -163,7 +163,11 @@ public class ButangAutohadirTests
 
         Assert.Equal("Autohadir", butang.Text);
         Assert.NotNull(butang.Image);
-        Assert.Same(IkonDulang.SemuaFungsi(), butang.Image);
+        using (var rujukan = IkonDulang.SemuaFungsi())
+        {
+            Assert.NotSame(rujukan, butang.Image);
+            Assert.Equal(IkonDulangTests.CapPiksel(rujukan), IkonDulangTests.CapPiksel(butang.Image!));
+        }
         Assert.Equal(FlatStyle.Flat, butang.FlatStyle);
         Assert.Equal(Color.Firebrick, butang.BackColor);
         Assert.Equal(Color.White, butang.ForeColor);

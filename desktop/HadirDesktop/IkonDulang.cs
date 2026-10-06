@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace HadirDesktop;
 
@@ -13,14 +15,23 @@ namespace HadirDesktop;
 /// atasnya. Warna isian sederhana gelap + tepi lebih gelap, jadi ikon kelihatan
 /// pada menu bertema terang DAN gelap. Antialiasing dihidupkan.
 ///
-/// Ikon dicache: satu Bitmap bagi setiap fungsi untuk sepanjang hayat proses.
-/// Bitmap itu dikongsi — pemanggil TIDAK boleh melupuskannya.
+/// Yang dicache ialah LUKISAN (satu Bitmap induk bagi setiap fungsi, dilukis
+/// sekali), BUKAN instance yang diberi kepada pemanggil. Setiap panggilan
+/// <see cref="Untuk"/> memulangkan SALINAN PERSENDIRIAN yang dimiliki pemanggil
+/// (boleh dan patut dilupuskan oleh pemiliknya). Bitmap induk hanya disentuh di
+/// dalam <see cref="Kunci"/> dan tidak pernah keluar dari kelas ini.
+///
+/// Sebab (1.0.19): sebelum ini satu Bitmap dikongsi oleh semua pemanggil. GDI+
+/// tidak selamat-benang untuk objek yang sama — bacaan <c>Width</c> pada satu
+/// benang semasa benang lain menyentuh Bitmap itu melontar "Object is currently
+/// in use elsewhere" (ujian selari gagal sekali-sekala).
 /// </summary>
 public static class IkonDulang
 {
     public const int Saiz = 16;
 
     private static readonly object Kunci = new();
+    /// <summary>Lukisan induk — hanya dibaca/ditulis di dalam <see cref="Kunci"/>.</summary>
     private static readonly Dictionary<FungsiDulang, Bitmap> Cache = new();
 
     public static Image Tunjuk() => Untuk(FungsiDulang.Tunjuk);
@@ -34,18 +45,55 @@ public static class IkonDulang
     public static Image SemakKemasKini() => Untuk(FungsiDulang.SemakKemasKini);
     public static Image Keluar() => Untuk(FungsiDulang.Keluar);
 
-    /// <summary>Ikon tercache bagi <paramref name="fungsi"/> (dilukis sekali sahaja).</summary>
+    /// <summary>
+    /// Salinan PERSENDIRIAN ikon <paramref name="fungsi"/>: piksel sama tepat
+    /// dengan lukisan induk (dilukis sekali sahaja). Pemanggil memiliki salinan
+    /// ini; melupuskannya tidak menjejaskan pemanggil lain atau cache.
+    /// </summary>
     public static Image Untuk(FungsiDulang fungsi)
     {
         lock (Kunci)
         {
-            if (!Cache.TryGetValue(fungsi, out var bmp))
+            if (!Cache.TryGetValue(fungsi, out var induk))
             {
-                bmp = Lukis(fungsi);
-                Cache[fungsi] = bmp;
+                induk = Lukis(fungsi);
+                Cache[fungsi] = induk;
             }
-            return bmp;
+            return SalinPiksel(induk);
         }
+    }
+
+    /// <summary>
+    /// Salinan DALAM (bait piksel 32bppArgb disalin terus): tiada data GDI+
+    /// dikongsi dengan <paramref name="asal"/>, dan tiada lukisan semula atau
+    /// adunan alfa — rupa sama tepat. <c>Image.Clone()</c> sengaja tidak dipakai:
+    /// GDI+ boleh berkongsi data imej antara klon.
+    /// </summary>
+    private static Bitmap SalinPiksel(Bitmap asal)
+    {
+        var kawasan = new Rectangle(0, 0, asal.Width, asal.Height);
+        var salinan = new Bitmap(asal.Width, asal.Height, PixelFormat.Format32bppArgb);
+        var dataAsal = asal.LockBits(kawasan, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+        try
+        {
+            var dataSalinan = salinan.LockBits(kawasan, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+            try
+            {
+                // Lebar dan format sama = stride sama.
+                var bait = new byte[Math.Abs(dataAsal.Stride) * asal.Height];
+                Marshal.Copy(dataAsal.Scan0, bait, 0, bait.Length);
+                Marshal.Copy(bait, 0, dataSalinan.Scan0, bait.Length);
+            }
+            finally
+            {
+                salinan.UnlockBits(dataSalinan);
+            }
+        }
+        finally
+        {
+            asal.UnlockBits(dataAsal);
+        }
+        return salinan;
     }
 
     /// <summary>

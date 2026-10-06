@@ -223,6 +223,17 @@ public sealed class PanelFungsi : Form
         null => "Tidak tersedia.",
     };
 
+    protected override void Dispose(bool disposing)
+    {
+        // Ikon butang ialah salinan milik panel ini (IkonDulang.Untuk): butang
+        // dilupuskan dahulu (base), kemudian imejnya.
+        var ikon = disposing
+            ? _butang.Values.Select(b => b.Image).OfType<Image>().ToList()
+            : new List<Image>();
+        base.Dispose(disposing);
+        foreach (var imej in ikon) imej.Dispose();
+    }
+
     protected override void OnActivated(EventArgs e)
     {
         base.OnActivated(e);

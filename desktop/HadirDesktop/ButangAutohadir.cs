@@ -75,7 +75,13 @@ public static class ButangAutohadir
 
         var tip = new ToolTip();
         tip.SetToolTip(butang, DemoLabel.ButangAutohadirTip);
-        butang.Disposed += (_, _) => tip.Dispose();
+        // Ikon ialah salinan milik butang ini (IkonDulang.Untuk) — dilupus bersamanya.
+        var ikon = butang.Image;
+        butang.Disposed += (_, _) =>
+        {
+            tip.Dispose();
+            ikon?.Dispose();
+        };
 
         // Togol: jika menu terbuka semasa tetikus ditekan, klik ini menutupnya.
         // Penapis menu WinForms biasanya sudah menutup menu sebelum MouseDown

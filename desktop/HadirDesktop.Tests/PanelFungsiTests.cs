@@ -127,8 +127,25 @@ public class PanelFungsiTests
         foreach (var item in SemuaItem())
         {
             Assert.Equal(item.Label, panel.Butang[item.Fungsi].Text);
-            Assert.Same(IkonDulang.Untuk(item.Fungsi), panel.Butang[item.Fungsi].Image);
+            // Salinan persendirian (1.0.19): kandungan sama, instance milik panel.
+            using var rujukan = IkonDulang.Untuk(item.Fungsi);
+            var imej = panel.Butang[item.Fungsi].Image!;
+            Assert.NotSame(rujukan, imej);
+            Assert.Equal(IkonDulangTests.CapPiksel(rujukan), IkonDulangTests.CapPiksel(imej));
         }
+    }
+
+    [Fact]
+    public void Panel_SetiapButangMemilikiSalinanIkonSendiri_DilupusBersamaPanel()
+    {
+        var panel = new Rakaman().Bina();
+        var imej = panel.Butang.Values.Select(b => b.Image!).ToList();
+
+        Assert.Equal(imej.Count, imej.Distinct().Count());   // tiada instance dikongsi
+        panel.Dispose();
+
+        // Imej yang dilupuskan melontar ArgumentException apabila dibaca.
+        Assert.All(imej, i => Assert.Throws<ArgumentException>(() => i.Width));
     }
 
     [Fact]

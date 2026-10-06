@@ -1,5 +1,50 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## 1.0.19 — Ikon dulang: salinan persendirian, bukan Bitmap dikongsi (2026-10-06)
+
+**Bukti kegagalan** (10 larian penuh pada 1.0.18; 1 gagal):
+
+```
+Failed HadirDesktop.Tests.IkonDulangTests.SetiapIkon_BukanNull_16x16(fungsi: LoginIdMe) [2 ms]
+System.InvalidOperationException : Object is currently in use elsewhere.
+   at System.Drawing.Image.get_Width()
+```
+
+**Punca.** `IkonDulang.Untuk()` memulangkan SATU Bitmap dikongsi daripada
+`Cache` untuk sepanjang hayat proses. xUnit menjalankan kelas ujian secara
+selari, jadi satu benang membaca `Size` semasa benang lain menyentuh Bitmap yang
+sama, dan GDI+ melontar ralat. Dalam aplikasi, mana-mana bacaan ikon di luar
+benang UI boleh gagal dengan cara yang sama. `PenamaIkon_SamaDenganUntuk`
+menegaskan perkongsian itu (`Assert.Same`).
+
+**Pembetulan.**
+- `IkonDulang.Untuk` masih melukis sekali (Bitmap induk dalam `Cache`, di bawah
+  `Kunci`). Ia memulangkan salinan dalam yang dibuat di dalam kunci yang sama:
+  bait piksel 32bppArgb disalin melalui `LockBits` + `Marshal.Copy`. Bitmap induk
+  tidak pernah keluar dari kelas. `Image.Clone()` tidak dipakai kerana GDI+ boleh
+  berkongsi data imej antara klon. Rupa tidak berubah kerana piksel disalin tepat.
+  `Lukis()` tidak berubah.
+- Pemilik melupuskan salinan mereka:
+  - `TrayHost.Dispose` melupuskan menu, kemudian imej item. Ia kini idempoten.
+  - `PanelFungsi.Dispose(bool)` melupuskan imej butang selepas `base.Dispose`.
+  - `ButangAutohadir`: imej dilupuskan pada `Disposed` butang.
+- Tiada kod aplikasi menyimpan atau melupuskan ikon milik pemilik lain.
+
+### Ujian
+
+1145 lulus / 0 gagal. Perubahan:
+- `IkonDulangTests`:
+  - `Assert.Same` diganti dengan `NotSame` + cap piksel SHA-256 yang sama.
+  - Salinan sama tepat dengan `Lukis()` bagi setiap fungsi.
+  - Melupuskan satu salinan tidak menjejaskan panggilan berikutnya.
+  - 400 panggilan selari dengan 8 benang (baca `Width` + `DrawImage`) tanpa ralat.
+  - Ketakserupaan antara fungsi masih disemak melalui cap piksel.
+- `TrayHostSemuaFungsiTests` / `PanelFungsiTests` / `ButangAutohadirTests`:
+  - Ikon disemak melalui kandungan, bukan identiti.
+  - Setiap item/butang mempunyai instance sendiri.
+  - Imej dilupuskan bersama dulang/panel, dan dulang boleh dilupuskan dua kali.
+- `PanelFungsiRenderQaTests` melupuskan salinan yang dilukisnya.
+
 ## 1.0.18 — Butang Autohadir terapung (pembetulan 1.0.17) (2026-10-06)
 
 **Punca.** Pada 1.0.17 `_autohadirButton` ialah item terakhir `_statusStrip`.

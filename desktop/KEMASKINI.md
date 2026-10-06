@@ -3,6 +3,12 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.19 — Ikon tiada lagi dikongsi antara benang
+
+- **Punca:** sejak 1.0.16 setiap ikon menu dulang ialah satu Bitmap yang dikongsi oleh semua pengguna (menu dulang, panel **Semua fungsi**, butang **Autohadir**). GDI+ tidak membenarkan objek yang sama disentuh oleh dua benang serentak. Jika ikon dibaca di luar benang UI semasa benang lain menggunakannya, aplikasi melontar ralat `Object is currently in use elsewhere`. Ini dikesan sebagai ujian yang gagal sekali-sekala (1 daripada 10 larian).
+- **Apa yang berubah:** ikon masih dilukis sekali sahaja, tetapi setiap pengguna kini menerima salinannya sendiri. Menu dulang, panel dan butang Autohadir melupuskan salinan masing-masing apabila ditutup.
+- **Rupa tidak berubah:** salinan ialah bait piksel yang sama tepat dengan lukisan asal. Warna, bentuk dan saiz ikon (16x16) kekal seperti 1.0.18. Tiada perubahan pada menu, panel atau butang.
+
 ## 1.0.18 — Butang Autohadir sentiasa kelihatan
 
 - **Pembetulan 1.0.17:** butang **Autohadir** wujud dalam aplikasi tetapi tidak pernah kelihatan. Ia diletak sebagai item terakhir bar status, dan pada saiz tetingkap lalai kandungan tetap bar itu (Segar semula, Keadaan, Backend, Kitaran) sudah 1126 px, lebih lebar daripada bar itu sendiri (1082 px). Bar status Windows tidak melukis item yang terkeluar dari tepi kanan, jadi label navigasi dan butang Autohadir hilang. Ini juga berlaku semasa tetingkap dimaksimumkan, apabila teks status panjang.

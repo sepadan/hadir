@@ -74,14 +74,37 @@ public class TrayHostSemuaFungsiTests
     }
 
     [Fact]
-    public void IkonItem_IalahIkonTercache()
+    public void IkonItem_KandunganSamaDenganIkonDulang_SalinanSendiri()
     {
         using var tray = DulangPenuh();
 
-        Assert.Same(IkonDulang.Tunjuk(), Cari(tray, DemoLabel.TrayShow).Image);
-        Assert.Same(IkonDulang.SemuaFungsi(), Cari(tray, DemoLabel.TraySemuaFungsi).Image);
-        Assert.Same(IkonDulang.Keluar(), Cari(tray, DemoLabel.TrayExit).Image);
-        Assert.Same(IkonDulang.HantarAuto(), Cari(tray, DemoLabel.TrayHantarAuto).Image);
+        foreach (var (teks, fungsi) in new[]
+        {
+            (DemoLabel.TrayShow, FungsiDulang.Tunjuk),
+            (DemoLabel.TraySemuaFungsi, FungsiDulang.SemuaFungsi),
+            (DemoLabel.TrayExit, FungsiDulang.Keluar),
+            (DemoLabel.TrayHantarAuto, FungsiDulang.HantarAuto),
+        })
+        {
+            using var rujukan = IkonDulang.Untuk(fungsi);
+            var imej = Cari(tray, teks).Image!;
+            Assert.NotSame(rujukan, imej);
+            Assert.Equal(IkonDulangTests.CapPiksel(rujukan), IkonDulangTests.CapPiksel(imej));
+        }
+    }
+
+    [Fact]
+    public void Dispose_MelupuskanSalinanIkonMilikDulang_SekaliSahaja()
+    {
+        var tray = DulangPenuh();
+        var imej = tray.ItemMenu.Cast<ToolStripItem>().Select(i => i.Image).OfType<Image>().ToList();
+
+        Assert.Equal(10, imej.Count);
+        Assert.Equal(imej.Count, imej.Distinct().Count());   // tiada instance dikongsi
+        tray.Dispose();
+        tray.Dispose();   // lupus dua kali tidak melontar
+
+        Assert.All(imej, i => Assert.Throws<ArgumentException>(() => i.Width));
     }
 
     [Fact]
