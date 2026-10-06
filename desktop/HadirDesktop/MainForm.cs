@@ -153,8 +153,11 @@ public sealed class MainForm : Form
     private ToolStripStatusLabel _kitaranLabel = null!;
     private ToolStripStatusLabel _navLabel = null!;
     private ToolStripButton _refreshButton = null!;
-    /// <summary>Hujung kanan bar status: membuka menu dulang yang SAMA (1.0.17).</summary>
-    private ToolStripButton _autohadirButton = null!;
+    /// <summary>
+    /// Hujung kanan bawah, terapung terus di atas bar status: membuka menu
+    /// dulang yang SAMA. BUKAN item bar status (lihat <see cref="ButangAutohadir"/>).
+    /// </summary>
+    private Button _autohadirButton = null!;
     private bool _allowClose;
     private KeadaanPortal _keadaanPortal = KeadaanPortal.Diam;
 
@@ -380,9 +383,6 @@ public sealed class MainForm : Form
 
         _refreshButton = new ToolStripButton { Text = "Segar semula status" };
         _refreshButton.Click += (_, _) => KemasKiniStatus();
-        // Menu dulang yang SAMA (instance milik TrayHost), dibuka ke atas dari
-        // hujung kanan bawah — bukan menu kedua.
-        _autohadirButton = ButangAutohadir.Bina(_tray);
 
         // Bar status pemilik: hanya apa yang dia benar-benar guna. Butang portal
         // ujian, pemilih sumber status dan label enjin bersimulasi dibuang pada
@@ -397,12 +397,16 @@ public sealed class MainForm : Form
         _statusStrip.Items.Add(new ToolStripSeparator());
         _statusStrip.Items.Add(_kitaranLabel);
         _statusStrip.Items.Add(_navLabel);
-        // Selepas _navLabel (Spring) = item paling kanan.
-        _statusStrip.Items.Add(_autohadirButton);
 
         Controls.Add(_webView);
         Controls.Add(_banner);
         Controls.Add(_statusStrip);
+
+        // Butang Autohadir: TERAPUNG di hujung kanan bawah, terus di atas bar
+        // status, di atas WebView. Ia sengaja BUKAN item _statusStrip — kandungan
+        // tetap bar itu sudah melebihi lebarnya, dan item yang terkeluar tidak
+        // dilukis (1.0.17 tidak pernah kelihatan). Menu = instance TrayHost.
+        _autohadirButton = ButangAutohadir.Pasang(this, _statusStrip, _tray);
         // Panel "Pendaftaran PC" TIDAK ditambah: backend pc* tidak wujud pada
         // pelayan, jadi setiap butangnya mati. Kelasnya kekal (ciri berbilang PC
         // akan datang) dan masih dilupuskan semasa tutup — melupuskan kawalan

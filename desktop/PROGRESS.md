@@ -1,5 +1,59 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## 1.0.18 — Butang Autohadir terapung (pembetulan 1.0.17) (2026-10-06)
+
+**Punca.** Pada 1.0.17 `_autohadirButton` ialah item terakhir `_statusStrip`.
+Pada saiz lalai 1100 px, bar status selebar 1082 px tetapi kandungan tetapnya
+1126 px (refresh 144 + Keadaan 220 + Backend 375 + Kitaran 369 + 3 pemisah).
+StatusStrip tidak melukis item yang terkeluar dari tepi kanan (tiada overflow
+chevron), jadi `_navLabel` dan butang itu hilang. `Spring` pada `_navLabel` tidak
+membantu kerana kandungan tetap sudah melebihi lebar.
+
+**Bukti.** Probe dalam proses (`new MainForm()` + refleksi) menunjukkan 9 item
+dengan butang bertanda `owner=strip`. Dalam aplikasi sebenar, UIAutomation hanya
+melihat 6–7 anak StatusStrip, dan tangkapan piksel pada hujung kanan bar hanya
+menunjukkan krip saiz.
+
+**Pembetulan.**
+- `ButangAutohadir.Pasang(borang, bar, tray)` membina `Button` terapung (Flat,
+  Firebrick, teks putih tebal, ikon `SemuaFungsi`, `Anchor = Bottom|Right`,
+  ToolTip). Butang ditambah ke `borang.Controls` dengan `BringToFront()` (di atas
+  WebView2) dan diletakkan oleh fungsi TULEN `KedudukanButang`: bawah butang =
+  `bar.Top`, kanan = klien − 8 px, tidak pernah negatif. Kedudukan dikira semula
+  pada `Layout` borang dan apabila saiz/kedudukan bar atau butang berubah.
+- Klik tidak berubah: menu `TrayHost.MenuDulang` yang sama, `KedudukanMenu`
+  (ke atas, diapit WorkingArea), dan togol klik kedua (`BaruDitutupKlikLuar`).
+- `MainForm`: `_autohadirButton` kini `Button`, dipasang selepas
+  `Controls.Add(_statusStrip)`. `_statusStrip.Items` kembali kepada susunan
+  1.0.16 (8 item).
+
+**Pengesahan probe selepas pembetulan** (MainForm sebenar, klien 1084x711): bar
+`top=688`, butang `{X=973,Y=654,W=103,H=34}` (bawah 688 = atas bar, kanan 1076 =
+1084 − 8), dan indeks-z 0. Selepas saiz 600x500: bar 438, butang Y=404, X=473.
+Probe ialah diagnostik sementara dan bukan sebahagian daripada suite ujian.
+
+### Ujian
+
+`ButangAutohadirTests` (23), contoh:
+`dotnet test desktop/HadirDesktop.sln --filter "FullyQualifiedName~ButangAutohadir"`.
+Borang ujian 1100x750 berbentuk MainForm, dengan bar status yang sengaja penuh,
+dipasang melalui `Pasang` yang sama:
+
+- Butang berada dalam `Controls` borang dan bukan item bar.
+- Anchor Bawah|Kanan, indeks-z 0.
+- `Bounds.Bottom == bar.Top`, rata kanan, dalam klien.
+- Saiz 420x320 / 800x600 / 1100x750 / 1920x1040.
+- Teks, ikon, gaya.
+- Klik membuka menu yang SAMA (`SourceControl` = butang); klik kedua menutup.
+- `KedudukanButang` tulen.
+- Pengawal sumber: bar status 8 item tanpa Autohadir, `Pasang` selepas
+  `Controls.Add(_statusStrip)`, dan tiada `new ContextMenuStrip` selain TrayHost.
+
+Ujian lama yang mengandaikan butang dalam bar status telah diganti.
+
+Tidak diuji secara automatik: rupa butang di atas WebView2 yang sedang memaparkan
+portal, dan laluan tetikus sebenar untuk togol klik kedua.
+
 ## 1.0.17 — Butang "Autohadir" pada bar status (2026-10-06)
 
 Permintaan pemilik: dalam aplikasi juga perlu ada butang, contohnya di hujung

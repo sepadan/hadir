@@ -3,6 +3,13 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.18 — Butang Autohadir sentiasa kelihatan
+
+- **Pembetulan 1.0.17:** butang **Autohadir** wujud dalam aplikasi tetapi tidak pernah kelihatan. Ia diletak sebagai item terakhir bar status, dan pada saiz tetingkap lalai kandungan tetap bar itu (Segar semula, Keadaan, Backend, Kitaran) sudah 1126 px, lebih lebar daripada bar itu sendiri (1082 px). Bar status Windows tidak melukis item yang terkeluar dari tepi kanan, jadi label navigasi dan butang Autohadir hilang. Ini juga berlaku semasa tetingkap dimaksimumkan, apabila teks status panjang.
+- Kini **Autohadir** ialah butang merah (warna banner, teks putih tebal, ikon grid) yang terapung di **hujung kanan bawah** tetingkap, terus di atas bar status. Ia sentiasa kelihatan pada sebarang saiz tetingkap dan mengikut sudut kanan bawah apabila tetingkap diubah saiz. Butang itu menindih sedikit sudut bawah kanan halaman portal.
+- Klik butang membuka menu dulang yang **sama** seperti 1.0.17 (satu instance; tanda semak dan baris status sentiasa seragam). Menu dibuka ke atas, tidak terpotong di tepi skrin, dan klik sekali lagi menutupnya.
+- Bar status tidak berubah: Segar semula status, Keadaan, Backend, Kitaran dan label navigasi kekal seperti 1.0.16.
+
 ## 1.0.17 — Butang Autohadir dalam aplikasi
 
 - Butang **Autohadir** (ikon grid) kini berada di hujung kanan bawah bar status tetingkap utama. Klik butang itu untuk membuka menu yang sama seperti klik kanan ikon HADIR Desktop di dulang sistem.
