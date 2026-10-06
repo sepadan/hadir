@@ -153,6 +153,8 @@ public sealed class MainForm : Form
     private ToolStripStatusLabel _kitaranLabel = null!;
     private ToolStripStatusLabel _navLabel = null!;
     private ToolStripButton _refreshButton = null!;
+    /// <summary>Hujung kanan bar status: membuka menu dulang yang SAMA (1.0.17).</summary>
+    private ToolStripButton _autohadirButton = null!;
     private bool _allowClose;
     private KeadaanPortal _keadaanPortal = KeadaanPortal.Diam;
 
@@ -378,6 +380,9 @@ public sealed class MainForm : Form
 
         _refreshButton = new ToolStripButton { Text = "Segar semula status" };
         _refreshButton.Click += (_, _) => KemasKiniStatus();
+        // Menu dulang yang SAMA (instance milik TrayHost), dibuka ke atas dari
+        // hujung kanan bawah — bukan menu kedua.
+        _autohadirButton = ButangAutohadir.Bina(_tray);
 
         // Bar status pemilik: hanya apa yang dia benar-benar guna. Butang portal
         // ujian, pemilih sumber status dan label enjin bersimulasi dibuang pada
@@ -392,6 +397,8 @@ public sealed class MainForm : Form
         _statusStrip.Items.Add(new ToolStripSeparator());
         _statusStrip.Items.Add(_kitaranLabel);
         _statusStrip.Items.Add(_navLabel);
+        // Selepas _navLabel (Spring) = item paling kanan.
+        _statusStrip.Items.Add(_autohadirButton);
 
         Controls.Add(_webView);
         Controls.Add(_banner);

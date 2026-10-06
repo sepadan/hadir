@@ -1,5 +1,43 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## 1.0.17 — Butang "Autohadir" pada bar status (2026-10-06)
+
+Permintaan pemilik: dalam aplikasi juga perlu ada butang, contohnya di hujung
+kanan bawah, yang membuka menu sama seperti klik di dulang.
+
+- `TrayHost.MenuDulang` mendedahkan `ContextMenuStrip` milik NotifyIcon (satu
+  instance; tiada menu kedua). `TunjukMenu(Control, Point)` membuka menu itu
+  secara togol (menutupnya jika sudah dipapar). `BaruDitutupKlikLuar()` merekod
+  penutupan `AppClicked`: penapis menu WinForms menutup menu sebelum butang
+  menerima klik, jadi tanpanya klik kedua akan membuka semula menu, bukan
+  menutupnya.
+- `ButangAutohadir.cs` (baharu): `Bina(tray)` membina `ToolStripButton`
+  "Autohadir" (ikon `IkonDulang.SemuaFungsi`, `ImageAndText`, tip). Fungsi TULEN
+  `KedudukanMenu(butangSkrin, saizMenu, kawasanKerja)` meletakkan menu di atas
+  butang (sudut kanan-bawah menu = sudut kanan-atas butang), kemudian
+  mengapitnya dalam `Screen.FromControl(bar).WorkingArea`.
+- `MainForm.BuildLayout`: `_autohadirButton = ButangAutohadir.Bina(_tray)`
+  ditambah SELEPAS `_navLabel` (Spring), jadi ia item terakhir dan paling kanan.
+
+### Ujian
+
+`ButangAutohadirTests` (+14), contoh:
+`dotnet test desktop/HadirDesktop.sln --filter "FullyQualifiedName~ButangAutohadir"`.
+
+- `MenuDulang` ialah instance yang membawa `ItemMenu`.
+- `TunjukMenu` dua kali → dibuka kemudian ditutup.
+- Butang: teks, ikon, gaya dan tip.
+- `PerformClick` membuka menu yang SAMA (`SourceControl` = bar, bilangan item
+  tidak berubah); klik kedua menutupnya.
+- `KedudukanMenu`: di atas dan sejajar kanan, apitan kanan / bawah / atas /
+  kiri, dan monitor kedua.
+- Pengawal sumber MainForm: susunan penuh `_statusStrip.Items` dengan
+  `_autohadirButton` sebagai item terakhir selepas `_navLabel`, dan tiada
+  `new ContextMenuStrip` selain dalam TrayHost.
+
+Tidak diuji secara automatik: laluan tetikus sebenar (MouseDown → penapis menu →
+Click) untuk togol klik kedua, dan rupa menu pada skrin sebenar.
+
 ## 1.0.16 — Ikon menu dulang + panel "Semua fungsi" (2026-10-06)
 
 Permintaan pemilik: butang dulang perlu ada UI, dan satu butang untuk melihat

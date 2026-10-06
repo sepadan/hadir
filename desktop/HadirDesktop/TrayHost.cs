@@ -18,6 +18,8 @@ public sealed class TrayHost : IDisposable
     /// <summary>Benar semasa <see cref="TetapkanTogol"/> menyelaras Checked — handler klik tidak menulis.</summary>
     private bool _menyelarasTogol;
     private bool _shownBalloonOnce;
+    /// <summary>Environment.TickCount64 semasa menu terakhir ditutup oleh klik di luarnya.</summary>
+    private long _ditutupKlikLuarTick = long.MinValue / 2;
 
     public event EventHandler? ShowRequested;
     public event EventHandler? SemuaFungsiRequested;
@@ -121,7 +123,51 @@ public sealed class TrayHost : IDisposable
         };
 
         _notifyIcon.DoubleClick += (_, _) => ShowRequested?.Invoke(this, EventArgs.Empty);
+
+        // Klik pada butang Autohadir semasa menu terbuka: penapis menu WinForms
+        // menutup menu (AppClicked) SEBELUM butang menerima tetikus. Masa itu
+        // direkod supaya butang tahu klik tersebut bertujuan menutup, bukan
+        // membuka semula.
+        menu.Closed += (_, e) =>
+        {
+            if (e.CloseReason == ToolStripDropDownCloseReason.AppClicked)
+            {
+                _ditutupKlikLuarTick = Environment.TickCount64;
+            }
+        };
     }
+
+    /// <summary>
+    /// Menu dulang itu sendiri — SATU instance, dikongsi dengan butang
+    /// Autohadir dalam tetingkap. Jangan bina salinan: tanda semak, baris status
+    /// kelabu dan ikon mesti kekal sama di kedua-dua tempat.
+    /// </summary>
+    public ContextMenuStrip MenuDulang => _notifyIcon.ContextMenuStrip!;
+
+    /// <summary>
+    /// Tunjuk menu dulang pada <paramref name="titik"/> (koordinat klien
+    /// <paramref name="pemilik"/>, sudut kiri-atas menu). TOGOL: jika menu
+    /// sudah dipapar, ia ditutup dan tiada apa dibuka.
+    /// </summary>
+    /// <returns><c>true</c> jika menu dibuka; <c>false</c> jika ia ditutup.</returns>
+    public bool TunjukMenu(Control pemilik, Point titik)
+    {
+        if (MenuDulang.Visible)
+        {
+            MenuDulang.Close();
+            return false;
+        }
+        MenuDulang.Show(pemilik, titik);
+        return true;
+    }
+
+    /// <summary>
+    /// Benar jika menu baru sahaja ditutup oleh klik di luarnya (dalam
+    /// <paramref name="ambangMs"/>). Dipakai butang Autohadir supaya klik kedua
+    /// menutup menu dan tidak membukanya semula serta-merta.
+    /// </summary>
+    public bool BaruDitutupKlikLuar(int ambangMs = 300) =>
+        Environment.TickCount64 - _ditutupKlikLuarTick <= ambangMs;
 
     /// <summary>
     /// Item menu dulang — untuk ujian/diagnostik sahaja. Membaca sahaja; tiada

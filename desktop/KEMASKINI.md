@@ -3,6 +3,13 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.17 — Butang Autohadir dalam aplikasi
+
+- Butang **Autohadir** (ikon grid) kini berada di hujung kanan bawah bar status tetingkap utama. Klik butang itu untuk membuka menu yang sama seperti klik kanan ikon HADIR Desktop di dulang sistem.
+- Menu ini ialah menu dulang yang **sama** (satu instance), bukan salinan. Tanda semak **Mula bersama Windows** / **Hantar ke MOEIS (automatik)**, baris status kelabu dan ikon sentiasa sama di kedua-dua tempat. Setiap item berfungsi sama seperti dari dulang.
+- Menu dibuka **ke atas**, sejajar dengan tepi kanan butang, dan sentiasa dalam kawasan skrin (tidak terpotong di bawah atau kanan, termasuk pada monitor kedua).
+- Klik **Autohadir** sekali lagi semasa menu terbuka untuk menutupnya. Esc atau klik di luar menu juga menutupnya.
+
 ## 1.0.16 — Ikon menu dulang dan panel "Semua fungsi"
 
 - Setiap item perintah dan togol dalam menu dulang kini mempunyai ikon kecil berwarna. Teks dan susunan item sedia ada tidak berubah. Baris status kelabu dan pemisah tidak berikon.

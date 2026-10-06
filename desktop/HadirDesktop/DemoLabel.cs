@@ -71,6 +71,14 @@ public static class DemoLabel
         "Semua fungsi menu dulang dalam satu tetingkap. Setiap butang melakukan perkara yang sama seperti item dulang.";
     public const string PanelFungsiTutup = "Tutup";
 
+    /// <summary>
+    /// Butang bar status (hujung kanan bawah) yang membuka menu dulang yang
+    /// SAMA — untuk pemilik yang tidak tahu menu itu ada di ikon dulang.
+    /// </summary>
+    public const string ButangAutohadir = "Autohadir";
+    public const string ButangAutohadirTip =
+        "Buka menu HADIR Desktop — menu yang sama seperti klik kanan ikon di dulang sistem.";
+
     /// <summary>Label shown when the dev/test debug transport is active (never in normal mode).</summary>
     public const string DevDebugBannerSuffix = " — MOD DEV-DEBUG (CDP loopback sahaja)";
 
