@@ -3,6 +3,15 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.16 — Ikon menu dulang dan panel "Semua fungsi"
+
+- Setiap item perintah dan togol dalam menu dulang kini mempunyai ikon kecil berwarna. Teks dan susunan item sedia ada tidak berubah. Baris status kelabu dan pemisah tidak berikon.
+- Item baharu **Semua fungsi…** (kedua, selepas **Tunjuk**) membuka tetingkap **Semua fungsi — HADIR Desktop**. Tetingkap itu memaparkan setiap fungsi dulang sebagai butang, dalam empat kumpulan: **Paparan**, **Tetapan**, **Penghantaran**, **Sistem**. Setiap butang ada penerangan ringkas.
+- Butang panel melakukan perkara yang SAMA seperti item dulang. Tiada fungsi baharu, dan tiada medan kredensial dalam panel.
+- **Mula bersama Windows** dan **Hantar ke MOEIS (automatik)** ialah butang togol (tertekan = HIDUP). Penerangannya menyatakan `Kini: HIDUP` atau `Kini: MATI`. Togol dalam panel dan tanda semak dalam menu dulang sentiasa sama.
+- Baris **Status** di bawah memaparkan teks keadaan portal yang sama seperti baris kelabu menu dulang.
+- **Tutup**, Esc atau butang X hanya menyembunyikan panel. Memilih **Semua fungsi…** sekali lagi membawa panel yang sama ke hadapan; tetingkap kedua tidak dibuka.
+
 ## 1.0.15 — Kitaran pintar dan waktu aktif
 
 **Kitaran pintar (automatik, tiada tetapan).**

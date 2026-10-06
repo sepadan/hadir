@@ -61,6 +61,16 @@ public static class DemoLabel
     public const string TrayHantarAuto = "Hantar ke MOEIS (automatik)";
     public const string TrayExit = "Keluar";
 
+    /// <summary>
+    /// Item dulang yang membuka panel <see cref="PanelFungsi"/>: setiap fungsi
+    /// dulang sebagai butang sebenar. Panel itu tidak menambah fungsi baharu.
+    /// </summary>
+    public const string TraySemuaFungsi = "Semua fungsi…";
+    public const string PanelFungsiTajuk = "Semua fungsi — " + NamaApl;
+    public const string PanelFungsiArahan =
+        "Semua fungsi menu dulang dalam satu tetingkap. Setiap butang melakukan perkara yang sama seperti item dulang.";
+    public const string PanelFungsiTutup = "Tutup";
+
     /// <summary>Label shown when the dev/test debug transport is active (never in normal mode).</summary>
     public const string DevDebugBannerSuffix = " — MOD DEV-DEBUG (CDP loopback sahaja)";
 

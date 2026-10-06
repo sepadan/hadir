@@ -1,5 +1,87 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## 1.0.16 — Ikon menu dulang + panel "Semua fungsi" (2026-10-06)
+
+Permintaan pemilik: butang dulang perlu ada UI, dan satu butang untuk melihat
+semua butang lain.
+
+### `IkonDulang.cs` (baharu)
+
+- Ikon 16x16 dilukis dalam kod (System.Drawing). Tiada fail imej ditambah ke
+  repo dan tiada fail ikon luar dibaca. Setiap ikon ialah petak bucu bulat
+  berwarna dengan tepi lebih gelap, padding 1px dan glif putih antialias, jadi ia
+  kelihatan pada menu terang dan gelap.
+- `Untuk(FungsiDulang)` + penama (`Tunjuk()`, `Keluar()`, …) mengembalikan
+  Bitmap tercache yang dikongsi. `Lukis()` melukis Bitmap baharu untuk ujian.
+
+### `PanelFungsiBina.cs` (baharu) — fungsi TULEN
+
+- `enum FungsiDulang` (satu nilai bagi setiap item dulang) dan `JenisFungsi`
+  (`Perintah`, `Togol`, `PanelIni`).
+- `Senarai()` mengembalikan empat kelompok (Paparan / Tetapan / Penghantaran /
+  Sistem) yang mengandungi `ItemFungsi(Fungsi, Label, Penerangan, Jenis)`. Label
+  diambil daripada `DemoLabel` sahaja, jadi teks panel sama dengan teks dulang.
+
+### `TrayHost.cs`
+
+- Item **Semua fungsi…** ditambah sebagai item kedua, selepas **Tunjuk**, dengan
+  event `SemuaFungsiRequested`. Teks dan susunan item lain tidak berubah.
+- Setiap item perintah dan togol mempunyai `Image` daripada `IkonDulang`. Baris
+  status dan pemisah tidak berikon.
+- `Laksana(FungsiDulang)` membangkitkan event perintah. Klik dulang dan butang
+  panel menggunakan laluan yang sama.
+- `KeadaanTogol` (nilai `null` jika togol tidak dipapar) dan `TetapkanTogol`
+  menyelaraskan `Checked` tanpa menjalankan handler klik. Selepas itu nilai
+  ditulis SEKALI melalui callback sedia ada (`autostart.Daftar/Buang` atau
+  `hantarAutoTulis`). Nilai ditulis walaupun sama dengan nilai semasa, supaya
+  stor tetap selaras jika tanda dulang sudah lapuk.
+- `TeksStatus` mengembalikan teks baris status dulang (baca sahaja).
+
+### `PanelFungsi.cs` (baharu)
+
+- Tetingkap non-modal (`Show()`), 566 px lebar pada fon lalai; tingginya mengikut
+  kandungan (TableLayoutPanel + GroupBox).
+- Susun atur: setiap kelompok ialah grid dua lajur TETAP yang sama. Lebar
+  lajur butang dikira daripada label terpanjang (`TextRenderer.MeasureText`) +
+  ikon + ruang dalam butang (`KiraLebarButang`), jadi tiada label terpotong pada
+  DPI/fon lain. Lajur penerangan ialah 260 px. Setiap baris mempunyai tinggi yang
+  sama, iaitu penerangan tertinggi (diukur dengan Label yang sama, termasuk setiap
+  keadaan togol) + margin (`KiraTinggiBaris`). Butang berlabuh kiri+kanan dan
+  penerangan berlabuh kiri, jadi kedua-duanya ditengahkan menegak dan tepi kanan
+  butang segaris merentasi kelompok. Butang perintah memanggil callback
+  `laksana`. Togol (`CheckBox`, `Appearance.Button`) dibaca melalui `bacaTogol`
+  dan ditulis melalui `tetapkanTogol`. `Segarkan()` tidak menulis apa-apa.
+- Item `PanelIni` (**Semua fungsi…**) dipapar sebagai butang yang dilumpuhkan.
+- Butang X (`UserClosing`), **Tutup** atau Esc memanggil `Hide()`. Penutupan lain
+  dibenarkan.
+
+### `MainForm.cs`
+
+- `SemuaFungsiRequested` → `BukaPanelFungsi()` menggunakan satu instance:
+  panel dicipta sekali, kemudian `Show()`/`BringToFront()`/`Activate()`. Panel
+  disambungkan kepada `_tray.Laksana`, `_tray.KeadaanTogol`,
+  `_tray.TetapkanTogol` dan `_tray.TeksStatus`.
+- `LaporKeadaanPortal` menyegarkan panel jika ia sedang dipapar. Panel
+  dilupuskan semasa aplikasi keluar.
+
+### Ujian
+
+1107 lulus / 0 gagal (sebelum ini 1058; **+49**):
+`IkonDulangTests` (setiap ikon bukan null dan 16x16, dicache, setiap ikon
+berbeza, padding 1px, cache kekal sah selepas dulang/panel dilupus),
+`TrayHostSemuaFungsiTests` (item wujud selepas Tunjuk; klik membangkitkan
+`SemuaFungsiRequested`; setiap item perintah/togol berikon; teks dan susunan
+item lama kekal; `Laksana`, `TetapkanTogol`, `KeadaanTogol`, `TeksStatus`),
+`PanelFungsiTests` (pembina tulen: liputan setiap label, tiada label berulang,
+kelompok tidak kosong; panel dibina tanpa dipapar: butang ↔ callback, togol
+dibaca/ditulis, tiada medan teks, lebar 440–620 px; susun atur: setiap butang
+memuatkan teksnya, lajur dan baris seragam, tepi kanan segaris, tengah menegak
+butang = tengah menegak penerangan, fon lebih besar → lajur/baris lebih besar).
+
+Tidak diuji secara automatik: rupa menu dulang sebenar (tema terang/gelap Windows)
+dan fokus/bawa-ke-hadapan pada desktop sebenar. Ikon dan panel dirender ke PNG
+sementara di luar repo untuk semakan visual sahaja.
+
 ## 1.0.15 — Kitaran pintar (90 s) + tetingkap waktu aktif (2026-10-06)
 
 Log menunjukkan kegagalan MOEIS sementara (cth `halaman-tidak-sedia`) hanya

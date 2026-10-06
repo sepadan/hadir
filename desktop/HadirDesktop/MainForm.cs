@@ -14,6 +14,11 @@ public sealed class MainForm : Form
 {
     private readonly AppStateMachine _stateMachine = new();
     private readonly TrayHost _tray;
+    /// <summary>
+    /// Panel "Semua fungsi" — dicipta pada bukaan pertama dan kemudian hanya
+    /// disembunyi/dipapar semula (satu instance; tiada tetingkap bertindan).
+    /// </summary>
+    private PanelFungsi? _panelFungsi;
     private readonly FixturePortalServer _portalServer = new();
     private NavigationGuard _navigationGuard = null!;
     private readonly DevDebugTransport? _devDebug;
@@ -318,6 +323,7 @@ public sealed class MainForm : Form
             hantarAutoBaca: () => _idMeSettingsStore.Baca().HantarAuto,
             hantarAutoTulis: HantarAutoTetapkan);
         _tray.ShowRequested += (_, _) => ShowFromTray();
+        _tray.SemuaFungsiRequested += (_, _) => BukaPanelFungsi();
         _tray.OpenSettingsRequested += (_, _) => OpenEngineSettings();
         _tray.IdMeSettingsRequested += (_, _) => OpenIdMeSettings();
         _tray.LoginAutoRequested += async (_, _) => await CubaLoginAutoAtasPermintaanAsync();
@@ -1394,6 +1400,7 @@ public sealed class MainForm : Form
             _keadaanPortal = keadaan;
             UpdateStateLabel();
             _tray.SetPortalKeadaan(keadaan, sebab);
+            if (_panelFungsi is { IsDisposed: false, Visible: true }) _panelFungsi.Segarkan();
             _navLabel.Text = $"Portal: {LabelKeadaanPortal.Teks(keadaan)} — {sebab}";
         }
 
@@ -1469,6 +1476,32 @@ public sealed class MainForm : Form
         UpdateStateLabel();
     }
 
+    /// <summary>
+    /// Buka panel "Semua fungsi" (non-modal). Satu instance sahaja: jika sudah
+    /// wujud ia dipapar semula dan dibawa ke hadapan. Butangnya memanggil
+    /// TrayHost — laluan yang sama seperti klik item dulang, termasuk togol.
+    /// </summary>
+    private void BukaPanelFungsi()
+    {
+        if (_panelFungsi == null || _panelFungsi.IsDisposed)
+        {
+            _panelFungsi = new PanelFungsi(
+                f => _tray.Laksana(f),
+                _tray.KeadaanTogol,
+                _tray.TetapkanTogol,
+                () => _tray.TeksStatus);
+        }
+
+        _panelFungsi.Segarkan();
+        if (!_panelFungsi.Visible) _panelFungsi.Show();
+        if (_panelFungsi.WindowState == FormWindowState.Minimized)
+        {
+            _panelFungsi.WindowState = FormWindowState.Normal;
+        }
+        _panelFungsi.BringToFront();
+        _panelFungsi.Activate();
+    }
+
     private void ExitForReal()
     {
         _stateMachine.OnExitRequested();
@@ -1511,6 +1544,7 @@ public sealed class MainForm : Form
             _portalServer.Dispose();
             (_kerjaHariIni as IDisposable)?.Dispose();
             _deviceHttp.Dispose();
+            _panelFungsi?.Dispose();
             _tray.Dispose();
             return;
         }
