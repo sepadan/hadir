@@ -5,83 +5,52 @@ using System.Windows.Forms;
 namespace HadirDesktop;
 
 /// <summary>
-/// Butang "Autohadir" di hujung KANAN BAWAH tetingkap utama: membuka menu
-/// dulang yang SAMA (<see cref="TrayHost.MenuDulang"/>) — tiada menu kedua,
-/// tiada item disalin, jadi tanda semak, baris status kelabu dan ikon sentiasa
-/// seragam.
+/// Butang "Autohadir" — item TERAKHIR bar status (hujung kanan bawah): membuka
+/// menu dulang yang SAMA (<see cref="TrayHost.MenuDulang"/>) — tiada menu kedua,
+/// tiada item disalin, jadi tanda semak, baris status kelabu dan ikon seragam.
 ///
-/// Sejak 1.0.18 ia KAWALAN TERAPUNG anak borang, terus di atas bar status —
-/// bukan item bar status. Pada 1.0.17 ia item terakhir StatusStrip, tetapi
-/// kandungan tetap bar itu (1126 px) sudah melebihi lebarnya pada saiz lalai
-/// (1082 px); StatusStrip tidak melukis item yang terkeluar, jadi butang itu
-/// tidak pernah kelihatan. Kawalan terapung tidak bergantung pada ruang bar.
+/// Sejarah: 1.0.17 meletakkannya dalam bar status tanpa pengurusan ruang —
+/// kandungan tetap bar (1126 px) melebihi lebarnya (1082 px) dan StatusStrip
+/// tidak melukis item yang terkeluar, jadi butang tidak pernah kelihatan.
+/// 1.0.18 menjadikannya kawalan terapung. 1.0.20 mengembalikannya KE DALAM bar:
+/// item-item bar dipadatkan formatnya (teks penuh dalam tip alat), butang
+/// kompak (≤95 px) dengan Overflow.Never, dan ruang krip saiz dikhaskan supaya
+/// krip penjuru tidak menutup butang.
 ///
-/// Butang berada di dasar tetingkap, jadi menu dibuka KE ATAS, sejajar ke kanan
-/// dengan butang, dan diapit dalam kawasan kerja skrin supaya tidak terpotong.
+/// Menu dibuka KE ATAS, sejajar ke kanan dengan butang, dan diapit dalam
+/// kawasan kerja skrin supaya tidak terpotong.
 /// </summary>
 public static class ButangAutohadir
 {
-    /// <summary>Jarak dari tepi kanan klien borang (ruang untuk krip saiz).</summary>
-    public const int JarakKanan = 8;
+    /// <summary>Ruang di tepi kanan bar untuk krip saiz (px logik, 96 DPI).</summary>
+    public const int RuangGrip = 18;
 
     /// <summary>
-    /// Bina butang, tambah ke <paramref name="borang"/> di atas semua kawalan
-    /// lain (termasuk WebView), dan letakkan terus di atas <paramref name="bar"/>.
-    /// Kedudukan dikira semula setiap kali borang atau bar status berubah saiz.
+    /// Butang kompak: ikon 16 px + "Autohadir" + padding kecil (≤ ~95 px).
+    /// Tidak pernah dihantar ke limpahan (<see cref="ToolStripItemOverflow.Never"/>).
+    /// Margin kanan memperuntukkan ruang krip saiz di penjuru kanan bawah.
     /// </summary>
-    public static Button Pasang(Form borang, StatusStrip bar, TrayHost tray)
+    public static ToolStripButton Bina(TrayHost tray)
     {
-        var butang = BinaTerapung(tray);
-        borang.Controls.Add(butang);
-        butang.BringToFront();
-
-        void LetakSemula() => Letak(butang, borang.ClientSize, bar.Top);
-        LetakSemula();
-        borang.Layout += (_, _) => LetakSemula();
-        bar.SizeChanged += (_, _) => LetakSemula();
-        bar.LocationChanged += (_, _) => LetakSemula();
-        butang.SizeChanged += (_, _) => LetakSemula();
-        return butang;
-    }
-
-    /// <summary>
-    /// Butang terapung: latar Firebrick (warna banner), teks putih tebal dan
-    /// ikon grid — jelas di atas halaman portal terang atau gelap.
-    /// </summary>
-    public static Button BinaTerapung(TrayHost tray)
-    {
-        var butang = new Button
+        var butang = new ToolStripButton
         {
             Text = DemoLabel.ButangAutohadir,
             Image = IkonDulang.Untuk(FungsiDulang.SemuaFungsi),
-            ImageAlign = ContentAlignment.MiddleLeft,
+            DisplayStyle = ToolStripItemDisplayStyle.ImageAndText,
             TextImageRelation = TextImageRelation.ImageBeforeText,
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.Firebrick,
-            ForeColor = Color.White,
-            UseVisualStyleBackColor = false,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Padding = new Padding(6, 2, 6, 2),
-            Anchor = AnchorStyles.Bottom | AnchorStyles.Right,
-            Cursor = Cursors.Hand,
+            ImageScaling = ToolStripItemImageScaling.SizeToFit,
+            ToolTipText = DemoLabel.ButangAutohadirTip,
+            AutoToolTip = false,
+            Overflow = ToolStripItemOverflow.Never,
+            Padding = new Padding(2, 0, 2, 0),
+            Margin = new Padding(2, 2, RuangGrip + 2, 0),
             AccessibleName = DemoLabel.ButangAutohadir,
             AccessibleDescription = DemoLabel.ButangAutohadirTip,
         };
-        butang.Font = new Font(butang.Font, FontStyle.Bold);
-        butang.FlatAppearance.BorderColor = Color.DarkRed;
-        butang.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 50, 50);
-        butang.FlatAppearance.MouseDownBackColor = Color.DarkRed;
 
-        var tip = new ToolTip();
-        tip.SetToolTip(butang, DemoLabel.ButangAutohadirTip);
         // Ikon ialah salinan milik butang ini (IkonDulang.Untuk) — dilupus bersamanya.
         var ikon = butang.Image;
-        butang.Disposed += (_, _) =>
-        {
-            tip.Dispose();
-            ikon?.Dispose();
-        };
+        butang.Disposed += (_, _) => ikon?.Dispose();
 
         // Togol: jika menu terbuka semasa tetikus ditekan, klik ini menutupnya.
         // Penapis menu WinForms biasanya sudah menutup menu sebelum MouseDown
@@ -102,29 +71,28 @@ public static class ButangAutohadir
     }
 
     /// <summary>
-    /// Letak butang rata kanan (<see cref="JarakKanan"/>) dan terus di atas bar
-    /// status (<paramref name="atasBarStatus"/>), dalam koordinat klien borang.
+    /// Tambah butang Autohadir sebagai item TERAKHIR <paramref name="bar"/>
+    /// dan pastikan ruang krip saiz dikhaskan.
     /// </summary>
-    public static void Letak(Control butang, Size klien, int atasBarStatus) =>
-        butang.Location = KedudukanButang(butang.Size, klien, atasBarStatus);
-
-    /// <summary>
-    /// Sudut kiri-atas butang (koordinat klien) — fungsi TULEN. Bawah butang =
-    /// atas bar status; kanan butang = klien − <see cref="JarakKanan"/>. Tidak
-    /// pernah negatif, jadi butang kekal dalam klien walaupun tetingkap sangat kecil.
-    /// </summary>
-    public static Point KedudukanButang(Size saizButang, Size klien, int atasBarStatus) =>
-        new(Math.Max(0, klien.Width - JarakKanan - saizButang.Width),
-            Math.Max(0, atasBarStatus - saizButang.Height));
+    public static ToolStripButton Pasang(StatusStrip bar, TrayHost tray)
+    {
+        bar.ShowItemToolTips = true;
+        var butang = Bina(tray);
+        bar.Items.Add(butang);
+        return butang;
+    }
 
     /// <summary>Buka (atau tutup — togol) menu dulang di atas <paramref name="butang"/>.</summary>
-    internal static bool Tunjuk(TrayHost tray, Control butang)
+    internal static bool Tunjuk(TrayHost tray, ToolStripItem butang)
     {
-        var butangSkrin = butang.RectangleToScreen(butang.ClientRectangle);
+        var bar = butang.Owner;
+        if (bar == null) return false;
+
+        var butangSkrin = bar.RectangleToScreen(butang.Bounds);
         var saizMenu = tray.MenuDulang.GetPreferredSize(Size.Empty);
-        var kawasan = Screen.FromControl(butang).WorkingArea;
+        var kawasan = Screen.FromControl(bar).WorkingArea;
         var kiriAtas = KedudukanMenu(butangSkrin, saizMenu, kawasan);
-        return tray.TunjukMenu(butang, butang.PointToClient(kiriAtas));
+        return tray.TunjukMenu(bar, bar.PointToClient(kiriAtas));
     }
 
     /// <summary>

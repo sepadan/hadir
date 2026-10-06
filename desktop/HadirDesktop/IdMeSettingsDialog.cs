@@ -166,8 +166,21 @@ public sealed class IdMeSettingsDialog : Form
     /// <summary>Kotak semak "Isnin–Jumaat sahaja" — untuk ujian sahaja.</summary>
     public CheckBox KotakIsninJumaat => _chkIsninJumaat;
 
+    /// <summary>Kotak semak "Simpan pada PC ini" — untuk ujian sahaja.</summary>
+    public CheckBox KotakSimpan => _chkSimpan;
+
+    /// <summary>Medan ID pengguna — untuk ujian sahaja.</summary>
+    public TextBox MedanPengguna => _txtPengguna;
+
+    /// <summary>Medan kata laluan — untuk ujian sahaja.</summary>
+    public TextBox MedanKataLaluan => _txtKataLaluan;
+
+    /// <summary>Medan frasa kunci keselamatan — untuk ujian sahaja.</summary>
+    public TextBox MedanKunci => _txtKunci;
+
     /// <summary>Teks baris status semasa (tiada nilai rahsia) — untuk ujian sahaja.</summary>
     public string TeksStatus => _lblStatus.Text;
+    public Color WarnaStatus => _lblStatus.ForeColor;
 
     private void SegerakkanMedanWaktuAktif()
     {
@@ -188,12 +201,12 @@ public sealed class IdMeSettingsDialog : Form
         else if (s.Ada)
         {
             _lblStatus.Text = "Kredensial: ada (pengguna " + s.PenggunaSamar + (s.KunciAda ? ", frasa disimpan" : "") + ").";
-            _lblStatus.ForeColor = Color.DimGray;
+            _lblStatus.ForeColor = Color.SeaGreen;
         }
         else
         {
             _lblStatus.Text = "Kredensial: tiada (belum disimpan pada PC ini).";
-            _lblStatus.ForeColor = Color.DimGray;
+            _lblStatus.ForeColor = Color.Firebrick;
         }
     }
 
@@ -279,7 +292,7 @@ public sealed class IdMeSettingsDialog : Form
         if (!_chkSimpan.Checked)
         {
             _lblStatus.Text = "Tetapan disimpan. Kredensial TIDAK disimpan (kotak \"Simpan pada PC ini\" tidak ditanda).";
-            _lblStatus.ForeColor = Color.DimGray;
+            _lblStatus.ForeColor = Color.Firebrick;
             return;
         }
 

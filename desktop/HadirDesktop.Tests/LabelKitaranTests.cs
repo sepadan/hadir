@@ -418,7 +418,7 @@ public class LabelKitaranTests
             new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddMinutes(10)),
             Kini);
 
-        Assert.Equal($"Kitaran: seterusnya lebih kurang 09:25 (setiap {KitaranAuto.SelangMinit} minit)", teks);
+        Assert.Equal($"Kitaran: 09:25 · setiap {KitaranAuto.SelangMinit} minit", teks);
     }
 
     [Fact]
@@ -429,7 +429,7 @@ public class LabelKitaranTests
             Kini);
 
         Assert.Equal(10, KitaranAuto.SelangMinit);
-        Assert.Equal("Kitaran: seterusnya lebih kurang 09:25 (setiap 10 minit)", teks);
+        Assert.Equal("Kitaran: 09:25 · setiap 10 minit", teks);
     }
 
     // ---------- selang AKTIF (kitaran pintar 1.0.15) ----------
@@ -446,7 +446,7 @@ public class LabelKitaranTests
             new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddSeconds(90), SelangSaat: KitaranAuto.SelangCepatSaat),
             Kini);
 
-        Assert.Equal("Kitaran: seterusnya lebih kurang 09:16 (setiap 90 saat)", teks);
+        Assert.Equal("Kitaran: 09:16 · setiap 90 saat", teks);
         Assert.DoesNotContain("minit", teks);
     }
 
@@ -457,7 +457,7 @@ public class LabelKitaranTests
             new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddMinutes(10), SelangSaat: KitaranAuto.SelangBiasaSaat),
             Kini);
 
-        Assert.Equal("Kitaran: seterusnya lebih kurang 09:25 (setiap 10 minit)", teks);
+        Assert.Equal("Kitaran: 09:25 · setiap 10 minit", teks);
     }
 
     [Fact]
@@ -467,7 +467,7 @@ public class LabelKitaranTests
             new FaktaKitaran(Aktif: true, Seterusnya: Kini.AddSeconds(-5), SelangSaat: KitaranAuto.SelangCepatSaat),
             Kini);
 
-        Assert.Equal("Kitaran: seterusnya sebentar lagi (setiap 90 saat)", teks);
+        Assert.Equal("Kitaran: sebentar lagi · setiap 90 saat", teks);
     }
 
     [Theory]
@@ -493,18 +493,40 @@ public class LabelKitaranTests
         Assert.DoesNotContain("90 saat", teks);
     }
 
-    /// <summary>Di luar waktu aktif: label menyebut sebab sebenar, bukan selang.</summary>
+    /// <summary>Di luar waktu aktif: label diringkaskan pada paparan, ayat penuh dalam tooltip (1.0.21).</summary>
     [Fact]
     public void LuarWaktuAktif_LabelMenyebutSebab()
     {
         var sebab = KitaranAuto.SebabLuarWaktuAktif("06:30", "17:00", isninJumaat: true);
+        var fakta = new FaktaKitaran(Aktif: false, Seterusnya: Kini.AddMinutes(10), SebabMati: sebab);
 
-        var teks = LabelKitaran.Teks(
-            new FaktaKitaran(Aktif: false, Seterusnya: Kini.AddMinutes(10), SebabMati: sebab),
-            Kini);
+        var teks = LabelKitaran.Teks(fakta, Kini);
+        var teksPenuh = LabelKitaran.TeksPenuh(fakta, Kini);
 
-        Assert.StartsWith("Kitaran: mati — di luar waktu aktif (06:30–17:00", teks);
+        Assert.Equal("Kitaran: mati (luar 06:30–17:00)", teks);
         Assert.DoesNotContain("setiap", teks);
+
+        Assert.StartsWith("Kitaran: mati — di luar waktu aktif (06:30–17:00", teksPenuh);
+        Assert.Contains("Isnin–Jumaat", teksPenuh);
+    }
+
+    [Fact]
+    public void RingkaskanSebab_FormatPelbagaiKeadaan()
+    {
+        Assert.Equal("(luar 06:30–17:00)", LabelKitaran.RingkaskanSebab("di luar waktu aktif (06:30–17:00, Isnin–Jumaat) — disambung sendiri dalam waktu itu"));
+        Assert.Equal("(luar 06:30–17:00)", LabelKitaran.RingkaskanSebab("di luar waktu aktif (06:30–17:00) — disambung sendiri dalam waktu itu"));
+        Assert.Equal("(waktu aktif tidak sah)", LabelKitaran.RingkaskanSebab("waktu aktif tidak sah — semak \"Akaun idMe…\""));
+        Assert.Equal("— tetapan automatik dibaca sebagai mati", LabelKitaran.RingkaskanSebab("tetapan automatik dibaca sebagai mati"));
+    }
+
+    [Fact]
+    public void LabelBackend_TeksPenuh_DikonfigurasikanDanRalat()
+    {
+        var penuhSedia = LabelBackend.TeksPenuh(klienSedia: true, konfigSediaSekarang: true, samaDenganKlien: true);
+        Assert.Equal(LabelBackend.DikonfigurasikanPenuh, penuhSedia);
+
+        var penuhMati = LabelBackend.TeksPenuh(klienSedia: false, konfigSediaSekarang: false, samaDenganKlien: false, sebab: "tiada rahsia enjin");
+        Assert.Equal("Backend: klaim & hantar MATI — tiada rahsia enjin", penuhMati);
     }
 
     /// <summary>
@@ -581,7 +603,7 @@ public class LabelKitaranTests
             Kini);
 
         Assert.Equal(
-            $"Kitaran: seterusnya lebih kurang 09:15 (kitaran pertama, {KitaranAuto.TundaanMulaSaat} saat selepas mula)",
+            $"Kitaran: 09:15 · kitaran pertama ({KitaranAuto.TundaanMulaSaat}s)",
             teks);
         Assert.DoesNotContain($"setiap {KitaranAuto.SelangMinit} minit", teks);
     }
@@ -653,7 +675,7 @@ public class LabelKitaranTests
     {
         var teks = LabelBackend.Teks(klienSedia: true, konfigSediaSekarang: true, samaDenganKlien: true, sebab: "");
 
-        Assert.Equal("Backend: konfigurasi tersedia (rahsia enjin + apiUrl sah)", teks);
+        Assert.Equal("Backend: sedia (rahsia + apiUrl sah)", teks);
         Assert.DoesNotContain("aktif", teks, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("sambung", teks, StringComparison.OrdinalIgnoreCase);
     }
@@ -2047,7 +2069,7 @@ public class PemasaPaparanLabelTests
         // TICK, bukan oleh peralihan kitaran.
         Assert.NotNull(awal);
         Assert.NotNull(akhir);
-        Assert.Contains("seterusnya lebih kurang", awal!);
+        Assert.Contains("· setiap", awal!);
         Assert.Contains("sebentar lagi", akhir!);
         Assert.NotEqual(awal, akhir);
     }

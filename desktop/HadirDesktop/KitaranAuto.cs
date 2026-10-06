@@ -178,6 +178,20 @@ public static class KitaranAuto
         return "di luar waktu aktif (" + mula.Trim() + "–" + tamat.Trim() + hari + ") — disambung sendiri dalam waktu itu";
     }
 
+    /// <summary>
+    /// Ringkasan sebab untuk paparan label "Kitaran" (1.0.21). Nilai masa
+    /// yang sah diringkaskan kepada "luar HH:mm–HH:mm".
+    /// </summary>
+    public static string SebabLuarWaktuAktifRingkas(string? mula, string? tamat)
+    {
+        if (!CubaBacaMasa(mula, out _) || !CubaBacaMasa(tamat, out _) || mula!.Trim() == tamat!.Trim())
+        {
+            return "waktu aktif tidak sah";
+        }
+
+        return "luar " + mula.Trim() + "–" + tamat.Trim();
+    }
+
     /// <summary>Laluan log produksi (boleh diuji terhadap folder sementara).</summary>
     public static string LaluanLog(string? folderAsas = null) =>
         Path.Combine(

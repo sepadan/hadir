@@ -1,5 +1,68 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## 1.0.21 — Jaminan struktural: butang Autohadir kekal kelihatan dalam bar status (2026-10-06)
+
+**Punca & Matlamat.** Pada pemasangan sebenar 1.0.20 di PC pemilik (18:35, luar waktu aktif), bar status terpotong selepas pemisah kedua (butang Autohadir, label Kitaran dan nav hilang). Punca: teks Kitaran luar waktu aktif (536 px) + Backend langsung (244 px) menjadikan jumlah tetap langsung 1162 px > 1082 px lebar bar status, menyebabkan WinForms menggugurkan lukisan item terkeluar. Ujian lama terlalu lemah kerana hanya mengukur teks pendek.
+
+**Reka bentuk & Pembetulan.**
+1. **Jaminan struktural lebar label:** Memperkenalkan kelas `LabelStatusTerhad` (subkelas `ToolStripStatusLabel`) yang menghormati had lebar dalam `GetPreferredSize` apabila `AutoSize=false`.
+   - Had maksimum: Keadaan (`_stateLabel`) 230 px, Backend (`_backendLabel`) 260 px, Kitaran (`_kitaranLabel`) 230 px.
+   - Pada tetingkap lalai (1100x750, DisplayRectangle ~1082 px), jumlah tetap terhad + butang (84 px) + krip (18 px) + padding + margin = ~988–1012 px <= 1050 px, meninggalkan simpanan >= 30 px (didapati ~70–100 px) untuk `_navLabel` (Spring).
+2. **Ringkaskan mesej luar waktu aktif:** Teks paparan diringkaskan kepada `Kitaran: mati (luar 06:30–17:00)` (~180 px, muat kemas tanpa terpotong). Ayat penuh asal disimpan dalam `ToolTipText`: `Kitaran: mati — di luar waktu aktif (06:30–17:00, Isnin–Jumaat) — disambung sendiri dalam waktu itu`.
+3. **ToolTip lengkap bagi setiap label:** Setiap label status tetap (`_stateLabel`, `_backendLabel`, `_kitaranLabel`) dan butang Autohadir mempunyai `ToolTipText` bermakna supaya teks penuh sentiasa boleh dibaca walaupun terpotong kemas.
+4. **Butang Autohadir:** Kekal item TERAKHIR, 84 px, `Overflow=Never`, margin krip 18 px.
+5. **Ujian senario terburuk diperkukuh:** Menetapkan string panjang maksimum (536 px kitaran, backend penuh) sebelum pengukuran dan mengesahkan jaminan struktural, bounds butang, dan kehadiran ToolTipText tidak kosong.
+
+**Bahagian A: Warna status Kredensial idMe (`IdMeSettingsDialog`)**
+- Membezakan status simpanan kredensial secara visual:
+  - `Kredensial: ada (pengguna …)` -> `Color.SeaGreen` (hijau).
+  - `Kredensial: tiada (belum disimpan pada PC ini).` -> `Color.Firebrick` (merah).
+  - `Tetapan disimpan. Kredensial TIDAK disimpan …` -> `Color.Firebrick` (merah).
+  - `Kredensial: ROSAK …` -> `Color.Firebrick` (merah).
+  - Mesej simpanan berjaya -> `Color.SeaGreen` (hijau).
+- Menambah sifat `public Color WarnaStatus => _lblStatus.ForeColor;` untuk ujian unit tanpa menyentuh DPAPI/kredensial sebenar (`IdMeSettingsDialogWarnaStatusTests.cs`, 5 ujian lulus).
+
+**Bahagian B: Penghantaran MOEIS bagi kelas semua-hadir**
+1. **Apps Script (`HadirWeb.gs`):**
+   - Mengubah `hadirMoeisJobBuatDiBawahLock_`: Simpan kelas semua-hadir kini mencipta atau menyegarkan job `menunggu` dengan senarai murid `[]`, bukan membatalkannya.
+   - `hadirMoeisSahkanLengkap_` membenarkan senarai kosong apabila bendera `semuaHadir` benar.
+   - `hadirBacaJobPeta_` memetakan senarai kosong kepada `bilTidakHadir = 0`.
+   - `hadirMoeisJobSelesaiSah_` mengesahkan `bilTidakHadir === 0` dan `.every()` atas senarai kosong bernilai benar.
+2. **Desktop (`KerjaPenuh.cs` & `PenghantaranMoeis.cs`):**
+   - Menambah sokongan medan `BilHadir`, `BilMurid`, `SemuaHadir` dan sifat `MenegaskanSemuaHadir` pada `KerjaPenuh`.
+   - `PembinaTugasanPenghantaran.DaripadaKerja` menerima senarai kosong HANYA jika `MenegaskanSemuaHadir` benar; menolak fail-closed jika data tidak lengkap/samar.
+   - Aliran semua-hadir: Buka kelas, JANGAN ubah sebarang baris (tiada tanda, tiada pilihan sebab/kategori), tekan Kemaskini dan Simpan/Simpan & Sahkan.
+   - Baca semula wajib mengesahkan `bilHadir == jumlahMurid` dan `bilTidakHadir == 0`. Gagal jujur jika MOEIS menunjukkan sebarang ketidakhadiran.
+   - Mesej dilaporkan: `Semua hadir (N murid) — disahkan tanpa perubahan baris; hadir X/N.`
+3. **Kad Web (`app.js`):** Memastikan kad bertukar `Selesai MOEIS` apabila job semua-hadir berjaya.
+4. **Ujian Unit Baharu:**
+   - `PenghantaranSemuaHadirTests.cs` (4 ujian: bina diterima bila lengkap, bina ditolak bila samar, aliran tidak menyentuh baris, pengesahan gagal jujur bila MOEIS tunjuk ketidakhadiran).
+
+### Ujian
+- `desktop/HadirDesktop.sln`: semua lulus / 0 gagal (dua larian berturut-turut).
+- `tests/*.cjs`: 42 lulus / 0 gagal.
+
+## 1.0.20 — Butang Autohadir kembali ke dalam bar status (2026-10-06)
+
+**Punca & Matlamat.** Pemilik meminta butang "Autohadir" diletakkan terus ke dalam bar bawah (bar status) supaya kemas, tanpa butang terapung yang menindih paparan halaman ("masukkan dalam bar bawah tu biar kemas. sesuaikan saiz."). Pada 1.0.17 butang tidak kelihatan kerana kandungan tetap bar (1126 px) melebihi DisplayRectangle (1082 px).
+
+**Reka bentuk & Pembetulan.**
+1. `_autohadirButton` (ToolStripButton) menjadi item TERAKHIR `_statusStrip` selepas `_navLabel` (Spring). Kawalan terapung (`Button` anak borang, BringToFront, Anchor, listener Layout) dibuang sepenuhnya.
+2. Penjimatan ruang melalui pemadatan format label (tanpa membuang maklumat):
+   - `LabelBackend`: `Backend: konfigurasi tersedia (rahsia enjin + apiUrl sah)` (375 px) -> `Backend: sedia (rahsia + apiUrl sah)` (193 px) — jimat 182 px.
+   - `LabelKitaran`: `Kitaran: seterusnya lebih kurang 16:30 (setiap 10 minit)` (369 px) -> `Kitaran: 16:30 · setiap 10 minit` (163 px) — jimat 206 px.
+   - Teks penuh kedua-dua label disimpan dalam `ToolTipText` masing-masing (`_statusStrip.ShowItemToolTips = true`).
+3. Butang kompak: ikon 16 px + teks "Autohadir" + padding kecil (84 px pilihan, ≤ 95 px); `Overflow = ToolStripItemOverflow.Never`.
+4. Ruang krip: Margin kanan 20 px mengasingkan butang daripada `SizingGrip` (~18 px) di penjuru kanan bawah, memastikan `Bounds.Right <= DisplayRectangle.Width - grip`.
+5. Lebar tetap keseluruhan pada saiz lalai (1100x750, klien 1084 px): 658 px (Keadaan ringkas) hingga 815 px (Keadaan panjang), memberi baki 254–411 px untuk `_navLabel` (Spring).
+6. Menu dulang yang sama: instance tunggal `TrayHost.MenuDulang` dibuka ke atas diapit kawasan kerja skrin; togol klik kedua menutup menu.
+
+### Ujian
+1143 lulus / 0 gagal.
+- Ujian kawalan ukuran baharu mengesahkan preferred size + grip + padding <= DisplayRectangle.Width pada saiz lalai 1100x750 dan pelbagai lebar (1280, 1920).
+- Ujian keutamaan limpahan (`Overflow = Never`) pada lebar kecil (<1100).
+- Ujian togol klik dan instance tunggal MenuDulang dikekalkan.
+
 ## 1.0.19 — Ikon dulang: salinan persendirian, bukan Bitmap dikongsi (2026-10-06)
 
 **Bukti kegagalan** (10 larian penuh pada 1.0.18; 1 gagal):

@@ -34,7 +34,10 @@ public sealed record KerjaPenuh(
     string Status,
     string Mesej,
     string KelasMoeisId,
-    IReadOnlyList<MuridKerjaPenuh> Murid)
+    IReadOnlyList<MuridKerjaPenuh> Murid,
+    int? BilHadir = null,
+    int? BilMurid = null,
+    bool? SemuaHadir = null)
 {
     /// <summary>True only for menunggu/sedang_dihantar/tersimpan (same rule as the demand probe).</summary>
     public bool BelumSiap => LoopbackKerjaHariIniSource.StatusBelumSiap.Contains(Status ?? "");
@@ -42,6 +45,16 @@ public sealed record KerjaPenuh(
     /// <summary>yyyy-MM-dd ordinal comparison (first 10 chars), same rule as the demand probe.</summary>
     public bool PadaTarikh(string tarikhHariIni) =>
         TarikhSama(TarikhIso, tarikhHariIni);
+
+    /// <summary>
+    /// Menegaskan kehadiran lengkap bagi kelas semua hadir (fail-closed):
+    /// Benar jika ditandakan SemuaHadir == true, atau BilMurid > 0 dan BilHadir == BilMurid (dengan senarai Murid kosong),
+    /// atau jika mesej menegaskan 'semua hadir'.
+    /// </summary>
+    public bool MenegaskanSemuaHadir =>
+        SemuaHadir == true ||
+        (BilMurid.HasValue && BilHadir.HasValue && BilMurid > 0 && BilHadir == BilMurid && (Murid == null || Murid.Count == 0)) ||
+        (!string.IsNullOrWhiteSpace(Mesej) && (Mesej.Contains("semua hadir", StringComparison.OrdinalIgnoreCase) || Mesej.Contains("semua murid hadir", StringComparison.OrdinalIgnoreCase)));
 
     internal static bool TarikhSama(string? tarikhIso, string? tarikhHariIni)
     {
@@ -251,6 +264,14 @@ public sealed class LoopbackKerjaPenuhSource : IKerjaPenuhSource, IDisposable
                 }
 
                 var tarikh = Teks(job, "tarikhIso");
+                bool? semuaHadir = null;
+                if (job.TryGetProperty("semuaHadir", out var sh) && (sh.ValueKind == JsonValueKind.True || sh.ValueKind == JsonValueKind.False))
+                    semuaHadir = sh.GetBoolean();
+                int? bilHadir = null;
+                if (job.TryGetProperty("bilHadir", out var bh) && bh.TryGetInt32(out var bhv)) bilHadir = bhv;
+                int? bilMurid = null;
+                if (job.TryGetProperty("bilMurid", out var bm) && bm.TryGetInt32(out var bmv)) bilMurid = bmv;
+
                 hasil.Add(new KerjaPenuh(
                     Teks(job, "id"),
                     Teks(job, "kelas"),
@@ -258,7 +279,10 @@ public sealed class LoopbackKerjaPenuhSource : IKerjaPenuhSource, IDisposable
                     Teks(job, "status"),
                     Teks(job, "mesej"),
                     Teks(job, "kelasMoeisId"),
-                    murid));
+                    murid,
+                    BilHadir: bilHadir,
+                    BilMurid: bilMurid,
+                    SemuaHadir: semuaHadir));
             }
 
             return hasil;

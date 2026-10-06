@@ -145,6 +145,17 @@ public sealed class MainForm : Form
     /// </summary>
     private readonly CancellationTokenSource _cycleCts = new();
 
+    /// <summary>
+    /// Had lebar maksimum bagi label status tetap (1.0.21). Jaminan struktural
+    /// supaya jumlah lebar tetap + butang Autohadir + margin + krip &lt;= 1050 px
+    /// pada saiz tetingkap lalai (1100x750; DisplayRectangle ~1082 px),
+    /// meninggalkan sekurang-kurangnya 30 px untuk label Spring _navLabel.
+    /// Teks panjang terpotong kemas tanpa menolak item lain keluar.
+    /// </summary>
+    public const int LebarMaksKeadaan = 230;
+    public const int LebarMaksBackend = 260;
+    public const int LebarMaksKitaran = 230;
+
     private WebView2 _webView = null!;
     private Label _banner = null!;
     private StatusStrip _statusStrip = null!;
@@ -154,10 +165,9 @@ public sealed class MainForm : Form
     private ToolStripStatusLabel _navLabel = null!;
     private ToolStripButton _refreshButton = null!;
     /// <summary>
-    /// Hujung kanan bawah, terapung terus di atas bar status: membuka menu
-    /// dulang yang SAMA. BUKAN item bar status (lihat <see cref="ButangAutohadir"/>).
+    /// Item terakhir bar status: membuka menu dulang yang SAMA (1.0.20).
     /// </summary>
-    private Button _autohadirButton = null!;
+    private ToolStripButton _autohadirButton = null!;
     private bool _allowClose;
     private KeadaanPortal _keadaanPortal = KeadaanPortal.Diam;
 
@@ -376,10 +386,36 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
         };
 
-        _stateLabel = new ToolStripStatusLabel { Text = "Keadaan: -" };
-        _backendLabel = new ToolStripStatusLabel { Text = LabelBackend.Awalan + "-" };
-        _kitaranLabel = new ToolStripStatusLabel { Text = LabelKitaran.Awalan + "-" };
-        _navLabel = new ToolStripStatusLabel { Text = string.Empty, Spring = true, TextAlign = System.Drawing.ContentAlignment.MiddleRight };
+        _stateLabel = new LabelStatusTerhad
+        {
+            Text = "Keadaan: -",
+            ToolTipText = "Keadaan: -",
+            AutoSize = false,
+            Width = LebarMaksKeadaan,
+            TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+        };
+        _backendLabel = new LabelStatusTerhad
+        {
+            Text = LabelBackend.Awalan + "-",
+            ToolTipText = LabelBackend.DikonfigurasikanPenuh,
+            AutoSize = false,
+            Width = LebarMaksBackend,
+            TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+        };
+        _kitaranLabel = new LabelStatusTerhad
+        {
+            Text = LabelKitaran.Awalan + "-",
+            ToolTipText = LabelKitaran.Awalan + "-",
+            AutoSize = false,
+            Width = LebarMaksKitaran,
+            TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+        };
+        _navLabel = new ToolStripStatusLabel
+        {
+            Text = string.Empty,
+            Spring = true,
+            TextAlign = System.Drawing.ContentAlignment.MiddleRight,
+        };
 
         _refreshButton = new ToolStripButton { Text = "Segar semula status" };
         _refreshButton.Click += (_, _) => KemasKiniStatus();
@@ -397,22 +433,21 @@ public sealed class MainForm : Form
         _statusStrip.Items.Add(new ToolStripSeparator());
         _statusStrip.Items.Add(_kitaranLabel);
         _statusStrip.Items.Add(_navLabel);
+        // Butang Autohadir: item TERAKHIR _statusStrip selepas _navLabel (Spring).
+        // Membuka menu dulang yang SAMA (instance TrayHost).
+        _autohadirButton = ButangAutohadir.Pasang(_statusStrip, _tray);
 
         Controls.Add(_webView);
         Controls.Add(_banner);
         Controls.Add(_statusStrip);
 
-        // Butang Autohadir: TERAPUNG di hujung kanan bawah, terus di atas bar
-        // status, di atas WebView. Ia sengaja BUKAN item _statusStrip — kandungan
-        // tetap bar itu sudah melebihi lebarnya, dan item yang terkeluar tidak
-        // dilukis (1.0.17 tidak pernah kelihatan). Menu = instance TrayHost.
-        _autohadirButton = ButangAutohadir.Pasang(this, _statusStrip, _tray);
         // Panel "Pendaftaran PC" TIDAK ditambah: backend pc* tidak wujud pada
         // pelayan, jadi setiap butangnya mati. Kelasnya kekal (ciri berbilang PC
         // akan datang) dan masih dilupuskan semasa tutup — melupuskan kawalan
         // yang tidak pernah ditambah adalah selamat.
 
         UpdateStateLabel();
+        KemasKiniStatus();
         KemasKiniLabelKitaran();
     }
 
@@ -860,13 +895,21 @@ public sealed class MainForm : Form
         // pertukaran kepada apiUrl/rahsia lain yang tetap sah tidak lulus sebagai
         // "masih sama". Apabila mereka tidak sepadan, label mengatakannya dan
         // bukan mendakwa keupayaan yang tidak dipegang oleh klien sebenar.
+        var sebabBackend = _hasilMigrasi.Backend.Muktamad ? status.Sebab : status.Sebab + " " + _hasilMigrasi.Backend.Sebab;
+        var klienSedia = _backendClient != null;
+        var konfigSedia = status.Sedia;
+        var samaDenganKlien = CapKonfigurasiBackend.Sepadan(_capKonfigurasiKlien, CapKonfigurasiSekarang());
+
         _backendLabel.Text = LabelBackend.Teks(
-            klienSedia: _backendClient != null,
-            konfigSediaSekarang: status.Sedia,
-            samaDenganKlien: CapKonfigurasiBackend.Sepadan(_capKonfigurasiKlien, CapKonfigurasiSekarang()),
-            // Migrasi yang tidak muktamad menerangkan KENAPA tiada konfigurasi
-            // (cth data Companion tidak dapat disahkan). Sebab bebas nilai sahaja.
-            sebab: _hasilMigrasi.Backend.Muktamad ? status.Sebab : status.Sebab + " " + _hasilMigrasi.Backend.Sebab);
+            klienSedia: klienSedia,
+            konfigSediaSekarang: konfigSedia,
+            samaDenganKlien: samaDenganKlien,
+            sebab: sebabBackend);
+        _backendLabel.ToolTipText = LabelBackend.TeksPenuh(
+            klienSedia: klienSedia,
+            konfigSediaSekarang: konfigSedia,
+            samaDenganKlien: samaDenganKlien,
+            sebab: sebabBackend);
         KemasKiniLabelKitaran();
     }
 
@@ -956,7 +999,10 @@ public sealed class MainForm : Form
     {
         try
         {
-            _kitaranLabel.Text = LabelKitaran.Teks(FaktaKitaranSekarang(), DateTime.Now);
+            var fakta = FaktaKitaranSekarang();
+            var kini = DateTime.Now;
+            _kitaranLabel.Text = LabelKitaran.Teks(fakta, kini);
+            _kitaranLabel.ToolTipText = LabelKitaran.TeksPenuh(fakta, kini);
         }
         catch (ObjectDisposedException)
         {
@@ -1569,6 +1615,8 @@ public sealed class MainForm : Form
 
     private void UpdateStateLabel()
     {
-        _stateLabel.Text = $"Keadaan: {_stateMachine.State} · portal: {LabelKeadaanPortal.Teks(_keadaanPortal)}";
+        var teks = $"Keadaan: {_stateMachine.State} · portal: {LabelKeadaanPortal.Teks(_keadaanPortal)}";
+        _stateLabel.Text = teks;
+        _stateLabel.ToolTipText = $"{teks} — {LabelKeadaanPortal.Ayat(_keadaanPortal)}";
     }
 }

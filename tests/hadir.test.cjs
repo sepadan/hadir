@@ -393,6 +393,8 @@ try {
 }
 sah(konteksMoeis.hadirMoeisSahkanLengkap_([{ nama: 'Ali', kategori: 'D', sebab: 'DEMAM' }], '1 BIJAK') === true,
   'Senarai lengkap mesti diterima untuk penghantaran');
+sah(konteksMoeis.hadirMoeisSahkanLengkap_([], '1 BIJAK', true) === true,
+  'Kelas semua hadir mesti dibenarkan apabila semuaHadir ditanda benar');
 
 // Elak pendua tugasan bagi kelas+tarikh yang sama. Pendua memang mustahil
 // kerana pemanggil MENGGUNAKAN SEMULA baris yang sama (id lama, setValues

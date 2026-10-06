@@ -3,6 +3,67 @@
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 
+## 1.0.21 — Jaminan struktural: butang Autohadir kekal kelihatan
+
+- **Punca isu:** Pada PC pemilik dengan 1.0.20 terpasang (waktu luar tetingkap aktif), bar status terpotong selepas pemisah kedua (hanya Segar semula status, Keadaan, Backend; Kitaran, label nav dan butang Autohadir hilang). Punca dikenal pasti:
+  - Teks Kitaran luar waktu aktif (`Kitaran: mati — di luar waktu aktif (06:30–17:00, Isnin–Jumaat) — disambung sendiri dalam waktu itu`) mencapai **536 px**.
+  - Teks Backend langsung mencapai **244 px**.
+  - Jumlah kandungan tetap langsung: 144 + 6 + 220 + 6 + 244 + 6 + 536 = **1162 px > 1082 px** (lebar bar status pada saiz tetingkap lalai 1100x750). WinForms menghentikan lukisan item yang terkeluar dari sempadan bar.
+  - Ujian lama hanya menguji teks pendek dalam persekitaran ujian (Backend 63 px, Kitaran pendek) dan tidak menguji senario terburuk.
+- **Jaminan struktural & had lebar label tetap:**
+  - Setiap label status tetap dihadkan lebar maksimumnya melalui kelas `LabelStatusTerhad` (subkelas `ToolStripStatusLabel` dengan `AutoSize=false; Width=had; TextAlign=MiddleLeft` dan `GetPreferredSize` terhad):
+    - **Keadaan (`_stateLabel`):** Had maksimum **230 px**
+    - **Backend (`_backendLabel`):** Had maksimum **260 px**
+    - **Kitaran (`_kitaranLabel`):** Had maksimum **230 px**
+  - Pada saiz lalai 1100x750 (DisplayRectangle ~1082 px), jumlah label dibatasi + butang Autohadir (84 px) + krip (18 px) + padding + margin = ~988–1012 px <= 1050 px, menjamin sekurang-kurangnya 30 px ruang simpanan untuk label Spring `_navLabel` (didapati ~70–100 px).
+- **Mesej luar waktu aktif dipendekkan + ToolTip lengkap:**
+  - Teks paparan Kitaran luar waktu aktif diringkaskan: `Kitaran: mati (luar 06:30–17:00)` (~180 px, muat kemas dalam had 230 px tanpa terpotong).
+  - Ayat penuh asal dikekalkan dalam `ToolTipText`: `Kitaran: mati — di luar waktu aktif (06:30–17:00, Isnin–Jumaat) — disambung sendiri dalam waktu itu`.
+  - ToolTip lengkap dipasang pada semua label status (`_stateLabel`, `_backendLabel`, `_kitaranLabel`) supaya tiada maklumat hilang walau teks terpotong.
+- **Butang Autohadir dikekalkan:** Item TERAKHIR bar status, 84 px, `Overflow=Never`, margin krip (18 px) kekal.
+- **Ujian senario terburuk diperkukuh:**
+  - Ujian kawalan kini menetapkan teks label terus kepada teks panjang penuh (536 px kitaran, backend penuh, ralat penuh) sebelum pengiraan saiz pilihan.
+  - Assert mengesahkan `jumlah(GetPreferredSize bukan-spring) + RuangGrip + Padding.Horizontal <= DisplayRectangle.Width` dan `Bounds.Right <= DisplayRectangle.Width - RuangGrip`.
+  - Ujian mengesahkan setiap label status mempunyai `ToolTipText` yang tidak kosong.
+
+- **Warna status "Kredensial" (Bahagian A):**
+  - Tetingkap "Akaun idMe" (`IdMeSettingsDialog`) kini menggunakan warna visual yang jelas untuk status simpanan kredensial:
+    - `Kredensial: ada (pengguna …)` dipaparkan dengan warna **HIJAU** (`Color.SeaGreen`).
+    - `Kredensial: tiada (belum disimpan pada PC ini).` dipaparkan dengan warna **MERAH** (`Color.Firebrick`).
+    - `Tetapan disimpan. Kredensial TIDAK disimpan …` dipaparkan dengan warna **MERAH** (`Color.Firebrick`).
+    - `Kredensial: ROSAK …` kekal **MERAH** (`Color.Firebrick`).
+    - Mesej simpanan berjaya kekal **HIJAU** (`Color.SeaGreen`).
+  - Sifat baca-sahaja `WarnaStatus` diekspos untuk ujian unit tanpa menyentuh DPAPI/kredensial sebenar.
+
+- **Penghantaran MOEIS bagi kelas semua-hadir (Bahagian B):**
+  - **Apps Script (`HadirWeb.gs`):**
+    - Simpan kehadiran kelas lengkap bagi kelas semua-hadir kini **mencipta atau menyegarkan** job `menunggu` dengan senarai murid kosong (`[]`), dan TIDAK lagi membatalkan job tersebut.
+    - `hadirMoeisSahkanLengkap_` membenarkan senarai kosong apabila ditandakan `semuaHadir`.
+    - `hadirBacaJobPeta_` memetakan senarai kosong kepada `bilTidakHadir = 0` (bukan NaN/kosong).
+    - Log audit `MOEIS_JOB_BUAT` mencatat `0 murid tidak hadir (semua hadir)`.
+  - **Desktop (`PenghantaranMoeis.cs` & `KerjaPenuh.cs`):**
+    - `PembinaTugasanPenghantaran.DaripadaKerja` menerima senarai ketidakhadiran kosong HANYA apabila rekod kerja menegaskan kehadiran lengkap (`MenegaskanSemuaHadir` — melalui bendera `SemuaHadir`, `BilMurid == BilHadir && BilMurid > 0`, atau mesej penegasan). Rekod yang samar atau tidak lengkap ditolak fail-closed dengan sebab jujur.
+    - Tugas membawa bendera `SemuaHadir = true`.
+  - **Aliran Penghantaran:**
+    - Membuka halaman kelas MOEIS tanpa mengubah sebarang baris (tiada penandaan kotak atau pemilihan sebab/kategori).
+    - Menekan butang Kemaskini dan Simpan / Simpan & Sahkan pada dialog pengesahan.
+    - Baca semula wajib mengesahkan `bilHadir == jumlahMurid` dan `bilTidakHadir == 0`. Sekiranya portal menunjukkan sebarang murid tidak hadir, penghantaran gagal jujur tanpa paksaan.
+    - Mesej keputusan dilaporkan: `Semua hadir (N murid) — disahkan tanpa perubahan baris; hadir X/N`.
+  - **Kad Web (`app.js`):**
+    - Kad kelas memaparkan `Selesai MOEIS` apabila job semua-hadir berjaya disahkan.
+
+## 1.0.20 — Butang Autohadir dalam bar status (kemas dan muat)
+
+- **Permintaan pemilik:** Butang **Autohadir** dipindahkan daripada kawalan terapung KE DALAM bar status (bar bawah) tetingkap utama sebagai item terakhir, dengan reka bentuk kemas dan saiz yang sesuai.
+- **Penyelesaian ruang bar:** Pada 1.0.17 bar status terlebih muat (1126 px > 1082 px). Pada 1.0.20, label bar status dipadatkan formatnya tanpa membuang maklumat (teks penuh kekal boleh dilihat dalam ToolTip):
+  - **Backend:** `Backend: konfigurasi tersedia (rahsia enjin + apiUrl sah)` (375 px) dipadatkan kepada `Backend: sedia (rahsia + apiUrl sah)` (193 px) — jimat 182 px.
+  - **Kitaran:** `Kitaran: seterusnya lebih kurang 16:30 (setiap 10 minit)` (369 px) dipadatkan kepada `Kitaran: 16:30 · setiap 10 minit` (163 px) — jimat 206 px.
+  - **Butang Autohadir kompak:** Ikon 16 px + teks "Autohadir" + padding kecil (84 px, ≤ 95 px) dengan `Overflow = ToolStripItemOverflow.Never`.
+  - **Ruang krip saiz:** Margin kanan 20 px memperuntukkan ruang krip saiz (18 px) di penjuru kanan bawah supaya butang tidak ditutup grip. Grip seret tetingkap dikekalkan.
+- **Jumlah lebar:** Kandungan tetap bar berkurang daripada 1126 px kepada 658–815 px, memberikan baki ruang luas (254–411 px) untuk label navigasi (`_navLabel`, Spring) pada saiz lalai 1100x750 (klien 1084 px, DisplayRectangle 1069 px).
+- **Kawalan terapung dibuang:** Tiada lagi butang terapung yang menindih sudut laman web atau listener susun atur borang/bar.
+- **Menu dulang kekal seragam:** Klik butang membuka menu dulang yang SAMA (instance `TrayHost.MenuDulang`, satu instance) ke atas, diapit dalam kawasan kerja skrin, dan klik kedua menutupnya.
+
 ## 1.0.19 — Ikon tiada lagi dikongsi antara benang
 
 - **Punca:** sejak 1.0.16 setiap ikon menu dulang ialah satu Bitmap yang dikongsi oleh semua pengguna (menu dulang, panel **Semua fungsi**, butang **Autohadir**). GDI+ tidak membenarkan objek yang sama disentuh oleh dua benang serentak. Jika ikon dibaca di luar benang UI semasa benang lain menggunakannya, aplikasi melontar ralat `Object is currently in use elsewhere`. Ini dikesan sebagai ujian yang gagal sekali-sekala (1 daripada 10 larian).
@@ -86,7 +147,7 @@ Terbitan 1.0.13. Tiada kebergantungan runtime pada Companion atau Edge.
 - Menu dulang **Tetapan Tempatan** membuka dialog Windows untuk URL Apps Script dan rahsia enjin. Companion dan Edge tidak diperlukan.
 - URL mesti endpoint Web App penuh `https://script.google.com/macros/s/{id-deployment}/exec` tanpa query, fragment, userinfo atau port bukan lalai. URL akar hos, `/exec` sahaja dan `script.googleusercontent.com/macros/echo` ditolak; fixture migrasi Companion memakai bentuk `/macros/s/{id}/exec` yang sama. Rahsia tidak dipaparkan; biarkan kosong untuk mengekalkan nilai sedia ada. Simpanan melindungi rahsia dengan DPAPI akaun Windows semasa dan mengekalkan medan tetapan serta klien pasangan yang lain.
 - Selepas menyimpan, **mulakan semula HADIR Desktop** supaya klien backend menggunakan tetapan baharu. Kitaran biasa berjalan setiap 10 minit apabila pilihan automatik dihidupkan.
-- Job `menunggu` disegarkan oleh Simpan kehadiran berikutnya sebelum klaim, pada baris dan ID yang sama. Simpan semua hadir membatalkan job menunggu; job yang sudah aktif menolak perubahan kehadiran sehingga selesai.
+- Job `menunggu` disegarkan oleh Simpan kehadiran berikutnya sebelum klaim, pada baris dan ID yang sama. Simpan semua hadir mencipta atau menyegarkan job menunggu (dengan senarai murid kosong) untuk dihantar dan disahkan ke MOEIS (bermula 1.0.21); job yang sudah aktif menolak perubahan kehadiran sehingga selesai.
 
 ## 1.0.11 — Tetapan tempatan kekal dalam HADIR Desktop
 

@@ -73,7 +73,8 @@ public sealed record TugasanDiklaim(
     string Kelas,
     string? TarikhIso,
     string KelasMoeisId,
-    IReadOnlyList<MuridKerjaPenuh> Murid);
+    IReadOnlyList<MuridKerjaPenuh> Murid,
+    bool? SemuaHadir = null);
 
 /// <summary>
 /// The four backend job RPCs the desktop needs to own a task end to end.
@@ -271,6 +272,14 @@ public sealed class HadirBackendClient : IHadirBackendClient
             {
                 if (job.ValueKind != JsonValueKind.Object) continue;
                 var tarikh = Teks(job, "tarikhIso");
+                bool? semuaHadir = null;
+                if (job.TryGetProperty("semuaHadir", out var sh) && (sh.ValueKind == JsonValueKind.True || sh.ValueKind == JsonValueKind.False))
+                    semuaHadir = sh.GetBoolean();
+                int? bilHadir = null;
+                if (job.TryGetProperty("bilHadir", out var bh) && bh.TryGetInt32(out var bhv)) bilHadir = bhv;
+                int? bilMurid = null;
+                if (job.TryGetProperty("bilMurid", out var bm) && bm.TryGetInt32(out var bmv)) bilMurid = bmv;
+
                 senarai.Add(new KerjaPenuh(
                     Teks(job, "id"),
                     Teks(job, "kelas"),
@@ -278,7 +287,10 @@ public sealed class HadirBackendClient : IHadirBackendClient
                     Teks(job, "status"),
                     Teks(job, "mesej"),
                     Teks(job, "kelasMoeisId"),
-                    BacaMurid(job)));
+                    BacaMurid(job),
+                    BilHadir: bilHadir,
+                    BilMurid: bilMurid,
+                    SemuaHadir: semuaHadir));
             }
             return senarai;
         }
@@ -316,12 +328,17 @@ public sealed class HadirBackendClient : IHadirBackendClient
             }
 
             var tarikh = Teks(doc.RootElement, "tarikhIso");
+            bool? semuaHadir = null;
+            if (doc.RootElement.TryGetProperty("semuaHadir", out var sh) && (sh.ValueKind == JsonValueKind.True || sh.ValueKind == JsonValueKind.False))
+                semuaHadir = sh.GetBoolean();
+
             return new TugasanDiklaim(
                 id,
                 Teks(doc.RootElement, "kelas"),
                 tarikh.Length == 0 ? null : tarikh,
                 Teks(doc.RootElement, "kelasMoeisId"),
-                BacaMurid(doc.RootElement));
+                BacaMurid(doc.RootElement),
+                SemuaHadir: semuaHadir);
         }
     }
 

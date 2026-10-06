@@ -266,26 +266,30 @@ test('klaim pada pelepasan kunci Simpan melihat snapshot terkini', function () {
   assert.deepEqual(Array.from(claim.murid, x => x.ic), ['fixture-b']);
 });
 
-test('Simpan semua hadir membuang job menunggu dan klaim tidak menemuinya', function () {
+test('Simpan semua hadir mencipta/menyegarkan job menunggu dan klaim menemuinya', function () {
   var f = buatKehadiranMoeisPalsu(), k = f.env.k;
   var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
   k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciA, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
   var id = f.env.ss.getSheetByName('HADIR_MOEIS_JOB').baris[1][0];
   k.hadirSimpanKehadiran_('1 UJI', [], '', f.tarikhIso);
-  assert.equal(f.env.ss.getSheetByName('HADIR_MOEIS_JOB').getLastRow(), 1);
-  assert.equal(k.hadirMoeisJobKlaim_(id, 'desktop-fixture', false, 'rahsia-fixture'), null);
+  assert.equal(f.env.ss.getSheetByName('HADIR_MOEIS_JOB').getLastRow(), 2);
+  var klaim = k.hadirMoeisJobKlaim_(id, 'desktop-fixture', false, 'rahsia-fixture');
+  assert.notEqual(klaim, null);
+  assert.equal(klaim.kelas, '1 UJI');
+  assert.equal(klaim.murid.length, 0);
+  assert.equal(klaim.semuaHadir, true);
 });
 
-test('Simpan semua hadir mengekalkan sejarah job gagal atau berjaya', function () {
+test('Simpan semua hadir menyegarkan job gagal atau berjaya kepada menunggu untuk dihantar ke MOEIS', function () {
   for (var status of ['gagal', 'berjaya']) {
     var f = buatKehadiranMoeisPalsu(), k = f.env.k;
     var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
     k.hadirSimpanKehadiran_('1 UJI', [{ kunci: kunciA, kategori: 'D', sebab: 'DEMAM' }], '', f.tarikhIso);
     var jobSheet = f.env.ss.getSheetByName('HADIR_MOEIS_JOB');
     jobSheet.baris[1][3] = status;
-    var sebelum = jobSheet.baris[1].slice();
     k.hadirSimpanKehadiran_('1 UJI', [], '', f.tarikhIso);
-    assert.deepEqual(jobSheet.baris[1], sebelum);
+    assert.equal(jobSheet.baris[1][3], 'menunggu');
+    assert.equal(jobSheet.baris[1][9], '[]');
   }
 });
 

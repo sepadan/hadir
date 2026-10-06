@@ -146,7 +146,7 @@ public class IkonDulangTests
         using (new TrayHost(SystemIcons.Application)) { }
         using (new PanelFungsi(_ => { }, _ => null, (_, _) => { }, () => "")) { }
         using (var tray = new TrayHost(SystemIcons.Application))
-        using (ButangAutohadir.BinaTerapung(tray)) { }
+        using (ButangAutohadir.Bina(tray)) { }
 
         using var tunjuk = IkonDulang.Tunjuk();
         using var hantar = IkonDulang.Untuk(FungsiDulang.HantarAuto);

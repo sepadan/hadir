@@ -75,6 +75,13 @@ sah(statusKad(lengkapTanpaSesiAdmin, HARI_INI, HARI_INI, []).kod === 'moeis',
 const buktiAdminLama = [{ nama: 'KELAS UJIAN', statusPenghantaran: 'berjaya', bilTidakHadir: 1 }];
 sah(statusKad(Object.assign({}, lengkap, { moeisSelesai: false }), HARI_INI, HARI_INI, buktiAdminLama).kod === 'diisi',
   'Bukti awam false mesti mengatasi status admin berjaya yang sudah lapuk');
+
+// Kelas semua hadir bertukar Selesai MOEIS bila job berjaya / moeisSelesai benar
+const semuaHadir = kelas([murid(1), murid(1)]);
+sah(statusKad(Object.assign({}, semuaHadir, { moeisSelesai: true }), HARI_INI, HARI_INI, []).kod === 'moeis',
+  'Kelas semua hadir dengan moeisSelesai true mesti "Selesai MOEIS"');
+sah(semak(semuaHadir, moeis('berjaya', 0)).kod === 'moeis',
+  'Kelas semua hadir dengan bukti admin berjaya (bilTidakHadir 0) mesti "Selesai MOEIS"');
 ['tersimpan', 'menunggu', 'sedang_dihantar', 'gagal', 'belum_dihantar', ''].forEach(function (st) {
   sah(semak(lengkap, moeis(st)).kod === 'diisi', `Status "${st}" tidak boleh dianggap Selesai MOEIS`);
 });

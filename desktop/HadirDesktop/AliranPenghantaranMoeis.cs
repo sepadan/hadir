@@ -273,6 +273,7 @@ public sealed class AliranPenghantaranMoeis
                     TarikhIso = klaim.TarikhIso,
                     KelasMoeisId = klaim.KelasMoeisId ?? "",
                     Murid = klaim.Murid,
+                    SemuaHadir = klaim.SemuaHadir ?? kerja.SemuaHadir,
                 };
             }
 
@@ -343,7 +344,7 @@ public sealed class AliranPenghantaranMoeis
                     // bilHadirSelepas is null: this adapter proves each student
                     // individually but never reads MOEIS's own present-count, and
                     // an invented number is worse than none ('' on the wire).
-                    if (!await LaporAsync(kerja.Id, "berjaya", satu.Sebab, pemilik, ct).ConfigureAwait(false))
+                    if (!await LaporAsync(kerja.Id, "berjaya", satu.Sebab, pemilik, ct, bilHadirSelepas: satu.BilMurid).ConfigureAwait(false))
                     {
                         // Tiada apa disimpan untuk dimainkan semula: kitaran seterusnya
                         // menuntut semula dan membaca MOEIS dahulu (baca-sebelum-tulis).
@@ -426,7 +427,7 @@ public sealed class AliranPenghantaranMoeis
     /// status update keyed by task id, unlike the MOEIS write it describes,
     /// which is never repeated. Port of giliran.mjs <c>laporHasil</c>.
     /// </summary>
-    private async Task<bool> LaporAsync(string id, string keputusan, string mesej, string pemilik, CancellationToken ct)
+    private async Task<bool> LaporAsync(string id, string keputusan, string mesej, string pemilik, CancellationToken ct, int? bilHadirSelepas = null)
     {
         if (_backend is null) return false;
 
@@ -434,7 +435,7 @@ public sealed class AliranPenghantaranMoeis
         {
             try
             {
-                await _backend.SelesaiAsync(id, keputusan, mesej, null, pemilik, ct).ConfigureAwait(false);
+                await _backend.SelesaiAsync(id, keputusan, mesej, bilHadirSelepas, pemilik, ct).ConfigureAwait(false);
                 // Id + keputusan sahaja; mesej TIDAK dilog (ia datang dari adaptor).
                 _log?.Invoke("SELESAI_OK: id=" + id + " keputusan=" + keputusan);
                 return true;

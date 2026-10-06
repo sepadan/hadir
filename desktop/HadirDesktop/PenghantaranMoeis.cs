@@ -61,9 +61,22 @@ public static class PembinaTugasanPenghantaran
         var murid = kerja.Murid ?? Array.Empty<MuridKerjaPenuh>();
         if (murid.Count == 0)
         {
-            // An empty absence list is NEVER a submission: it would tell MOEIS
-            // "everyone present" — a fact the task does not assert.
-            return new(null, "Tugasan " + kelas + " tiada murid tidak hadir; tiada penghantaran (kehadiran TIDAK direka).");
+            if (kerja.MenegaskanSemuaHadir)
+            {
+                return new(new TugasanPenghantaran
+                {
+                    Kelas = kelas,
+                    Tahun = null,
+                    TarikhIso = tarikh.Length == 0 ? null : tarikh,
+                    TidakHadir = Array.Empty<MuridTidakHadir>(),
+                    Sahkan = sahkan,
+                    PagarSebelumSimpan = pagarSebelumSimpan,
+                    SemuaHadir = true,
+                }, "Tugasan " + kelas + " (semua hadir) sedia untuk dihantar.");
+            }
+
+            // An empty absence list without full attendance assertion is rejected fail-closed.
+            return new(null, "Tugasan " + kelas + " tiada murid tidak hadir dan rekod kerja tidak menegaskan kehadiran lengkap (bilangan hilang/samar); tiada penghantaran (kehadiran TIDAK direka).");
         }
 
         var senarai = new List<MuridTidakHadir>(murid.Count);
@@ -127,8 +140,11 @@ public sealed class TugasanPenghantaran
     /// <summary>Optional <c>yyyy-MM-dd</c>. When null the page's own date is used as-is and reported.</summary>
     public string? TarikhIso { get; init; }
 
-    /// <summary>The absent students. An empty list is NEVER submitted.</summary>
+    /// <summary>The absent students. An empty list is NEVER submitted unless SemuaHadir is true.</summary>
     public IReadOnlyList<MuridTidakHadir> TidakHadir { get; init; } = Array.Empty<MuridTidakHadir>();
+
+    /// <summary>Menandakan tugasan bagi kelas semua hadir (tiada murid tidak hadir).</summary>
+    public bool SemuaHadir { get; init; }
 
     /// <summary>
     /// false = <c>.sweet-alert:visible button.simpan</c> (save only);
@@ -478,7 +494,7 @@ public static class PenghantaranMoeisFlow
         }
 
         var senarai = tugasan.TidakHadir ?? Array.Empty<MuridTidakHadir>();
-        if (senarai.Count == 0)
+        if (senarai.Count == 0 && !tugasan.SemuaHadir)
         {
             // Never press save on an empty task: this adapter only submits what
             // the task carries, and an empty task carries no attendance at all.
@@ -486,29 +502,32 @@ public static class PenghantaranMoeisFlow
                 "Tugasan tidak membawa seorang pun murid tidak hadir; tiada apa-apa untuk dihantar.", "tugasan-kosong");
         }
 
-        // Every task student must be identifiable (a page id OR a name) and carry
-        // the mandatory category+reason. A name-only student is the normal HADIR
-        // shape — the page id is resolved later against data-namapelajar.
-        var kekurangan = senarai
-            .Where(m => m == null ||
-                (string.IsNullOrWhiteSpace(m.Id) && string.IsNullOrWhiteSpace(m.Nama)) ||
-                string.IsNullOrWhiteSpace(m.Kategori) || string.IsNullOrWhiteSpace(m.Sebab))
-            .Count();
-        if (kekurangan > 0)
+        if (senarai.Count > 0)
         {
-            return Buat(tugasan, "kategori-sebab-tiada",
-                $"{kekurangan} murid dalam tugasan tiada id/nama/kategori/sebab; MOEIS mewajibkan kategori dan sebab bagi setiap murid tidak hadir.",
-                "kategori-sebab-tiada");
-        }
+            // Every task student must be identifiable (a page id OR a name) and carry
+            // the mandatory category+reason. A name-only student is the normal HADIR
+            // shape — the page id is resolved later against data-namapelajar.
+            var kekurangan = senarai
+                .Where(m => m == null ||
+                    (string.IsNullOrWhiteSpace(m.Id) && string.IsNullOrWhiteSpace(m.Nama)) ||
+                    string.IsNullOrWhiteSpace(m.Kategori) || string.IsNullOrWhiteSpace(m.Sebab))
+                .Count();
+            if (kekurangan > 0)
+            {
+                return Buat(tugasan, "kategori-sebab-tiada",
+                    $"{kekurangan} murid dalam tugasan tiada id/nama/kategori/sebab; MOEIS mewajibkan kategori dan sebab bagi setiap murid tidak hadir.",
+                    "kategori-sebab-tiada");
+            }
 
-        // Duplicates: by page id when one is carried, else by normalised name.
-        var pendua = senarai.GroupBy(KunciMurid, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
-        if (pendua.Count > 0)
-        {
-            // Two entries for one student may disagree on category/reason. Stop
-            // honestly instead of picking one — a duplicate is never submitted.
-            return Buat(tugasan, "pendua-id",
-                $"{pendua.Count} murid berulang dalam tugasan; pendua tidak dihantar.", "pendua-id");
+            // Duplicates: by page id when one is carried, else by normalised name.
+            var pendua = senarai.GroupBy(KunciMurid, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+            if (pendua.Count > 0)
+            {
+                // Two entries for one student may disagree on category/reason. Stop
+                // honestly instead of picking one — a duplicate is never submitted.
+                return Buat(tugasan, "pendua-id",
+                    $"{pendua.Count} murid berulang dalam tugasan; pendua tidak dihantar.", "pendua-id");
+            }
         }
 
         string? paparanTarikh = null;
@@ -544,6 +563,139 @@ public static class PenghantaranMoeisFlow
             if (sedia.Gagal != null) return sedia.Gagal;
 
             var muridAwal = sedia.Murid;
+
+            if (tugasan.SemuaHadir)
+            {
+                // ---- Aliran Semua-Hadir: JANGAN mengubah sebarang baris ----
+                await dom.TekanKemaskini();
+                if (!await dom.DialogSimpanKelihatan())
+                {
+                    var h = Buat(tugasan, "gagal-dialog",
+                        "Dialog simpan tidak muncul selepas tekan kemaskini; tiada apa-apa disimpan.", "dialog-simpan-tiada");
+                    h.BilMurid = muridAwal.Count;
+                    h.BilPerubahan = 0;
+                    h.BilDilangkau = 0;
+                    return h;
+                }
+
+                var tindakanSemua = tugasan.Sahkan ? "simpansah" : "simpan";
+                if (tugasan.PagarSebelumSimpan is not null)
+                {
+                    string? tolak;
+                    try { tolak = tugasan.PagarSebelumSimpan(); }
+                    catch (Exception ex) { tolak = "Pagar konfigurasi gagal (" + ex.GetType().Name + ")."; }
+                    if (tolak is not null)
+                    {
+                        var h = Buat(tugasan, StatusDisekatPagar,
+                            tolak + " Butang \"" + tindakanSemua + "\" TIDAK ditekan; tiada tulisan portal.", "disekat-pagar");
+                        h.BilMurid = muridAwal.Count;
+                        h.BilPerubahan = 0;
+                        h.BilDilangkau = 0;
+                        return h;
+                    }
+                }
+
+                var diklikSemua = tugasan.Sahkan ? await dom.KlikSimpanSahkan() : await dom.KlikSimpan();
+                if (!diklikSemua)
+                {
+                    var h = Buat(tugasan, "gagal-dialog",
+                        $"Butang \"{tindakanSemua}\" pada dialog simpan tidak dapat ditekan.", "butang-simpan-gagal");
+                    h.BilMurid = muridAwal.Count;
+                    h.BilDilangkau = 0;
+                    return h;
+                }
+
+                if (!await dom.DialogBerjayaKelihatan())
+                {
+                    var h = Buat(tugasan, "gagal-dialog",
+                        "Dialog simpan tidak menunjukkan \"Berjaya.\"; penghantaran tidak boleh dikira berjaya.", "dialog-berjaya-tiada");
+                    h.BilMurid = muridAwal.Count;
+                    h.BilPerubahan = 0;
+                    h.BilDilangkau = 0;
+                    h.TindakanSimpan = tindakanSemua;
+                    return h;
+                }
+
+                // ---- BACA SEMULA WAJIB selepas simpan ----
+                var muatSemula = await dom.MuatSemula();
+                ct.ThrowIfCancellationRequested();
+                if (muatSemula != HasilMuat.Selesai)
+                {
+                    var sebab = muatSemula == HasilMuat.TamatMasa
+                        ? "navigasi tamat masa (tiada NavigationCompleted dalam had masa)"
+                        : "navigasi gagal";
+                    var h = Buat(tugasan, "tersimpan",
+                        "Dialog simpan berjaya tetapi halaman tidak dapat dimuat semula untuk dibaca semula ("
+                            + sebab + "); pengesahan TIDAK dipastikan.",
+                        muatSemula == HasilMuat.TamatMasa ? "muat-semula-tamat-masa" : "muat-semula-gagal");
+                    h.BilPerubahan = 0;
+                    h.BilDilangkau = 0;
+                    h.TindakanSimpan = tindakanSemua;
+                    return h;
+                }
+
+                var sediaSemula = await SediakanHalamanAsync(dom, tugasan, kelas, paparanTarikh, ct);
+                if (sediaSemula.Gagal != null)
+                {
+                    sediaSemula.Gagal.Status = "tersimpan";
+                    sediaSemula.Gagal.Sebab = "Dialog simpan berjaya tetapi halaman tidak dapat dibaca semula: " + sediaSemula.Gagal.Sebab;
+                    sediaSemula.Gagal.BilPerubahan = 0;
+                    sediaSemula.Gagal.BilDilangkau = 0;
+                    sediaSemula.Gagal.TindakanSimpan = tindakanSemua;
+                    return sediaSemula.Gagal;
+                }
+
+                var muridSelepas = sediaSemula.Murid;
+                var bilMuridTotal = muridSelepas.Count;
+                var bilHadirSelepas = muridSelepas.Count(m => m.Hadir);
+                var bilTidakHadirSelepas = muridSelepas.Count(m => !m.Hadir);
+
+                // WAJIB mengesahkan: bilhadir == jumlah murid dan biltidakhadir == 0
+                if (bilTidakHadirSelepas > 0 || bilHadirSelepas != bilMuridTotal)
+                {
+                    var h = Buat(tugasan, "gagal",
+                        $"MOEIS menunjukkan {bilTidakHadirSelepas} murid tidak hadir; HADIR menyatakan semuanya hadir; tiada paksaan.",
+                        "konflik-semua-hadir");
+                    h.BilMurid = bilMuridTotal;
+                    h.BilPerubahan = 0;
+                    h.BilDilangkau = 0;
+                    h.TindakanSimpan = tindakanSemua;
+                    return h;
+                }
+
+                var pengesahanPelayan = true;
+                if (tugasan.Sahkan)
+                {
+                    pengesahanPelayan = await dom.StatusBadgeDisahkan();
+                }
+
+                var verifikasiSemua = new VerifikasiPenghantaran(
+                    Tarikh: sediaSemula.TarikhSah,
+                    Kelas: true,
+                    Murid: true,
+                    KategoriSebab: true,
+                    PengesahanPelayan: pengesahanPelayan);
+
+                var sebabTidakSahSemua = !pengesahanPelayan
+                    ? "Dialog simpan berjaya dan data padan, tetapi #statusBadge MOEIS masih bukan \"TELAH DISAHKAN\" "
+                      + "selepas muat semula; pengesahan pelayan TIDAK terbukti."
+                    : "Dialog simpan berjaya tetapi baca semula tidak mengesahkan setiap murid; tidak dikira berjaya.";
+
+                var mesejSemua = $"Semua hadir ({bilMuridTotal} murid) — disahkan tanpa perubahan baris; hadir {bilHadirSelepas}/{bilMuridTotal}.";
+
+                var hasilSemua = Buat(tugasan,
+                    verifikasiSemua.Semua ? "disahkan" : "tersimpan",
+                    verifikasiSemua.Semua ? mesejSemua : sebabTidakSahSemua,
+                    verifikasiSemua.Semua ? "disahkan" : (pengesahanPelayan ? "tersimpan" : "pengesahan-pelayan-tiada"));
+                hasilSemua.Berjaya = verifikasiSemua.Semua;
+                hasilSemua.BilMurid = bilMuridTotal;
+                hasilSemua.BilPerubahan = 0;
+                hasilSemua.BilDilangkau = 0;
+                hasilSemua.TindakanSimpan = tindakanSemua;
+                hasilSemua.Verifikasi = verifikasiSemua;
+                return hasilSemua;
+            }
+
             var indeks = muridAwal.ToDictionary(m => m.Id, m => m, StringComparer.Ordinal);
 
             // Name index (data-namapelajar) for HADIR's name-only records. A

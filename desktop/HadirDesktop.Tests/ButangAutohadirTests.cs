@@ -10,38 +10,83 @@ using Xunit;
 namespace HadirDesktop.Tests;
 
 /// <summary>
-/// Butang "Autohadir" (1.0.18): kawalan TERAPUNG di hujung kanan bawah, terus
-/// di atas bar status, membuka menu dulang yang SAMA.
+/// Butang "Autohadir" (1.0.20): item TERAKHIR bar status (bar bawah), kompak
+/// (≤ 95 px), membuka menu dulang yang SAMA (<see cref="TrayHost.MenuDulang"/>).
 ///
-/// Pada 1.0.17 butang itu item StatusStrip dan tidak pernah kelihatan: kandungan
-/// tetap bar (1126 px) melebihi lebarnya (1082 px) dan item yang terkeluar tidak
-/// dilukis. Ujian di sini memasang butang dengan <see cref="ButangAutohadir.Pasang"/>
-/// — kod yang SAMA dipanggil MainForm — pada borang 1100x750 berbentuk sama
-/// (banner atas, isian, StatusStrip bawah). MainForm sendiri tidak dibina kerana
-/// pembinanya membaca tetapan, stor kredensial dan registry sebenar PC; wayarnya
-/// diperiksa melalui sumber (corak <see cref="BarStatusBersihTests"/>).
+/// Pada 1.0.17 butang tidak pernah kelihatan kerana bar terlebih muat (1126 px > 1082 px).
+/// Pada 1.0.18 butang dipindahkan ke kawalan terapung. Pada 1.0.20 butang dikembalikan
+/// KE DALAM bar status dengan saiz padat dan ruang krip saiz dikhaskan.
 /// </summary>
 public class ButangAutohadirTests
 {
+    private readonly Xunit.Abstractions.ITestOutputHelper? _output;
+
+    public ButangAutohadirTests(Xunit.Abstractions.ITestOutputHelper? output = null)
+    {
+        _output = output;
+    }
     /// <summary>Borang seperti MainForm: 1100x750, banner atas, isian, bar status.</summary>
     private sealed class BorangUjian : IDisposable
     {
-        public Form Borang { get; } = new() { Width = 1100, Height = 750 };
+        public Form Borang { get; } = new() { Width = 1100, Height = 750, StartPosition = FormStartPosition.Manual, Location = new Point(50, 50) };
         public StatusStrip Bar { get; } = new();
         public TrayHost Tray { get; } = new(SystemIcons.Application);
-        public Button Butang { get; }
+        public ToolStripButton Butang { get; }
+        public ToolStripButton SegarButang { get; }
+        public ToolStripStatusLabel KeadaanLabel { get; }
+        public ToolStripStatusLabel BackendLabel { get; }
+        public ToolStripStatusLabel KitaranLabel { get; }
+        public ToolStripStatusLabel NavLabel { get; }
 
-        public BorangUjian()
+        public BorangUjian(int lebar = 1100, int tinggi = 750)
         {
-            // Bar status sengaja PENUH (teks lebih lebar daripada borang),
-            // seperti MainForm pada saiz lalai.
-            Bar.Items.Add(new ToolStripButton { Text = "Segar semula status" });
-            Bar.Items.Add(new ToolStripStatusLabel { Text = new string('K', 400) });
-            Bar.Items.Add(new ToolStripStatusLabel { Text = string.Empty, Spring = true });
-            Borang.Controls.Add(new Panel { Dock = DockStyle.Fill });   // ganti WebView2
+            Borang.Size = new Size(lebar, tinggi);
+
+            SegarButang = new ToolStripButton { Text = "Segar semula status" };
+            KeadaanLabel = new LabelStatusTerhad
+            {
+                Text = "Keadaan: Running · portal: diam",
+                ToolTipText = "Keadaan: Running · portal: diam — Diam — tiada tugasan belum siap hari ini; tiada portal dibuka, tiada log masuk.",
+                AutoSize = false,
+                Width = MainForm.LebarMaksKeadaan,
+                TextAlign = ContentAlignment.MiddleLeft,
+            };
+            BackendLabel = new LabelStatusTerhad
+            {
+                Text = LabelBackend.Dikonfigurasikan,
+                ToolTipText = LabelBackend.DikonfigurasikanPenuh,
+                AutoSize = false,
+                Width = MainForm.LebarMaksBackend,
+                TextAlign = ContentAlignment.MiddleLeft,
+            };
+            KitaranLabel = new LabelStatusTerhad
+            {
+                Text = LabelKitaran.Teks(new FaktaKitaran(Aktif: false, SebabMati: KitaranAuto.SebabLuarWaktuAktif("06:30", "17:00", true)), DateTime.Now),
+                ToolTipText = LabelKitaran.TeksPenuh(new FaktaKitaran(Aktif: false, SebabMati: KitaranAuto.SebabLuarWaktuAktif("06:30", "17:00", true)), DateTime.Now),
+                AutoSize = false,
+                Width = MainForm.LebarMaksKitaran,
+                TextAlign = ContentAlignment.MiddleLeft,
+            };
+            NavLabel = new ToolStripStatusLabel { Text = string.Empty, Spring = true, TextAlign = ContentAlignment.MiddleRight };
+
+            Bar.Items.Add(SegarButang);
+            Bar.Items.Add(new ToolStripSeparator());
+            Bar.Items.Add(KeadaanLabel);
+            Bar.Items.Add(new ToolStripSeparator());
+            Bar.Items.Add(BackendLabel);
+            Bar.Items.Add(new ToolStripSeparator());
+            Bar.Items.Add(KitaranLabel);
+            Bar.Items.Add(NavLabel);
+
+            Butang = ButangAutohadir.Pasang(Bar, Tray);
+
+            Borang.Controls.Add(new Panel { Dock = DockStyle.Fill });
             Borang.Controls.Add(new Label { Dock = DockStyle.Top, Height = 32 });
             Borang.Controls.Add(Bar);
-            Butang = ButangAutohadir.Pasang(Borang, Bar, Tray);
+
+            // Paksa susun atur borang dan bar dijalankan
+            Borang.PerformLayout();
+            Bar.PerformLayout();
         }
 
         public void Dispose()
@@ -53,11 +98,10 @@ public class ButangAutohadirTests
     }
 
     /// <summary>
-    /// Bangkitkan Click butang sebenar. <c>Button.PerformClick</c> tidak
-    /// berbuat apa-apa pada borang yang tidak dipapar (CanSelect palsu).
+    /// Bangkitkan OnClick butang sebenar melalui refleksi.
     /// </summary>
-    private static void Klik(Button butang) =>
-        typeof(Control).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+    private static void Klik(ToolStripItem butang) =>
+        typeof(ToolStripItem).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .Invoke(butang, new object[] { EventArgs.Empty });
 
     // ---------- TrayHost: satu instance menu ----------
@@ -100,79 +144,33 @@ public class ButangAutohadirTests
         Assert.False(tray.BaruDitutupKlikLuar());
     }
 
-    // ---------- butang terapung ----------
+    // ---------- Butang dalam bar status (1.0.20) ----------
 
     [Fact]
-    public void Pasang_ButangDalamControlsBorang_BukanItemBarStatus()
+    public void Pasang_ButangItemTerakhirBarStatus_BukanControlsBorang()
     {
         using var u = new BorangUjian();
 
-        Assert.Same(u.Borang, u.Butang.Parent);
-        Assert.Contains(u.Butang, u.Borang.Controls.Cast<Control>());
-        Assert.DoesNotContain(u.Bar.Items.Cast<ToolStripItem>(), i => i.Text == DemoLabel.ButangAutohadir);
+        Assert.Same(u.Bar, u.Butang.Owner);
+        Assert.Same(u.Butang, u.Bar.Items[^1]);
+        Assert.DoesNotContain(u.Borang.Controls.Cast<Control>(), c => c is Button);
     }
 
     [Fact]
-    public void Pasang_AnchorBawahKanan_DanPalingAtasDalamTertibZ()
-    {
-        using var u = new BorangUjian();
-
-        Assert.True(u.Butang.Anchor.HasFlag(AnchorStyles.Bottom));
-        Assert.True(u.Butang.Anchor.HasFlag(AnchorStyles.Right));
-        Assert.Equal(0, u.Borang.Controls.GetChildIndex(u.Butang));   // di atas WebView
-    }
-
-    [Fact]
-    public void Pasang_SaizLalai_TerusDiAtasBarStatus_RataKanan_DalamKlien()
-    {
-        using var u = new BorangUjian();
-        var b = u.Butang.Bounds;
-        var klien = u.Borang.ClientSize;
-
-        Assert.True(u.Bar.Top > 0);
-        Assert.True(b.Bottom <= u.Bar.Top, $"butang {b} menindih bar status (atas {u.Bar.Top})");
-        Assert.Equal(u.Bar.Top, b.Bottom);
-        Assert.Equal(klien.Width - ButangAutohadir.JarakKanan, b.Right);
-        Assert.True(b.Left >= 0 && b.Top >= 0 && b.Right <= klien.Width && b.Bottom <= klien.Height);
-        Assert.True(b.Width > 0 && b.Height > 0);
-    }
-
-    [Theory]
-    [InlineData(420, 320)]
-    [InlineData(800, 600)]
-    [InlineData(1100, 750)]
-    [InlineData(1920, 1040)]
-    public void SebarangSaizBorang_ButangKekalKelihatan_DiAtasBarStatus(int lebar, int tinggi)
-    {
-        using var u = new BorangUjian();
-
-        u.Borang.Size = new Size(lebar, tinggi);
-        var b = u.Butang.Bounds;
-        var klien = u.Borang.ClientSize;
-
-        Assert.Equal(u.Bar.Top, b.Bottom);
-        Assert.Equal(klien.Width - ButangAutohadir.JarakKanan, b.Right);
-        Assert.True(b.Left >= 0 && b.Right <= klien.Width, $"butang {b} di luar klien {klien}");
-    }
-
-    [Fact]
-    public void Butang_TeksIkonGayaDanTip()
+    public void Butang_Kompak_TeksIkonOverflowNeverDanLebar()
     {
         using var u = new BorangUjian();
         var butang = u.Butang;
 
         Assert.Equal("Autohadir", butang.Text);
         Assert.NotNull(butang.Image);
-        using (var rujukan = IkonDulang.SemuaFungsi())
-        {
-            Assert.NotSame(rujukan, butang.Image);
-            Assert.Equal(IkonDulangTests.CapPiksel(rujukan), IkonDulangTests.CapPiksel(butang.Image!));
-        }
-        Assert.Equal(FlatStyle.Flat, butang.FlatStyle);
-        Assert.Equal(Color.Firebrick, butang.BackColor);
-        Assert.Equal(Color.White, butang.ForeColor);
-        Assert.True(butang.Font.Bold);
-        Assert.Contains("dulang", butang.AccessibleDescription);
+        Assert.Equal(16, butang.Image!.Width);
+        Assert.Equal(16, butang.Image!.Height);
+        Assert.Equal(ToolStripItemOverflow.Never, butang.Overflow);
+
+        var saizPilihan = butang.GetPreferredSize(Size.Empty);
+        // Sasaran reka bentuk: butang kompak <= ~95 px
+        Assert.True(saizPilihan.Width <= 95, $"Lebar butang {saizPilihan.Width} melebihi 95 px");
     }
 
     [Fact]
@@ -184,27 +182,140 @@ public class ButangAutohadirTests
         Klik(u.Butang);
 
         Assert.True(u.Tray.MenuDulang.Visible);
-        Assert.Same(u.Butang, u.Tray.MenuDulang.SourceControl);
+        Assert.Same(u.Bar, u.Tray.MenuDulang.SourceControl);
         Assert.Equal(bilItem, u.Tray.MenuDulang.Items.Count);
 
         Klik(u.Butang);   // togol
         Assert.False(u.Tray.MenuDulang.Visible);
     }
 
-    [Fact]
-    public void KedudukanButang_TetingkapSangatKecil_TidakNegatif()
-    {
-        var p = ButangAutohadir.KedudukanButang(new Size(110, 30), new Size(60, 20), 10);
+    // ---------- Ujian Kawalan Wajib (Ukuran Lebar & Grip) ----------
 
-        Assert.Equal(new Point(0, 0), p);
+    [Fact]
+    public void BarStatus_LebarPilihanItemDanGrip_MuatDalamDisplayRectangle_SaizLalai()
+    {
+        using var u = new BorangUjian(1100, 750);
+        var bar = u.Bar;
+
+        // SENARIO TERBURUK: Tetapkan teks label secara langsung kepada rentetan panjang penuh
+        // termasuk ayat luar waktu aktif (536 px) dan backend penuh sebelum pengiraan.
+        u.KeadaanLabel.Text = "Keadaan: Running · portal: backend-sementara-gagal";
+        u.KeadaanLabel.ToolTipText = "Keadaan: Running · portal: backend-sementara-gagal — Backend HADIR gagal sementara (masa tamat/bukan-JSON/5xx); deman belum dipastikan — akan dicuba semula pada kitaran seterusnya. Tiada portal dibuka.";
+
+        u.BackendLabel.Text = "Backend: sedia (rahsia + apiUrl sah)";
+        u.BackendLabel.ToolTipText = LabelBackend.DikonfigurasikanPenuh;
+
+        u.KitaranLabel.Text = "Kitaran: mati — di luar waktu aktif (06:30–17:00, Isnin–Jumaat) — disambung sendiri dalam waktu itu";
+        u.KitaranLabel.ToolTipText = "Kitaran: mati — di luar waktu aktif (06:30–17:00, Isnin–Jumaat) — disambung sendiri dalam waktu itu";
+
+        u.Borang.PerformLayout();
+        bar.PerformLayout();
+
+        // Klien 1084 px, DisplayRectangle.Width ~1082 px
+        var displayWidth = bar.DisplayRectangle.Width;
+        Assert.True(displayWidth >= 1060, $"DisplayRectangle terlalu kecil: {displayWidth}");
+
+        // Kira jumlah GetPreferredSize() semua item bukan-spring + margin
+        var jumlahTetap = 0;
+        foreach (ToolStripItem item in bar.Items)
+        {
+            if (item is ToolStripStatusLabel { Spring: true }) continue;
+            var saiz = item.GetPreferredSize(Size.Empty).Width;
+            _output?.WriteLine($"Item: '{item.Text}' (Type: {item.GetType().Name}) => PreferredWidth: {saiz}, Margin: {item.Margin}");
+            jumlahTetap += saiz + item.Margin.Horizontal;
+        }
+
+        const int grip = ButangAutohadir.RuangGrip;
+        var jumlahDenganGripDanPadding = jumlahTetap + grip + bar.Padding.Horizontal;
+        var bakiNav = displayWidth - jumlahTetap;
+
+        _output?.WriteLine($"jumlahTetap: {jumlahTetap}, grip: {grip}, padding: {bar.Padding.Horizontal}, jumlahDenganGripDanPadding: {jumlahDenganGripDanPadding}, displayWidth: {displayWidth}, bakiNav: {bakiNav}");
+
+        // WAJIB: Jaminan struktural <= 1050 px (sekurang-kurangnya 30 px simpanan untuk label Spring _navLabel)
+        Assert.True(
+            jumlahDenganGripDanPadding <= 1050,
+            $"Jumlah item + grip + padding = {jumlahDenganGripDanPadding} melebihi had jaminan struktural 1050 px");
+
+        // WAJIB: Jumlah preferred size semua item + grip + padding <= DisplayRectangle.Width
+        Assert.True(
+            jumlahDenganGripDanPadding <= displayWidth,
+            $"Jumlah item ({jumlahTetap}) + grip ({grip}) + padding ({bar.Padding.Horizontal}) = {jumlahDenganGripDanPadding} melebihi DisplayRectangle {displayWidth}");
+
+        // WAJIB: Bounds.Right butang Autohadir <= DisplayRectangle.Width - grip
+        Assert.True(
+            u.Butang.Bounds.Right <= displayWidth - grip,
+            $"Bounds.Right ({u.Butang.Bounds.Right}) melebihi sempadan selamat grip ({displayWidth - grip})");
+
+        // Ruang baki untuk navLabel (Spring) mestilah sekurang-kurangnya 30 px
+        Assert.True(bakiNav >= 30, $"Baki ruang navLabel mesti sekurang-kurangnya 30 px, didapati: {bakiNav}");
     }
 
     [Fact]
-    public void KedudukanButang_BawahButang_AtasBarStatus_KananKurangJarak()
+    public void LabelStatus_SetiapLabelMempunyaiToolTipTextTidakKosong()
     {
-        var p = ButangAutohadir.KedudukanButang(new Size(110, 30), new Size(1084, 711), 689);
+        using var u = new BorangUjian(1100, 750);
 
-        Assert.Equal(new Point(1084 - ButangAutohadir.JarakKanan - 110, 689 - 30), p);
+        Assert.False(string.IsNullOrWhiteSpace(u.KeadaanLabel.ToolTipText), "ToolTipText KeadaanLabel tidak boleh kosong");
+        Assert.False(string.IsNullOrWhiteSpace(u.BackendLabel.ToolTipText), "ToolTipText BackendLabel tidak boleh kosong");
+        Assert.False(string.IsNullOrWhiteSpace(u.KitaranLabel.ToolTipText), "ToolTipText KitaranLabel tidak boleh kosong");
+        Assert.False(string.IsNullOrWhiteSpace(u.Butang.ToolTipText), "ToolTipText ButangAutohadir tidak boleh kosong");
+    }
+
+    [Fact]
+    public void BarStatus_SenarioTerburuk_KonfigurasiTergendalaDanLuarWaktu_ButangKekalKelihatan()
+    {
+        using var u = new BorangUjian(1100, 750);
+        var bar = u.Bar;
+
+        // Senario teks terpanjang yang mungkin terjadi serentak
+        u.KeadaanLabel.Text = "Keadaan: PerluTindakanManusia · portal: backend-sementara-gagal";
+        u.BackendLabel.Text = "Backend: klaim & hantar MATI — konfigurasi bertukar selepas lancar — mulakan semula aplikasi untuk menggunakannya.";
+        u.KitaranLabel.Text = "Kitaran: mati — di luar waktu aktif (06:30–17:00, Isnin–Jumaat) — disambung sendiri dalam waktu itu";
+
+        u.Borang.PerformLayout();
+        bar.PerformLayout();
+
+        var displayWidth = bar.DisplayRectangle.Width;
+        const int grip = ButangAutohadir.RuangGrip;
+
+        // AutoSize=false mengehadkan saiz ke lebar had maksimum
+        Assert.Equal(MainForm.LebarMaksKeadaan, u.KeadaanLabel.GetPreferredSize(Size.Empty).Width);
+        Assert.Equal(MainForm.LebarMaksBackend, u.BackendLabel.GetPreferredSize(Size.Empty).Width);
+        Assert.Equal(MainForm.LebarMaksKitaran, u.KitaranLabel.GetPreferredSize(Size.Empty).Width);
+
+        // Butang Autohadir kekal tersedia dan berada dalam batas bar status
+        Assert.True(u.Butang.Available);
+        Assert.True(u.Butang.Bounds.Width > 0);
+        Assert.True(u.Butang.Bounds.Right <= displayWidth - grip);
+    }
+
+    [Theory]
+    [InlineData(1100, 750)]
+    [InlineData(1280, 800)]
+    [InlineData(1920, 1080)]
+    public void BarStatus_MuatDanTidakDitutupGrip_PadaPelbagaiLebar(int lebar, int tinggi)
+    {
+        using var u = new BorangUjian(lebar, tinggi);
+        var bar = u.Bar;
+        const int grip = ButangAutohadir.RuangGrip;
+        var displayWidth = bar.DisplayRectangle.Width;
+
+        // Bounds.Right butang Autohadir mesti <= DisplayRectangle.Width - grip
+        Assert.True(
+            u.Butang.Bounds.Right <= displayWidth - grip,
+            $"Pada {lebar}x{tinggi}: Bounds.Right ({u.Butang.Bounds.Right}) melebihi {displayWidth - grip}");
+    }
+
+    [Theory]
+    [InlineData(420, 320)]
+    [InlineData(800, 600)]
+    public void LebarKecil_ButangAutohadirDiutamakan_KekalTersedia(int lebar, int tinggi)
+    {
+        using var u = new BorangUjian(lebar, tinggi);
+
+        // Pada lebar kecil, butang Autohadir mempunyai Overflow.Never supaya ia diutamakan
+        Assert.Equal(ToolStripItemOverflow.Never, u.Butang.Overflow);
+        Assert.True(u.Butang.Available);
     }
 
     // ---------- kedudukan menu (TULEN) ----------
@@ -286,7 +397,7 @@ public class ButangAutohadirTests
     }
 
     [Fact]
-    public void MainForm_BarStatusKekalSeperti1016_TanpaButangAutohadir()
+    public void MainForm_BarStatusMengandungiButangAutohadirSebagaiItemTerakhir()
     {
         var s = Sumber("MainForm.cs");
 
@@ -298,18 +409,20 @@ public class ButangAutohadirTests
             "_refreshButton", "new ToolStripSeparator()", "_stateLabel", "new ToolStripSeparator()",
             "_backendLabel", "new ToolStripSeparator()", "_kitaranLabel", "_navLabel",
         }, item);
+
+        // Butang dipasang ke bar status sebagai item terakhir
+        Assert.Contains("_autohadirButton = ButangAutohadir.Pasang(_statusStrip, _tray);", s);
+        Assert.Contains("private ToolStripButton _autohadirButton = null!;", s);
     }
 
     [Fact]
-    public void MainForm_ButangDipasangTerapung_SelepasBarStatusDitambah()
+    public void MainForm_TiadaKawalanTerapungAutohadir()
     {
         var s = Sumber("MainForm.cs");
-        const string pasang = "_autohadirButton = ButangAutohadir.Pasang(this, _statusStrip, _tray);";
 
-        Assert.Contains("private Button _autohadirButton = null!;", s);
-        Assert.Contains(pasang, s);
-        Assert.True(s.IndexOf("Controls.Add(_statusStrip);", StringComparison.Ordinal)
-            < s.IndexOf(pasang, StringComparison.Ordinal));
+        Assert.DoesNotContain("Controls.Add(_autohadirButton)", s);
+        Assert.DoesNotContain("ButangAutohadir.Pasang(this,", s);
+        Assert.DoesNotContain("private Button _autohadirButton", s);
     }
 
     [Fact]

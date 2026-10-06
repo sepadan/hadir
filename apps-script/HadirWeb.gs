@@ -99,11 +99,14 @@ function hadirMoeisBolehCiptaJob_(statusSediaAda) {
   return ['menunggu', 'gagal', 'berjaya'].indexOf(statusSediaAda) >= 0;
 }
 
-/* Membenarkan penghantaran hanya apabila ada sekurang-kurangnya seorang murid
-   tidak hadir dan kesemuanya mempunyai kategori+sebab yang sah. */
-function hadirMoeisSahkanLengkap_(murid, kelas) {
+/* Membenarkan penghantaran apabila ada murid tidak hadir dengan kategori+sebab sah,
+   atau senarai kosong hanya apabila kehadiran kelas lengkap ditegaskan semua hadir. */
+function hadirMoeisSahkanLengkap_(murid, kelas, semuaHadir) {
   murid = murid || [];
-  if (!murid.length) throw new Error('Tiada murid tidak hadir untuk kelas ' + kelas + ' hari ini.');
+  if (!murid.length) {
+    if (!semuaHadir) throw new Error('Tiada murid tidak hadir untuk kelas ' + kelas + ' hari ini.');
+    return true;
+  }
   var belumLengkap = hadirMoeisBelumLengkap_(murid);
   if (belumLengkap.length) {
     throw new Error('Kategori/sebab belum lengkap bagi: ' + belumLengkap.map(function (m) { return m.nama; }).join(', '));
@@ -930,11 +933,8 @@ function hadirMoeisJobBuatDiBawahLock_(kelas, tarikhIso, kelasMoeisId, peranan, 
   }
   var job = hadirMoeisCariJobDiBawahLock_(kelas, tarikhIso);
   var indeks = job.indeks, baris = job.baris;
-  if (!murid.length && muridSimpanan) {
-    if (indeks >= 0 && baris[indeks][3] === 'menunggu') job.sJob.deleteRow(indeks + 2);
-    return { ok: true, kelas: kelas, jumlah: 0, mesej: 'Tiada murid tidak hadir; tugasan menunggu dibatalkan.' };
-  }
-  hadirMoeisSahkanLengkap_(murid, kelas);
+  var semuaHadir = !murid.length;
+  hadirMoeisSahkanLengkap_(murid, kelas, semuaHadir);
   var sJob = job.sJob || hadirSheetMoeisJob_();
   if (indeks >= 0 && !hadirMoeisBolehCiptaJob_(baris[indeks][3])) {
     throw new Error('Tugasan untuk kelas ' + kelas + ' pada tarikh ini sudah wujud (status: ' +
@@ -949,10 +949,13 @@ function hadirMoeisJobBuatDiBawahLock_(kelas, tarikhIso, kelasMoeisId, peranan, 
   var barisBaru = [id, tarikhIso, kelas, 'menunggu', '', masa, masa, '', '', JSON.stringify(murid), kelasMoeisId, '', ''];
   if (indeks >= 0) sJob.getRange(indeks + 2, 1, 1, HADIR_MOEIS_JOB_LEBAR).setValues([barisBaru]);
   else sJob.appendRow(barisBaru);
-  hadirLog_('MOEIS_JOB_BUAT', peranan, kelas, murid.length + ' murid tidak hadir');
+  hadirLog_('MOEIS_JOB_BUAT', peranan, kelas,
+    murid.length ? (murid.length + ' murid tidak hadir') : '0 murid tidak hadir (semua hadir)');
   return {
     ok: true, kelas: kelas, jumlah: murid.length,
-    mesej: 'Tugasan penghantaran MOEIS dicipta untuk ' + kelas + ' (' + murid.length + ' murid).'
+    mesej: murid.length
+      ? ('Tugasan penghantaran MOEIS dicipta untuk ' + kelas + ' (' + murid.length + ' murid).')
+      : ('Tugasan penghantaran MOEIS dicipta untuk ' + kelas + ' (semua hadir).')
   };
 }
 
@@ -978,7 +981,10 @@ function hadirMoeisJobSenarai_(token, rahsia) {
       bilHadirSelepas: r[8] === '' ? null : Number(r[8]),
       kelasMoeisId: r[10] || ''
     };
-    if (!modAdmin) rekod.murid = JSON.parse(r[9] || '[]');
+    if (!modAdmin) {
+      rekod.murid = JSON.parse(r[9] || '[]');
+      rekod.semuaHadir = Array.isArray(rekod.murid) && rekod.murid.length === 0;
+    }
     return rekod;
   });
 }
@@ -1094,9 +1100,11 @@ function hadirMoeisJobKlaim_(id, pemilik, benarkanCubaSemula, rahsia) {
     s.getRange(indeks + 2, 7).setValue(masa);
     s.getRange(indeks + 2, 12).setValue(pemilik);
     s.getRange(indeks + 2, 13).setValue(leaseBaharu);
+    var muridKlaim = JSON.parse(baris[indeks][9] || '[]');
     return {
       id: baris[indeks][0], tarikhIso: baris[indeks][1], kelas: baris[indeks][2],
-      murid: JSON.parse(baris[indeks][9] || '[]'), kelasMoeisId: baris[indeks][10] || ''
+      murid: muridKlaim, kelasMoeisId: baris[indeks][10] || '',
+      semuaHadir: Array.isArray(muridKlaim) && muridKlaim.length === 0
     };
   } finally { lock.releaseLock(); }
 }

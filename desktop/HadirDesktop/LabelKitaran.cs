@@ -166,6 +166,31 @@ public static class LabelKitaran
     /// <summary>Teks apabila pemilik belum menghidupkan apa-apa ciri sebenar.</summary>
     public const string SebabMatiLalai = "hidupkan Log masuk / Hantar automatik";
 
+    /// <summary>
+    /// Ringkaskan sebab mati bagi teks paparan label (1.0.21). Di luar waktu aktif diringkaskan
+    /// kepada "(luar HH:mm–HH:mm)" supaya muat dalam had lebar label tanpa menolak item lain.
+    /// Ayat penuh kekal dalam ToolTipText.
+    /// </summary>
+    public static string RingkaskanSebab(string sebab)
+    {
+        if (sebab.StartsWith("di luar waktu aktif (", StringComparison.Ordinal))
+        {
+            var tutup = sebab.IndexOf(')');
+            if (tutup > 21)
+            {
+                var dlm = sebab.Substring(21, tutup - 21);
+                var koma = dlm.IndexOf(',');
+                var julat = koma >= 0 ? dlm.Substring(0, koma).Trim() : dlm.Trim();
+                return "(luar " + julat + ")";
+            }
+        }
+        if (sebab.StartsWith("waktu aktif tidak sah", StringComparison.Ordinal))
+        {
+            return "(waktu aktif tidak sah)";
+        }
+        return "— " + sebab;
+    }
+
     public static string Teks(FaktaKitaran fakta, DateTime kini)
     {
         if (fakta is null) throw new ArgumentNullException(nameof(fakta));
@@ -173,6 +198,48 @@ public static class LabelKitaran
         // Kerja yang SEDANG berjalan didahulukan, walaupun pemilik baru sahaja
         // mematikan togol: kitaran semasa tidak dibatalkan di tengah jalan, jadi
         // berkata "mati" ketika ia masih menulis ke MOEIS adalah tidak benar.
+        if (fakta.SedangJalan)
+        {
+            return fakta.Aktif
+                ? Awalan + "sedang berjalan…"
+                : Awalan + "sedang berjalan… (tiada kitaran seterusnya dijadualkan)";
+        }
+
+        if (!fakta.Aktif)
+        {
+            var sebab = string.IsNullOrWhiteSpace(fakta.SebabMati) ? SebabMatiLalai : fakta.SebabMati!.Trim();
+            var ringkas = RingkaskanSebab(sebab);
+            return ringkas.StartsWith("(")
+                ? Awalan + "mati " + ringkas
+                : Awalan + "mati " + ringkas;
+        }
+
+        if (fakta.Seterusnya is not DateTime seterusnya)
+        {
+            return Awalan + "hidup — belum dijadualkan";
+        }
+
+        // Selang yang dipaparkan ialah selang AKTIF pemasa (kitaran pintar), bukan
+        // pemalar: label yang berkata "setiap 10 minit" semasa pemasa berdenyut
+        // setiap 90 saat menjanjikan jadual yang salah.
+        var ekor = fakta.Pertama
+            ? $" · kitaran pertama ({KitaranAuto.TundaanMulaSaat}s)"
+            : " · " + TeksSelang(fakta.SelangSaat ?? KitaranAuto.SelangBiasaSaat);
+
+        if (seterusnya <= kini)
+        {
+            return Awalan + "sebentar lagi" + ekor;
+        }
+
+        var jam = seterusnya.ToString("HH:mm", CultureInfo.InvariantCulture);
+        return Awalan + jam + ekor;
+    }
+
+    /// <summary>Format teks penuh (panjang) untuk tip alat (tooltip).</summary>
+    public static string TeksPenuh(FaktaKitaran fakta, DateTime kini)
+    {
+        if (fakta is null) throw new ArgumentNullException(nameof(fakta));
+
         if (fakta.SedangJalan)
         {
             return fakta.Aktif
@@ -191,9 +258,6 @@ public static class LabelKitaran
             return Awalan + "hidup — belum dijadualkan";
         }
 
-        // Selang yang dipaparkan ialah selang AKTIF pemasa (kitaran pintar), bukan
-        // pemalar: label yang berkata "setiap 10 minit" semasa pemasa berdenyut
-        // setiap 90 saat menjanjikan jadual yang salah.
         var ekor = fakta.Pertama
             ? $" (kitaran pertama, {KitaranAuto.TundaanMulaSaat} saat selepas mula)"
             : " (" + TeksSelang(fakta.SelangSaat ?? KitaranAuto.SelangBiasaSaat) + ")";
@@ -243,7 +307,9 @@ public static class LabelBackend
 {
     public const string Awalan = "Backend: ";
 
-    public const string Dikonfigurasikan = Awalan + "konfigurasi tersedia (rahsia enjin + apiUrl sah)";
+    public const string Dikonfigurasikan = Awalan + "sedia (rahsia + apiUrl sah)";
+
+    public const string DikonfigurasikanPenuh = Awalan + "konfigurasi tersedia (rahsia enjin + apiUrl sah)";
 
     public const string SebabTiadaLalai = "tiada rahsia enjin pada PC ini.";
 
@@ -279,5 +345,17 @@ public static class LabelBackend
 
         var kenapa = string.IsNullOrWhiteSpace(sebab) ? SebabTiadaLalai : sebab!.Trim();
         return Awalan + "klaim & hantar MATI — " + kenapa;
+    }
+
+    /// <summary>
+    /// Teks penuh bagi tip alat (tooltip) label Backend (1.0.21).
+    /// </summary>
+    public static string TeksPenuh(bool klienSedia, bool konfigSediaSekarang, bool samaDenganKlien, string? sebab = null)
+    {
+        if (klienSedia && konfigSediaSekarang && samaDenganKlien)
+        {
+            return DikonfigurasikanPenuh;
+        }
+        return Teks(klienSedia, konfigSediaSekarang, samaDenganKlien, sebab);
     }
 }
