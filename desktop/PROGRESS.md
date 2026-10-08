@@ -1,5 +1,23 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## 1.0.21 (ujian tambahan; tiada perubahan binary) — Ujian Penghantaran PDPR (Pembelajaran di Rumah) ke MOEIS (2026-10-08)
+
+**Matlamat & Semantik.**
+Mengikut semantik MOEIS pengguna, Kategori A (`PEMBELAJARAN DI RUMAH`, kod `A1`) dikira HADIR dalam sistem sekolah, tetapi maklumat ketidakhadiran fizikal dan sebab PDPR KEKAL mesti dihantar ke MOEIS:
+1. Kotak semak kehadiran fizikal portal MOEIS (`case-hadir`) dinyahsemak bagi membolehkan pemilihan Kategori A dan Sebab A1 (PEMBELAJARAN DI RUMAH).
+2. Kelas semua-PDPR (atau campuran hadir fizikal dan PDPR tanpa murid tidak hadir biasa):
+   - Dikira 0 tidak hadir dalam sistem sekolah (`tidakHadir: 0`).
+   - TIDAK diringkaskan kepada pintasan semua-hadir kosong (`[]`), sebaliknya membina tugasan membawa murid PDPR (`SemuaHadir = false`).
+3. Pengesahan baca semula mengesahkan pemilihan Kategori A dan Sebab A1 serta status `Hadir = false` di peringkat DOM portal.
+
+**Ujian Baharu (`desktop/HadirDesktop.Tests/PenghantaranPdprTests.cs`):**
+- `BinaTugasan_KelasSemuaPdpr_BukanPintasanSemuaHadir`: Mengesahkan tugasan kelas semua-PDPR tidak menjadi pintasan `SemuaHadir = true`, dan senarai `TidakHadir` membawa murid PDPR bersama Kategori "A" dan Sebab "PEMBELAJARAN DI RUMAH".
+- `PenghantaranPdpr_HantarDanSahkanBerjaya`: Mengesahkan aliran penuh penghantaran bagi seorang murid PDPR (menyahsemak kotak hadir fizikal, menetapkan Kategori A dan Sebab A1, simpan & sahkan, disahkan berjaya pada baca semula).
+- `PenghantaranCampuran_SakitDanPdpr_Berjaya`: Mengesahkan penghantaran campuran (1 SAKIT DEMAM, 1 PDPR, 1 Hadir biasa) mengisi kedua-dua murid secara tepat dan melepasi pengesahan baca semula.
+
+**Hasil Ujian:**
+- `dotnet test desktop/HadirDesktop.sln`: 1159 lulus / 0 gagal (naik daripada 1156; +3 ujian unit).
+
 ## 1.0.21 — Jaminan struktural: butang Autohadir kekal kelihatan dalam bar status (2026-10-06)
 
 **Punca & Matlamat.** Pada pemasangan sebenar 1.0.20 di PC pemilik (18:35, luar waktu aktif), bar status terpotong selepas pemisah kedua (butang Autohadir, label Kitaran dan nav hilang). Punca: teks Kitaran luar waktu aktif (536 px) + Backend langsung (244 px) menjadikan jumlah tetap langsung 1162 px > 1082 px lebar bar status, menyebabkan WinForms menggugurkan lukisan item terkeluar. Ujian lama terlalu lemah kerana hanya mengukur teks pendek.

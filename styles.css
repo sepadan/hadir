@@ -304,6 +304,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
   box-shadow: 0 3px 10px #1738500d;
 }
 .student-row.absent { border-color: #f2a4ae; background: #fff0f2; box-shadow: 0 0 0 1px #f2a4ae; }
+.student-row.pdpr { border-color: #93c5fd; background: #eff6ff; box-shadow: 0 0 0 1px #93c5fd; }
 .mini-avatar {
   width: 38px;
   height: 38px;
@@ -320,6 +321,7 @@ input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #16
 .student-copy small { color: var(--muted); }
 .mark { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; background: #e5f7ef; color: #087851; font-size: .75rem; font-weight: 850; }
 .student-row.absent .mark { background: var(--red); color: #fff; }
+.student-row.pdpr .mark { background: #2563eb; color: #fff; }
 .save-dock {
   position: sticky;
   z-index: 8;

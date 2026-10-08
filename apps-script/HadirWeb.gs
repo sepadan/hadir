@@ -66,6 +66,12 @@ function hadirMoeisSebabSah_(kategori, sebab) {
   return (rujukan.sebab[kategori] || []).indexOf(sebab) > -1;
 }
 
+function hadirAdakahPdpr_(kategori, sebab) {
+  var kat = String(kategori || '').trim().toUpperCase();
+  var seb = String(sebab || '').trim().toUpperCase();
+  return (kat === 'A' || kat === 'PDPR') && seb === 'PEMBELAJARAN DI RUMAH';
+}
+
 function hadirMoeisLabelStatus_(status) {
   return {
     menunggu: 'Menunggu', sedang_dihantar: 'Sedang dihantar',
@@ -249,10 +255,20 @@ function hadirMoeisJobSebabBerubah_(tarikhIso, kelas) {
 function hadirMoeisJobSelesaiSah_(job, murid) {
   if (!job || job.status !== 'berjaya' || !Array.isArray(murid) ||
       murid.some(function (m) { return !m || typeof m !== 'object'; })) return false;
-  var tidakHadir = murid.filter(function (m) { return m.nilai === 0; });
-  if (job.bilTidakHadir !== tidakHadir.length) return false;
-  return tidakHadir.every(function (m) {
-    var nilaiTepat = m.nilaiMentah === 0 || m.nilaiMentah === '0';
+  var adakahPdpr = typeof hadirAdakahPdpr_ === 'function' ? hadirAdakahPdpr_ : function (k, s) {
+    var kat = String(k || '').trim().toUpperCase();
+    var seb = String(s || '').trim().toUpperCase();
+    return (kat === 'A' || kat === 'PDPR') && seb === 'PEMBELAJARAN DI RUMAH';
+  };
+  var perluHantar = murid.filter(function (m) {
+    return m.nilai === 0 || (m.kategori && m.sebab && adakahPdpr(m.kategori, m.sebab));
+  });
+  if (job.bilTidakHadir !== perluHantar.length) return false;
+  return perluHantar.every(function (m) {
+    var isPdpr = adakahPdpr(m.kategori, m.sebab);
+    var nilaiTepat = isPdpr
+      ? (m.nilaiMentah === 1 || m.nilaiMentah === '1')
+      : (m.nilaiMentah === 0 || m.nilaiMentah === '0');
     return nilaiTepat && hadirMoeisSebabSah_(m.kategori, m.sebab);
   });
 }
@@ -445,13 +461,15 @@ function hadirBinaInit_(sekarang, zona, tarikhIso) {
     if (!peta[kelas]) peta[kelas] = [];
     var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
     var nilaiMentah = idxTarikh < 0 || !nilaiMentahData[i - 1] ? '' : nilaiMentahData[i - 1][0];
-    var sebabRekod = nilai === '0' ? petaSebab[ic] : null;
+    var sebabRekod = petaSebab[ic] || null;
+    var isPdpr = !!(sebabRekod && hadirAdakahPdpr_(sebabRekod.kategori, sebabRekod.sebab));
+    if (nilai !== '0' && !isPdpr) sebabRekod = null;
     peta[kelas].push({
       kunci: hadirKunciMurid_(ic, tkh), nama: nama,
       nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
       nilaiMentah: nilaiMentah,
       _rmt: !!petaRmt[ic],
-      _rmtHadir: nilai === '1' && !!petaRmt[ic],
+      _rmtHadir: nilai === '1' && !isPdpr && !!petaRmt[ic],
       kategori: sebabRekod ? sebabRekod.kategori : '',
       sebab: sebabRekod ? sebabRekod.sebab : ''
     });
@@ -544,7 +562,9 @@ function hadirSemakKehadiran_(tarikhIso) {
       if (!peta[kelas]) peta[kelas] = [];
       var nilai = data[i][idxTarikh];
       var nilaiMentah = nilaiMentahData[i - 1] ? nilaiMentahData[i - 1][0] : '';
-      var sebabRekod = nilai === '0' ? petaSebab[ic] : null;
+      var sebabRekod = petaSebab[ic] || null;
+      var isPdpr = !!(sebabRekod && hadirAdakahPdpr_(sebabRekod.kategori, sebabRekod.sebab));
+      if (nilai !== '0' && !isPdpr) sebabRekod = null;
       peta[kelas].push({
         nama: nama,
         nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
@@ -552,7 +572,7 @@ function hadirSemakKehadiran_(tarikhIso) {
         kategori: sebabRekod ? sebabRekod.kategori : '',
         sebab: sebabRekod ? sebabRekod.sebab : '',
         _rmt: !!petaRmt[ic],
-        _rmtHadir: nilai === '1' && !!petaRmt[ic]
+        _rmtHadir: nilai === '1' && !isPdpr && !!petaRmt[ic]
       });
     }
   }
@@ -606,11 +626,13 @@ function hadirBukaKehadiranTarikh_(kelas, tarikhIso) {
     if (!nama || namaKelas !== kelas || !ic ||
         muridTiadaPadaTarikh_(ic, pilihan.tkh, intervalArkib, icMain)) continue;
     var nilai = idxTarikh < 0 ? '' : data[i][idxTarikh];
-    var sebabRekod = nilai === '0' ? petaSebab[ic] : null;
+    var sebabRekod = petaSebab[ic] || null;
+    var isPdpr = !!(sebabRekod && hadirAdakahPdpr_(sebabRekod.kategori, sebabRekod.sebab));
+    if (nilai !== '0' && !isPdpr) sebabRekod = null;
     murid.push({
       kunci: hadirKunciMurid_(ic, pilihan.tkh), nama: nama,
       nilai: nilai === '0' ? 0 : nilai === '1' ? 1 : '',
-      _rmt: !!petaRmt[ic], _rmtHadir: nilai === '1' && !!petaRmt[ic],
+      _rmt: !!petaRmt[ic], _rmtHadir: nilai === '1' && !isPdpr && !!petaRmt[ic],
       kategori: sebabRekod ? sebabRekod.kategori : '',
       sebab: sebabRekod ? sebabRekod.sebab : ''
     });
@@ -714,17 +736,18 @@ function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
           muridTiadaPadaTarikh_(ic, tkh, intervalArkib, icMain)) continue;
       var rekodSebab = tiada[hadirKunciMurid_(ic, tkh)];
       var tidakHadir = !!rekodSebab;
-      nilai[i][0] = tidakHadir ? 0 : 1;
+      var isPdpr = tidakHadir && hadirAdakahPdpr_(rekodSebab.kategori, rekodSebab.sebab);
+      nilai[i][0] = (tidakHadir && !isPdpr) ? 0 : 1;
       jumlah++;
       if (tidakHadir) {
-        bilTiada++;
+        if (!isPdpr) bilTiada++;
         sebabUntukSimpan.push({
           ic: ic, nama: String(asas[i][0]).trim(),
           kategori: rekodSebab.kategori, sebab: rekodSebab.sebab
         });
       }
       if (petaRmt[ic]) rmtJumlah++;
-      if (!tidakHadir && petaRmt[ic]) rmtHadir++;
+      if (nilai[i][0] === 1 && !isPdpr && petaRmt[ic]) rmtHadir++;
     }
     if (!jumlah) throw new Error('Tiada murid aktif ditemui untuk ' + kelas + '.');
     s.getRange(2, col, n, 1).setValues(nilai);
@@ -782,8 +805,9 @@ function hadirMoeisSenaraiKelas_(token) {
     var nilai = idxTarikh < 0 ? '' : mentah[i][idxTarikh];
     if (!kehadiranKelasNilai[kelas]) kehadiranKelasNilai[kelas] = [];
     kehadiranKelasNilai[kelas].push(nilai);
-    if (nilai !== 0 && nilai !== '0') continue;
     var sebabRekod = petaSebab[ic];
+    var isPdpr = sebabRekod && hadirAdakahPdpr_(sebabRekod.kategori, sebabRekod.sebab);
+    if (nilai !== 0 && nilai !== '0' && !isPdpr) continue;
     if (!absenPeta[kelas]) absenPeta[kelas] = [];
     absenPeta[kelas].push({
       kunci: hadirKunciMurid_(ic, tkh), nama: nama,
@@ -828,20 +852,25 @@ function hadirMoeisSimpanSebab_(payload, token) {
   var idxTarikh = data.length ? data[0].indexOf(tkh) : -1;
   if (idxTarikh < 0) throw new Error('Lajur kehadiran hari ini belum wujud.');
   var intervalArkib = dapatkanIntervalArkib_(), icMain = dapatkanIcAktifMain_();
+  var petaSebab = hadirBacaMoeisSebabPeta_(tarikhIso);
   var dipadan = null;
   for (var i = 1; i < data.length; i++) {
     var namaKelas = String(data[i][2] || '').trim().toUpperCase();
     var ic = normalisasiIc_(data[i][3]);
     if (namaKelas !== kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
     if (hadirKunciMurid_(ic, tkh) !== kunci) continue;
-    if (data[i][idxTarikh] !== '0') throw new Error('Murid ini tidak ditanda tidak hadir hari ini.');
-    dipadan = { ic: ic, nama: String(data[i][1] || '').trim() };
+    var sediaAda = petaSebab[ic];
+    var adalahPdprSediaAda = sediaAda && hadirAdakahPdpr_(sediaAda.kategori, sediaAda.sebab);
+    if (data[i][idxTarikh] !== '0' && !adalahPdprSediaAda) throw new Error('Murid ini tidak ditanda tidak hadir hari ini.');
+    dipadan = { ic: ic, nama: String(data[i][1] || '').trim(), baris: i + 1, kol: idxTarikh + 1 };
     break;
   }
   if (!dipadan) throw new Error('Murid tidak ditemui untuk kelas dan tarikh ini.');
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    var adalahPdprBaru = hadirAdakahPdpr_(kategori, sebab);
+    s.getRange(dipadan.baris, dipadan.kol).setValue(adalahPdprBaru ? 1 : 0);
     var sebabBerubah = hadirUpsertMoeisSebab_(tarikhIso, kelas, {
       ic: dipadan.ic, nama: dipadan.nama, kategori: kategori, sebab: sebab
     });
@@ -918,8 +947,9 @@ function hadirMoeisJobBuatDiBawahLock_(kelas, tarikhIso, kelasMoeisId, peranan, 
       if (!nama || namaKelas !== kelas || !ic || muridDisembunyikanHariIni_(ic, intervalArkib, icMain)) continue;
       var nilai = idxTarikh < 0 ? '' : mentah[i][idxTarikh];
       nilaiKelas.push(nilai);
-      if (nilai !== 0 && nilai !== '0') continue;
       var sebabRekod = petaSebab[ic];
+      var isPdpr = sebabRekod && hadirAdakahPdpr_(sebabRekod.kategori, sebabRekod.sebab);
+      if (nilai !== 0 && nilai !== '0' && !isPdpr) continue;
       murid.push({
         ic: ic, nama: nama,
         kategori: sebabRekod ? sebabRekod.kategori : '',

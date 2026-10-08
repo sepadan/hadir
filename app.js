@@ -260,14 +260,14 @@
      Peraturan 3.6 dalam hab: kosong bukan sifar. */
   function tidakHadirAsal_(murid) {
     return new Set((murid || []).filter(function (m) {
-      return m.nilai === 0;
+      return m.nilai === 0 || (m.kategori && m.sebab && adakahPdpr_(m.kategori, m.sebab));
     }).map(function (m) { return teks(m.kunci); }));
   }
 
   function sebabAsal_(murid) {
     var peta = new Map();
     (murid || []).forEach(function (m) {
-      if (m.nilai === 0 && m.kategori && m.sebab) {
+      if ((m.nilai === 0 || adakahPdpr_(m.kategori, m.sebab)) && m.kategori && m.sebab) {
         peta.set(teks(m.kunci), { kategori: teks(m.kategori), sebab: teks(m.sebab) });
       }
     });
@@ -304,17 +304,18 @@
     semua.filter(function (m) { return !q || norm(m.nama).indexOf(q) > -1; })
       .forEach(function (m) {
         var kunci = teks(m.kunci), tiada = state.tidakHadir.has(kunci);
-        var btn = el('button', 'student-row' + (tiada ? ' absent' : ''));
+        var sebabRekod = state.sebabTidakHadir.get(kunci);
+        var isPdpr = tiada && sebabRekod && adakahPdpr_(sebabRekod.kategori, sebabRekod.sebab);
+        var btn = el('button', 'student-row' + (isPdpr ? ' pdpr' : (tiada ? ' absent' : '')));
         btn.type = 'button';
         btn.appendChild(el('span', 'mini-avatar', norm(m.nama).charAt(0) || '?'));
         var copy = el('span', 'student-copy');
         copy.appendChild(el('strong', '', m.nama));
-        var sebabRekod = state.sebabTidakHadir.get(kunci);
         copy.appendChild(el('small', '', tiada && sebabRekod
           ? labelKategoriMoeis_(sebabRekod.kategori) + ' · ' + sebabRekod.sebab
           : state.kelas.nama));
         btn.appendChild(copy);
-        btn.appendChild(el('span', 'mark', tiada ? 'Tidak hadir' : 'Hadir'));
+        btn.appendChild(el('span', 'mark', isPdpr ? 'PDPR' : (tiada ? 'Tidak hadir' : 'Hadir')));
         btn.addEventListener('click', function () {
           bukaDialogSebab({ kunci: kunci, nama: m.nama }, 'tanda');
         });
@@ -322,7 +323,11 @@
       });
     /* "0 tidak hadir" membaca seperti masalah. Pada pagi hari baru,
        keadaan sebenar ialah "belum ada yang ditanda". */
-    var bil = state.tidakHadir.size;
+    var bil = 0;
+    state.tidakHadir.forEach(function (kunci) {
+      var s = state.sebabTidakHadir.get(kunci);
+      if (!s || !adakahPdpr_(s.kategori, s.sebab)) bil++;
+    });
     $('absentCount').textContent = bil
       ? bil + ' tidak hadir'
       : 'Semua hadir';
@@ -354,6 +359,12 @@
     return (MOEIS_SEBAB.sebab[kategori] || []).indexOf(sebab) > -1;
   }
 
+  function adakahPdpr_(kategori, sebab) {
+    var kat = teks(kategori).trim().toUpperCase();
+    var seb = teks(sebab).trim().toUpperCase();
+    return (kat === 'A' || kat === 'PDPR') && seb === 'PEMBELAJARAN DI RUMAH';
+  }
+
   /* Status kad Semak Kehadiran. Keadaan lengkap/MOEIS hanya dinilai bagi data
      bertarikh hari ini (Malaysia) kerana hanya data itu membawa Kategori/Sebab.
      "Selesai MOEIS" memerlukan boolean awam `moeisSelesai`: job berjaya,
@@ -368,9 +379,12 @@
     }
     var tiada = ditanda.filter(function (m) { return m.nilai === 0; });
     var tanpaSebab = tiada.filter(function (m) { return !sebabMoeisSah_(m.kategori, m.sebab); }).length;
+    var pdprTanpaSebab = ditanda.filter(function (m) {
+      return (m.kategori === 'A' || m.kategori === 'PDPR') && !adakahPdpr_(m.kategori, m.sebab);
+    }).length;
     var belumDitanda = murid.length - ditanda.length;
-    if (tanpaSebab || belumDitanda) {
-      return { kod: 'tidak-lengkap', label: 'Tidak lengkap', tanpaSebab: tanpaSebab, belumDitanda: belumDitanda };
+    if (tanpaSebab || belumDitanda || pdprTanpaSebab) {
+      return { kod: 'tidak-lengkap', label: 'Tidak lengkap', tanpaSebab: tanpaSebab + pdprTanpaSebab, belumDitanda: belumDitanda };
     }
     if (kelas.moeisSelesai === true) {
       return { kod: 'moeis', label: 'Selesai MOEIS', tanpaSebab: 0, belumDitanda: 0 };
@@ -378,8 +392,11 @@
     if (typeof kelas.moeisSelesai === 'boolean') {
       return { kod: 'diisi', label: 'Telah diisi', tanpaSebab: 0, belumDitanda: 0 };
     }
+    var perluHantar = ditanda.filter(function (m) {
+      return m.nilai === 0 || (m.kategori && m.sebab && adakahPdpr_(m.kategori, m.sebab));
+    });
     var bukti = (moeisKelas || []).find(function (x) { return x && x.nama === kelas.nama; });
-    if (bukti && bukti.statusPenghantaran === 'berjaya' && Number(bukti.bilTidakHadir) === tiada.length) {
+    if (bukti && bukti.statusPenghantaran === 'berjaya' && Number(bukti.bilTidakHadir) === perluHantar.length) {
       return { kod: 'moeis', label: 'Selesai MOEIS', tanpaSebab: 0, belumDitanda: 0 };
     }
     return { kod: 'diisi', label: 'Telah diisi', tanpaSebab: 0, belumDitanda: 0 };
@@ -393,7 +410,10 @@
     var jumlahTidakHadir = 0;
     var jumlahRmtHadir = 0, jumlahRmt = 0;
     selesai.forEach(function (k) {
-      jumlahTidakHadir += (k.murid || []).filter(function (m) { return m.nilai === 0; }).length;
+      jumlahTidakHadir += (k.murid || []).filter(function (m) {
+        var isPdpr = !!(m.kategori && m.sebab && adakahPdpr_(m.kategori, m.sebab));
+        return m.nilai === 0 && !isPdpr;
+      }).length;
       jumlahRmtHadir += Number(k.rmtHadir || 0);
       jumlahRmt += Number(k.rmtJumlah || 0);
     });
@@ -417,9 +437,15 @@
     kelas.forEach(function (k) {
       var murid = k.murid || [];
       var statusKad = statusKadSemakan_(k, tarikhSemakan, hariIniIso, buktiMoeis);
-      var tiada = k.sudahSimpan ? murid.filter(function (m) { return m.nilai === 0; }) : [];
+      var tiada = k.sudahSimpan ? murid.filter(function (m) {
+        var isPdpr = !!(m.kategori && m.sebab && adakahPdpr_(m.kategori, m.sebab));
+        return m.nilai === 0 && !isPdpr;
+      }) : [];
       var hadir = k.sudahSimpan
-        ? (typeof k.hadir === 'number' ? k.hadir : murid.filter(function (m) { return m.nilai === 1; }).length)
+        ? (typeof k.hadir === 'number' ? k.hadir : murid.filter(function (m) {
+            var isPdpr = !!(m.kategori && m.sebab && adakahPdpr_(m.kategori, m.sebab));
+            return m.nilai === 1 || isPdpr;
+          }).length)
         : 0;
       var card = el('article', 'review-card review-card-action kad-' + statusKad.kod);
       card.tabIndex = 0;
@@ -659,15 +685,17 @@
         $('saveHint').textContent = 'Disimpan ' + (r.masa || 'sekarang');
         state.kelas.sudahSimpan = true;
         state.kelas.moeisSelesai = false;
-        state.kelas.tidakHadir = state.tidakHadir.size;
+        state.kelas.tidakHadir = Number(r.tidakHadir !== undefined ? r.tidakHadir : state.tidakHadir.size);
         state.kelas.rmtHadir = Number(r.rmtHadir || 0);
         state.kelas.rmtJumlah = Number(r.rmtJumlah || 0);
         (state.kelas.murid || []).forEach(function (m) {
           var kunci = teks(m.kunci);
-          m.nilai = state.tidakHadir.has(kunci) ? 0 : 1;
-          var sebabRekod = state.sebabTidakHadir.get(kunci);
-          m.kategori = m.nilai === 0 && sebabRekod ? sebabRekod.kategori : '';
-          m.sebab = m.nilai === 0 && sebabRekod ? sebabRekod.sebab : '';
+          var adaSebab = state.tidakHadir.has(kunci);
+          var sebabRekod = adaSebab ? state.sebabTidakHadir.get(kunci) : null;
+          var isPdpr = !!(adaSebab && sebabRekod && adakahPdpr_(sebabRekod.kategori, sebabRekod.sebab));
+          m.nilai = (adaSebab && !isPdpr) ? 0 : 1;
+          m.kategori = adaSebab && sebabRekod ? sebabRekod.kategori : '';
+          m.sebab = adaSebab && sebabRekod ? sebabRekod.sebab : '';
         });
         kemasKiniRmtHariIni();
         // Simpanan baharu menyegarkan tugasan MOEIS; bukti 'berjaya' lama tidak sah lagi.
