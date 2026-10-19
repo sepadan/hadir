@@ -31,6 +31,10 @@ public class LabelStatusTerhad : ToolStripStatusLabel
     public override Size GetPreferredSize(Size constrainingSize)
     {
         var saizAsas = base.GetPreferredSize(constrainingSize);
+        if (Spring)
+        {
+            return new Size(0, saizAsas.Height);
+        }
         return AutoSize || Width <= 0 ? saizAsas : new Size(Width, saizAsas.Height);
     }
 }

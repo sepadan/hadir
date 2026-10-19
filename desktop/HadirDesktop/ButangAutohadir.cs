@@ -71,13 +71,43 @@ public static class ButangAutohadir
     }
 
     /// <summary>
+    /// Kira margin butang Autohadir mengikut keadaan krip saiz bar status:
+    /// memperuntukkan ruang krip pada tetingkap normal dengan SizingGrip,
+    /// dan meniadakan ruang krip tambahan apabila dimaksimumkan (krip tidak dilukis).
+    /// </summary>
+    public static Padding KiraMargin(StatusStrip? bar)
+    {
+        var form = bar?.FindForm();
+        var perluGrip = bar?.SizingGrip == true && (form == null || form.WindowState != FormWindowState.Maximized);
+        return new Padding(2, 2, perluGrip ? RuangGrip + 2 : 2, 0);
+    }
+
+    /// <summary>
     /// Tambah butang Autohadir sebagai item TERAKHIR <paramref name="bar"/>
-    /// dan pastikan ruang krip saiz dikhaskan.
+    /// dan pastikan ruang krip saiz dikhaskan secara dinamik.
     /// </summary>
     public static ToolStripButton Pasang(StatusStrip bar, TrayHost tray)
     {
         bar.ShowItemToolTips = true;
         var butang = Bina(tray);
+
+        void KemasKiniMargin() => butang.Margin = KiraMargin(bar);
+
+        KemasKiniMargin();
+        bar.Resize += (_, _) => KemasKiniMargin();
+        bar.ParentChanged += (_, _) =>
+        {
+            if (bar.FindForm() is Form f)
+            {
+                f.Resize += (_, _) => KemasKiniMargin();
+            }
+            KemasKiniMargin();
+        };
+        if (bar.FindForm() is Form awal)
+        {
+            awal.Resize += (_, _) => KemasKiniMargin();
+        }
+
         bar.Items.Add(butang);
         return butang;
     }

@@ -1,5 +1,13 @@
 # HADIR Desktop — Progress (iteration 2 / Phase 1 hardening)
 
+## 1.0.22 — 19 Oktober 2026
+
+- Membuka Tetapan/Akaun idMe tidak lagi mengecilkan tetingkap utama yang dimaksimumkan.
+- Label navigasi anjal tidak lagi meminta lebar teks penuh; ruang butang Autohadir dilindungi.
+- Margin krip diselaraskan semasa maximize/restore.
+- Dua larian suite dotnet disahkan lulus; ujian meliputi keadaan tetingkap dan susun atur 1920 px dengan font diskala.
+- Tiada perubahan data kehadiran, kredensial, PWA atau Apps Script.
+
 ## 1.0.21 (ujian tambahan; tiada perubahan binary) — Ujian Penghantaran PDPR (Pembelajaran di Rumah) ke MOEIS (2026-10-08)
 
 **Matlamat & Semantik.**

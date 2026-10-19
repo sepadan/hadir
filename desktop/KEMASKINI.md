@@ -1,5 +1,13 @@
 # Kemas kini HadirDesktop
 
+## 1.0.22 — 19 Oktober 2026
+
+- Membuka Tetapan/Akaun idMe tidak lagi mengecilkan tetingkap utama yang dimaksimumkan.
+- Label navigasi anjal tidak lagi meminta lebar teks penuh; ruang butang Autohadir dilindungi.
+- Margin krip diselaraskan semasa maximize/restore.
+- Dua larian suite dotnet disahkan lulus; ujian meliputi keadaan tetingkap dan susun atur 1920 px dengan font diskala.
+- Tiada perubahan data kehadiran, kredensial, PWA atau Apps Script.
+
 Panduan ringkas untuk PC sekolah. Semua arahan dijalankan dari folder
 `desktop\` dalam repo ini, guna PowerShell.
 

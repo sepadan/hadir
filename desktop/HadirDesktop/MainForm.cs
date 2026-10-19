@@ -410,7 +410,7 @@ public sealed class MainForm : Form
             Width = LebarMaksKitaran,
             TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
         };
-        _navLabel = new ToolStripStatusLabel
+        _navLabel = new LabelStatusTerhad
         {
             Text = string.Empty,
             Spring = true,
@@ -1524,14 +1524,24 @@ public sealed class MainForm : Form
     /// <summary>Called (marshalled to UI thread) when a second launch signals this instance.</summary>
     public void BringToFrontFromSecondLaunch() => ShowFromTray();
 
-    private void ShowFromTray()
+    /// <summary>
+    /// Seam boleh diuji untuk tunjuk tetingkap dari dulang: mengekalkan keadaan
+    /// tetingkap yang sedang dimaksimumkan dan hanya menukar ke Normal jika
+    /// tetingkap sedang diminimumkan.
+    /// </summary>
+    internal static void LaksanaTunjukDariDulang(Form form, Action? onShowRequested = null, Action? onUpdateStateLabel = null)
     {
-        _stateMachine.OnShowRequested();
-        Show();
-        WindowState = FormWindowState.Normal;
-        Activate();
-        UpdateStateLabel();
+        onShowRequested?.Invoke();
+        form.Show();
+        // Opening settings or activating an already visible maximized window
+        // must not restore it to its smaller normal bounds.
+        if (form.WindowState == FormWindowState.Minimized)
+            form.WindowState = FormWindowState.Normal;
+        form.Activate();
+        onUpdateStateLabel?.Invoke();
     }
+
+    private void ShowFromTray() => LaksanaTunjukDariDulang(this, () => _stateMachine.OnShowRequested(), UpdateStateLabel);
 
     /// <summary>
     /// Buka panel "Semua fungsi" (non-modal). Satu instance sahaja: jika sudah
