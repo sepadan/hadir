@@ -1,6 +1,20 @@
 # Kemas kini HadirDesktop
 
-## 1.0.24 - Tetapan boleh dibuka semasa tugasan aktif (belum diterbitkan)
+## 1.0.25 - Paparan Semua fungsi dikemaskan (belum diterbitkan)
+
+Tetingkap **Semua fungsi** kini satu lajur: butang sama lebar dan sama tinggi,
+tajuk kumpulan sebagai label kecil kelabu (tiada kotak), dan penerangan setiap
+butang dipindah ke ToolTip (togol turut menyebut Kini: HIDUP/MATI). Tajuk besar
+dan perenggan arahan dibuang kerana bar tajuk sudah menamakan tetingkap. Status
+portal ialah satu baris kelabu; teks panjang dipotong dengan "…" dan teks
+penuh dalam ToolTip. Lebar panel 566 px kepada 375 px pada 100%. Label, ikon,
+susunan dan tindakan setiap butang tidak berubah. Web dan GAS tidak berubah.
+
+Ujian: RED 8 gagal pada susun atur lama (panel 566/614/661 px melebihi had
+390/487/585 px pada DPI 100/125/150%); GREEN `dotnet test` 1,236 lulus, Node
+74 lulus. Tiada Desktop exe atau portal dibuka.
+
+## 1.0.24 - Tetapan boleh dibuka semasa tugasan aktif
 
 Bukti pengguna, 30 Oktober 2026 kira-kira 20:20: Tetapan Tempatan dari dulang
 tidak muncul ketika status portal sedang-login untuk tugasan belum siap;

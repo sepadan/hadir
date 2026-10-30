@@ -108,11 +108,12 @@ public class PanelFungsiTests
         };
         public string Status { get; set; } = "Portal: diam";
 
-        public PanelFungsi Bina() => new(
+        public PanelFungsi Bina(Font? fon = null) => new(
             Dilaksana.Add,
             f => Togol.TryGetValue(f, out var v) ? v : null,
             (f, v) => { Ditulis.Add((f, v)); Togol[f] = v; },
-            () => Status);
+            () => Status,
+            fon);
     }
 
     [Fact]
@@ -262,18 +263,6 @@ public class PanelFungsiTests
     }
 
     [Fact]
-    public void Panel_LebarMunasabah()
-    {
-        using var panel = new Rakaman().Bina();
-        var saiz = panel.PreferredSize;
-
-        Assert.InRange(saiz.Width, 440, 620);
-        Assert.True(saiz.Height > 200);
-    }
-
-    // ---------- susun atur: tiada pemotongan, lajur dan baris seragam ----------
-
-    [Fact]
     public void Butang_LebarMemuatkanLabelTerpanjang_TanpaPemotongan()
     {
         using var panel = new Rakaman().Bina();
@@ -295,67 +284,107 @@ public class PanelFungsiTests
             .OrderByDescending(b => TextRenderer.MeasureText(b.Text, b.Font).Width).First();
 
         Assert.Equal(DemoLabel.TrayLoginAuto, terpanjang.Text);
-        Assert.True(panel.LebarLajurButang >=
+        Assert.True(terpanjang.Width >=
             TextRenderer.MeasureText(DemoLabel.TrayLoginAuto, terpanjang.Font).Width + IkonDulang.Saiz);
     }
 
+    // ---------- susun atur minimalis (1.0.25): satu lajur, tiada pemotongan ----------
+
+    /// <summary>Lebar sempit setara 390 px pada 100%; diskala mengikut DPI.</summary>
+    private const int LebarSempit = 390;
+
     [Fact]
-    public void LajurButang_SamaLebar_DalamSetiapKelompok()
+    public void Panel_SatuLajur_TiadaGroupBoxAtauLabelPenerangan()
     {
         using var panel = new Rakaman().Bina();
+        var penerangan = SemuaItem().Select(i => i.Penerangan).ToHashSet();
 
-        Assert.Equal(PanelFungsiBina.Senarai().Count, panel.Grid.Count);
-        foreach (var grid in panel.Grid)
-        {
-            Assert.Equal(2, grid.ColumnStyles.Count);
-            Assert.All(grid.ColumnStyles.Cast<ColumnStyle>(), c => Assert.Equal(SizeType.Absolute, c.SizeType));
-            Assert.Equal(panel.LebarLajurButang, grid.ColumnStyles[0].Width);
-            Assert.Equal(PanelFungsi.LebarPenerangan, grid.ColumnStyles[1].Width);
-        }
+        Assert.Empty(SemuaKawalan(panel).OfType<GroupBox>());
+        Assert.DoesNotContain(SemuaKawalan(panel).OfType<Label>(),
+            l => penerangan.Any(p => l.Text.StartsWith(p, StringComparison.Ordinal)));
+        // Satu lajur: setiap butang bermula dan berakhir pada x yang sama.
+        Assert.Single(panel.Butang.Values.Select(b => b.Left).Distinct());
         Assert.Single(panel.Butang.Values.Select(b => b.Width).Distinct());
+        Assert.Single(panel.Butang.Values.Select(b => b.Height).Distinct());
     }
 
     [Fact]
-    public void Baris_SamaTinggi_DanPeneranganMuatDalamBaris()
+    public void Panel_TajukKelompok_LabelKecilKelabu()
     {
         using var panel = new Rakaman().Bina();
+        var label = SemuaKawalan(panel).OfType<Label>().ToList();
 
-        foreach (var grid in panel.Grid)
+        foreach (var kelompok in PanelFungsiBina.Senarai())
         {
-            Assert.All(grid.RowStyles.Cast<RowStyle>(), r =>
-            {
-                Assert.Equal(SizeType.Absolute, r.SizeType);
-                Assert.Equal(panel.TinggiBaris, r.Height);
-            });
-            foreach (Control c in grid.Controls)
-            {
-                // Tiada kawalan berlabuh atas/bawah = ditengahkan menegak.
-                Assert.Equal(AnchorStyles.None, c.Anchor & (AnchorStyles.Top | AnchorStyles.Bottom));
-                Assert.True(c.GetPreferredSize(new Size(c.MaximumSize.Width, 0)).Height + c.Margin.Vertical <= panel.TinggiBaris,
-                    $"'{c.Text}' lebih tinggi daripada baris");
-            }
+            var tajuk = Assert.Single(label, l => l.Text == kelompok.Tajuk);
+            Assert.Equal(Color.DimGray, tajuk.ForeColor);
         }
     }
 
     [Fact]
-    public void SusunAtur_TepiKananButangSegaris_DanTengahMenegakSama()
+    public void Panel_PeneranganDalamToolTip_TogolTermasukKeadaan()
     {
         using var panel = new Rakaman().Bina();
-        panel.PerformLayout();
-        foreach (var grid in panel.Grid) grid.PerformLayout();
 
-        var kanan = panel.Butang.Values.Select(b => b.Right).Distinct().ToList();
-        Assert.Single(kanan);
-        foreach (var grid in panel.Grid)
+        foreach (var item in SemuaItem())
         {
-            for (var r = 0; r < grid.RowCount; r++)
-            {
-                var butang = grid.GetControlFromPosition(0, r)!;
-                var teks = grid.GetControlFromPosition(1, r)!;
-                var tengahButang = butang.Top + butang.Height / 2.0;
-                var tengahTeks = teks.Top + teks.Height / 2.0;
-                Assert.InRange(Math.Abs(tengahButang - tengahTeks), 0, 1.0);
-            }
+            var petua = panel.Petua.GetToolTip(panel.Butang[item.Fungsi]);
+            Assert.StartsWith(item.Penerangan, petua);
+            Assert.Equal(petua, panel.Butang[item.Fungsi].AccessibleDescription);
+            Assert.Equal(item.Label, panel.Butang[item.Fungsi].AccessibleName);
+        }
+        Assert.EndsWith("Kini: MATI.", panel.Petua.GetToolTip(panel.Butang[FungsiDulang.Autostart]));
+        Assert.EndsWith("Kini: HIDUP.", panel.Petua.GetToolTip(panel.Butang[FungsiDulang.HantarAuto]));
+    }
+
+    [Fact]
+    public void Status_SatuBaris_TeksPenuhDalamToolTip()
+    {
+        var r = new Rakaman
+        {
+            Status = "Keadaan portal: sedang-login — Portal dibuka untuk 1 tugasan belum siap; log masuk automatik sedang berjalan dan mesej ini sengaja panjang.",
+        };
+        using var panel = r.Bina();
+
+        var status = panel.LabelStatus;
+        Assert.True(status.AutoEllipsis);
+        Assert.False(status.AutoSize);
+        Assert.Equal(BorderStyle.None, status.BorderStyle);
+        Assert.True(status.Height < status.Font.Height * 2, $"status {status.Height}px bukan satu baris");
+        Assert.Equal(r.Status, panel.Petua.GetToolTip(status));
+    }
+
+    [Theory]
+    [InlineData(1.0f)]
+    [InlineData(1.25f)]
+    [InlineData(1.5f)]
+    public void SusunAtur_SempitDanDpi_TiadaItemMelebihiLebarPanel(float skala)
+    {
+        using var fon = new Font("Segoe UI", 9f * skala);
+        using var panel = new Rakaman().Bina(fon);
+        panel.PerformLayout();
+        panel.Akar.PerformLayout();
+
+        var had = (int)(LebarSempit * skala);
+        var lebar = panel.PreferredSize.Width;
+        Assert.True(lebar <= had, $"skala {skala}: panel {lebar}px > {had}px");
+        // Tajuk tetingkap tidak terpotong: teks + ikon + 3 butang kapsyen (~46px @100%).
+        var tajuk = TextRenderer.MeasureText(panel.Text, fon).Width + (int)(3 * 46 * skala);
+        Assert.True(lebar >= tajuk, $"skala {skala}: tajuk perlu {tajuk}px, panel {lebar}px");
+
+        var dalam = panel.Akar.PreferredSize.Width - panel.Akar.Padding.Right;
+        foreach (Control c in panel.Akar.Controls)
+        {
+            Assert.True(c.Left >= panel.Akar.Padding.Left, $"'{c.Text}' melimpah kiri ({c.Left}px)");
+            Assert.True(c.Right <= dalam, $"skala {skala}: '{c.Text}' Right {c.Right}px > {dalam}px");
+        }
+        foreach (var butang in panel.Butang.Values)
+        {
+            var teks = TextRenderer.MeasureText(butang.Text, butang.Font, Size.Empty, TextFormatFlags.SingleLine);
+            Assert.True(teks.Width + butang.Image!.Width + butang.Padding.Horizontal + 12 <= butang.Width,
+                $"skala {skala}: '{butang.Text}' terpotong: teks {teks.Width}px, butang {butang.Width}px");
+            Assert.True(teks.Height + 4 <= butang.Height,
+                $"skala {skala}: '{butang.Text}' terlalu rendah: teks {teks.Height}px, butang {butang.Height}px");
         }
     }
 
@@ -367,7 +396,7 @@ public class PanelFungsiTests
         var senarai = PanelFungsiBina.Senarai();
 
         Assert.True(PanelFungsi.KiraLebarButang(besar, senarai) > PanelFungsi.KiraLebarButang(kecil, senarai));
-        Assert.True(PanelFungsi.KiraTinggiBaris(besar, senarai) > PanelFungsi.KiraTinggiBaris(kecil, senarai));
+        Assert.True(PanelFungsi.KiraTinggiButang(besar) > PanelFungsi.KiraTinggiButang(kecil));
     }
 
     /// <summary>

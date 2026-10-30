@@ -14,36 +14,41 @@ namespace HadirDesktop;
 /// setiap butang memanggil callback yang diberi (laluan yang sama seperti klik
 /// item dulang), dan togol dibaca/ditulis melalui dulang. Tiada medan rahsia
 /// atau kredensial di sini. Menutup panel hanya menyembunyikannya.
+///
+/// Susun atur minimalis (1.0.25): satu lajur butang sama lebar, tajuk
+/// kelompok sebagai label kecil kelabu, penerangan dalam ToolTip, dan satu
+/// baris status di bawah.
 /// </summary>
 public sealed class PanelFungsi : Form
 {
-    /// <summary>Lebar TETAP lajur penerangan (teks dibalut di dalamnya).</summary>
-    internal const int LebarPenerangan = 260;
-    private const int TinggiButang = 30;
+    /// <summary>Tinggi minimum butang; fon besar (DPI tinggi) menaikkannya.</summary>
+    private const int TinggiButangMin = 30;
     /// <summary>
     /// Ruang dalam butang selain teks: ikon 16px, jarak ikon–teks, Padding
     /// kiri butang, dan sempadan/tepi visual. Sengaja longgar — teks yang
     /// terpotong lebih buruk daripada beberapa piksel ruang kosong.
     /// </summary>
     internal const int RuangDalamButang = IkonDulang.Saiz + 32;
-    /// <summary>Margin seragam bagi setiap sel (butang dan penerangan).</summary>
-    private static readonly Padding MarginSel = new(3);
-    private static readonly string[] TeksKeadaanSemua =
-        { TeksKeadaan(true), TeksKeadaan(false), TeksKeadaan(null) };
+    /// <summary>
+    /// Ruang bar tajuk selain teks tajuk pada 100%: tiga butang kapsyen
+    /// (~46px setiap satu), ikon tetingkap dan jarak. Diskala mengikut fon.
+    /// </summary>
+    internal const int RuangKapsyen = 3 * 46 + 40;
+    private static readonly Padding PaddingAkar = new(16, 10, 16, 12);
+    /// <summary>Jarak menegak seragam antara butang.</summary>
+    private static readonly Padding MarginButang = new(0, 0, 0, 4);
 
-    /// <summary>Lebar setiap butang — dikira daripada label terpanjang (lihat <see cref="KiraLebarButang"/>).</summary>
+    /// <summary>Lebar setiap butang dan baris status (lihat <see cref="KiraLebarKandungan"/>).</summary>
     private readonly int _lebarButang;
-    /// <summary>Tinggi SETIAP baris dalam setiap kelompok (seragam).</summary>
-    private readonly int _tinggiBaris;
-    private readonly List<TableLayoutPanel> _grid = new();
+    private readonly int _tinggiButang;
 
     private readonly Action<FungsiDulang> _laksana;
     private readonly Func<FungsiDulang, bool?> _bacaTogol;
     private readonly Action<FungsiDulang, bool> _tetapkanTogol;
     private readonly Func<string> _bacaStatus;
     private readonly Dictionary<FungsiDulang, ButtonBase> _butang = new();
-    private readonly Dictionary<FungsiDulang, Label> _penerangan = new();
     private readonly Dictionary<FungsiDulang, string> _teksPenerangan = new();
+    private readonly ToolTip _petua = new();
     private readonly Label _status;
     /// <summary>Benar semasa <see cref="Segarkan"/> menulis Checked — bukan klik pemilik.</summary>
     private bool _menyegar;
@@ -52,16 +57,19 @@ public sealed class PanelFungsi : Form
     /// <param name="bacaTogol">Keadaan togol seperti dipapar dulang; <c>null</c> = tidak tersedia.</param>
     /// <param name="tetapkanTogol">Tulis togol melalui dulang (satu-satunya laluan tulis).</param>
     /// <param name="bacaStatus">Teks baris status dulang (keadaan portal).</param>
+    /// <param name="fon">Fon tetingkap; <c>null</c> = fon lalai. Ujian DPI memberi fon berskala.</param>
     public PanelFungsi(
         Action<FungsiDulang> laksana,
         Func<FungsiDulang, bool?> bacaTogol,
         Action<FungsiDulang, bool> tetapkanTogol,
-        Func<string> bacaStatus)
+        Func<string> bacaStatus,
+        Font? fon = null)
     {
         _laksana = laksana;
         _bacaTogol = bacaTogol;
         _tetapkanTogol = tetapkanTogol;
         _bacaStatus = bacaStatus;
+        if (fon != null) Font = fon;
 
         Text = DemoLabel.PanelFungsiTajuk;
         FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -72,68 +80,54 @@ public sealed class PanelFungsi : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
         // Saiz diukur daripada teks SEBENAR dengan fon tetingkap, jadi ia kekal
-        // betul pada DPI/fon lain: tiada label butang terpotong, dan semua baris
-        // (dalam semua kelompok) sama tinggi.
+        // betul pada DPI/fon lain: tiada label butang terpotong, semua butang
+        // sama lebar dan sama tinggi.
         var senarai = PanelFungsiBina.Senarai();
-        _lebarButang = KiraLebarButang(Font, senarai);
-        _tinggiBaris = KiraTinggiBaris(Font, senarai);
-        var lebarKandungan = LebarLajurButang + LebarPenerangan;
+        _lebarButang = KiraLebarKandungan(Font, senarai);
+        _tinggiButang = KiraTinggiButang(Font);
 
-        var akar = new TableLayoutPanel
+        Akar = new TableLayoutPanel
         {
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 1,
-            Padding = new Padding(12),
+            Padding = PaddingAkar,
             Location = new Point(0, 0),
         };
 
-        akar.Controls.Add(new Label
-        {
-            Text = DemoLabel.PanelFungsiTajuk,
-            AutoSize = true,
-            Font = new Font(Font.FontFamily, Font.Size + 3, FontStyle.Bold),
-            Margin = new Padding(3, 0, 3, 4),
-        });
-        akar.Controls.Add(new Label
-        {
-            Text = DemoLabel.PanelFungsiArahan,
-            AutoSize = true,
-            MaximumSize = new Size(lebarKandungan, 0),
-            ForeColor = Color.DimGray,
-            Margin = new Padding(3, 0, 3, 8),
-        });
-
+        var pertama = true;
         foreach (var kelompok in senarai)
         {
-            akar.Controls.Add(BinaKelompok(kelompok));
+            Akar.Controls.Add(BinaTajuk(kelompok.Tajuk, pertama));
+            foreach (var item in kelompok.Item) Akar.Controls.Add(BinaButang(item));
+            pertama = false;
         }
 
+        // Satu baris sahaja: teks panjang dipotong dengan "…" dan teks penuh
+        // ada dalam ToolTip, jadi tinggi panel tidak melompat apabila status berubah.
         _status = new Label
         {
-            AutoSize = true,
-            Dock = DockStyle.Fill,
-            MaximumSize = new Size(lebarKandungan + 20, 0),
-            BorderStyle = BorderStyle.FixedSingle,
-            Padding = new Padding(4),
-            Margin = new Padding(3, 8, 3, 4),
+            AutoSize = false,
+            AutoEllipsis = true,
+            Size = new Size(_lebarButang, Font.Height + 4),
+            TextAlign = ContentAlignment.MiddleLeft,
+            ForeColor = Color.DimGray,
+            Margin = new Padding(0, 8, 0, 6),
         };
-        akar.Controls.Add(_status);
+        Akar.Controls.Add(_status);
 
-        var tutup = new Button { Text = DemoLabel.PanelFungsiTutup, AutoSize = true };
+        var tutup = new Button
+        {
+            Text = DemoLabel.PanelFungsiTutup,
+            AutoSize = true,
+            Anchor = AnchorStyles.Right,
+            Margin = Padding.Empty,
+        };
         tutup.Click += (_, _) => Hide();
         CancelButton = tutup;
-        var baris = new FlowLayoutPanel
-        {
-            AutoSize = true,
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.RightToLeft,
-            Margin = new Padding(0),
-        };
-        baris.Controls.Add(tutup);
-        akar.Controls.Add(baris);
+        Akar.Controls.Add(tutup);
 
-        Controls.Add(akar);
+        Controls.Add(Akar);
         Segarkan();
     }
 
@@ -143,13 +137,11 @@ public sealed class PanelFungsi : Form
     /// <summary>Baris status baca-sahaja — untuk ujian sahaja.</summary>
     internal Label LabelStatus => _status;
 
-    /// <summary>Grid dua lajur bagi setiap kelompok — untuk ujian sahaja.</summary>
-    internal IReadOnlyList<TableLayoutPanel> Grid => _grid;
+    /// <summary>Grid satu lajur yang memegang semua kawalan — untuk ujian sahaja.</summary>
+    internal TableLayoutPanel Akar { get; }
 
-    /// <summary>Lebar lajur butang: lebar butang + margin sel kiri dan kanan.</summary>
-    internal int LebarLajurButang => _lebarButang + MarginSel.Horizontal;
-
-    internal int TinggiBaris => _tinggiBaris;
+    /// <summary>ToolTip penerangan butang dan teks status penuh — untuk ujian sahaja.</summary>
+    internal ToolTip Petua => _petua;
 
     /// <summary>
     /// Lebar butang yang memuatkan label TERPANJANG (diukur dengan
@@ -162,33 +154,20 @@ public sealed class PanelFungsi : Form
         + RuangDalamButang;
 
     /// <summary>
-    /// Tinggi seragam bagi setiap baris: maksimum tinggi butang dan tinggi
-    /// penerangan TERTINGGI (dibalut dalam lajur penerangan; togol diukur
-    /// dalam setiap keadaan), ditambah margin sel.
-    ///
-    /// Diukur dengan Label yang dikonfigurasi SAMA seperti label penerangan,
-    /// bukan <see cref="TextRenderer.MeasureText(string, Font)"/>: Label
-    /// membalut dan menambah ruang sendiri, dan ukuran yang lebih kecil
-    /// akan memotong baris kedua.
+    /// Lebar lajur: label butang terpanjang, atau cukup untuk tajuk tetingkap
+    /// tidak terpotong — panel satu lajur cukup sempit sehingga bar tajuk
+    /// menjadi kekangan yang lebih ketat.
     /// </summary>
-    internal static int KiraTinggiBaris(Font fon, IEnumerable<KelompokFungsi> senarai)
-    {
-        var lebarTeks = LebarPenerangan - MarginSel.Horizontal;
-        using var ukur = new Label { AutoSize = true, Font = fon, MaximumSize = new Size(lebarTeks, 0) };
-        var tinggi = TinggiButang;
-        foreach (var item in senarai.SelectMany(k => k.Item))
-        {
-            var variasi = item.Jenis == JenisFungsi.Togol
-                ? TeksKeadaanSemua.Select(k => item.Penerangan + " " + k)
-                : new[] { item.Penerangan };
-            foreach (var teks in variasi)
-            {
-                ukur.Text = teks;
-                tinggi = Math.Max(tinggi, ukur.GetPreferredSize(new Size(lebarTeks, 0)).Height);
-            }
-        }
-        return tinggi + MarginSel.Vertical;
-    }
+    internal static int KiraLebarKandungan(Font fon, IEnumerable<KelompokFungsi> senarai) =>
+        Math.Max(
+            KiraLebarButang(fon, senarai),
+            TextRenderer.MeasureText(DemoLabel.PanelFungsiTajuk, fon).Width
+                + (int)Math.Ceiling(RuangKapsyen * fon.Size / 9f)
+                - PaddingAkar.Horizontal);
+
+    /// <summary>Tinggi seragam butang: satu baris teks fon ini dengan ruang selesa.</summary>
+    internal static int KiraTinggiButang(Font fon) =>
+        Math.Max(TinggiButangMin, TextRenderer.MeasureText("Ag", fon).Height + 12);
 
     /// <summary>
     /// Baca semula keadaan togol dan baris status daripada dulang. Tidak
@@ -196,7 +175,9 @@ public sealed class PanelFungsi : Form
     /// </summary>
     public void Segarkan()
     {
-        _status.Text = "Status: " + _bacaStatus();
+        var status = _bacaStatus();
+        _status.Text = status;
+        _petua.SetToolTip(_status, status);
 
         _menyegar = true;
         try
@@ -207,7 +188,7 @@ public sealed class PanelFungsi : Form
                 var keadaan = _bacaTogol(fungsi);
                 kotak.Enabled = keadaan.HasValue;
                 kotak.Checked = keadaan ?? false;
-                _penerangan[fungsi].Text = _teksPenerangan[fungsi] + " " + TeksKeadaan(keadaan);
+                TetapkanPenerangan(butang, _teksPenerangan[fungsi] + " " + TeksKeadaan(keadaan));
             }
         }
         finally
@@ -230,6 +211,7 @@ public sealed class PanelFungsi : Form
         var ikon = disposing
             ? _butang.Values.Select(b => b.Image).OfType<Image>().ToList()
             : new List<Image>();
+        if (disposing) _petua.Dispose();
         base.Dispose(disposing);
         foreach (var imej in ikon) imej.Dispose();
     }
@@ -254,56 +236,20 @@ public sealed class PanelFungsi : Form
         base.OnFormClosing(e);
     }
 
-    private GroupBox BinaKelompok(KelompokFungsi kelompok)
+    /// <summary>Tajuk kelompok: label kecil kelabu, bukan kotak.</summary>
+    private static Label BinaTajuk(string tajuk, bool pertama) => new()
     {
-        // Dua lajur TETAP yang sama dalam setiap kelompok: tepi kanan butang
-        // membentuk satu garis lurus merentasi semua kelompok. Baris juga tetap
-        // (sama tinggi); butang dan penerangan tidak berlabuh atas/bawah, jadi
-        // kedua-duanya ditengahkan menegak pada garis yang sama.
-        var grid = new TableLayoutPanel
-        {
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            ColumnCount = 2,
-            RowCount = kelompok.Item.Count,
-            Dock = DockStyle.Fill,
-            Margin = Padding.Empty,
-        };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, LebarLajurButang));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, LebarPenerangan));
+        Text = tajuk,
+        AutoSize = true,
+        ForeColor = Color.DimGray,
+        Margin = new Padding(0, pertama ? 0 : 8, 0, 3),
+    };
 
-        for (var baris = 0; baris < kelompok.Item.Count; baris++)
-        {
-            var item = kelompok.Item[baris];
-            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, _tinggiBaris));
-            var butang = BinaButang(item);
-            var penerangan = new Label
-            {
-                Text = item.Penerangan,
-                AutoSize = true,
-                MaximumSize = new Size(LebarPenerangan - MarginSel.Horizontal, 0),
-                ForeColor = Color.DimGray,
-                Anchor = AnchorStyles.Left,
-                Margin = MarginSel,
-            };
-            _butang[item.Fungsi] = butang;
-            _penerangan[item.Fungsi] = penerangan;
-            _teksPenerangan[item.Fungsi] = item.Penerangan;
-            grid.Controls.Add(butang, 0, baris);
-            grid.Controls.Add(penerangan, 1, baris);
-        }
-        _grid.Add(grid);
-
-        var kotak = new GroupBox
-        {
-            Text = kelompok.Tajuk,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            Padding = new Padding(6, 4, 6, 6),
-            Margin = new Padding(3, 3, 3, 6),
-        };
-        kotak.Controls.Add(grid);
-        return kotak;
+    /// <summary>Penerangan dalam ToolTip dan untuk pembaca skrin — bukan lajur teks.</summary>
+    private void TetapkanPenerangan(ButtonBase butang, string teks)
+    {
+        _petua.SetToolTip(butang, teks);
+        butang.AccessibleDescription = teks;
     }
 
     private ButtonBase BinaButang(ItemFungsi item)
@@ -342,11 +288,13 @@ public sealed class PanelFungsi : Form
         butang.ImageAlign = ContentAlignment.MiddleLeft;
         butang.TextAlign = ContentAlignment.MiddleLeft;
         butang.TextImageRelation = TextImageRelation.ImageBeforeText;
-        butang.Size = new Size(_lebarButang, TinggiButang);
-        butang.Margin = MarginSel;
+        butang.Size = new Size(_lebarButang, _tinggiButang);
+        butang.Margin = MarginButang;
         butang.Padding = new Padding(4, 0, 0, 0);
-        // Kiri+kanan tanpa atas/bawah: penuhi lebar lajur, tengah menegak.
-        butang.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        _butang[item.Fungsi] = butang;
+        _teksPenerangan[item.Fungsi] = item.Penerangan;
+        // Togol: penerangan + keadaan ditulis semula oleh Segarkan().
+        TetapkanPenerangan(butang, item.Penerangan);
         return butang;
     }
 }

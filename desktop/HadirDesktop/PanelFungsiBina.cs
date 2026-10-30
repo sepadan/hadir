@@ -40,7 +40,8 @@ public sealed record KelompokFungsi(string Tajuk, IReadOnlyList<ItemFungsi> Item
 /// Kandungan panel "Semua fungsi" — fungsi TULEN (tiada WinForms, tiada I/O)
 /// supaya liputan setiap item dulang boleh diuji tanpa tetingkap. Label datang
 /// daripada <see cref="DemoLabel"/> sahaja, jadi teks panel dan teks dulang
-/// tidak boleh menyimpang.
+/// tidak boleh menyimpang. Penerangan dipapar sebagai ToolTip butang (1.0.25),
+/// bukan lajur teks.
 /// </summary>
 public static class PanelFungsiBina
 {
