@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "autohadir-skpr-cloud",
+  "account_id": "dcb3aa58b278e9a5c46103139fbb3367",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SESSION",
+        "class_name": "SchoolSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "SchoolSession"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": false
+  },
+  "upload_source_maps": false
+}

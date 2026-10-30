@@ -10,3 +10,11 @@ companion/**/rahsia.dat
 companion/**/status-sesi.json
 companion/**/tetapan.json
 companion/**/profil-pelayar/
+
+# Autohadir Cloud (subsystem Cloudflare Workers)
+autohadir-cloud/node_modules/
+autohadir-cloud/dist/
+autohadir-cloud/.wrangler/
+autohadir-cloud/*.log
+autohadir-cloud/evidence/
+autohadir-cloud/**/__pycache__/

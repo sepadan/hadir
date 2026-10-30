@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.37 · 19 Oktober 2026**
+**Versi 2.38 · 30 Oktober 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -1198,6 +1198,61 @@ lalai dan tidak pernah dideploy / dihidupkan dalam produksi**:
   gelung degup, dan integrasi HTTP palsu (daftar → simpan rahsia → degup →
   nyahaktif → tamat terminal) melalui loopback.
 
+### 5.4 Autohadir Cloud (Perintis Browser Run Fasa 1)
+
+`autohadir-cloud/` ialah Worker Cloudflare `autohadir-skpr-cloud` untuk SK Paya
+Redan sahaja (`JBA5054`): satu sesi pelayar Browser Run milik pemilik, panel
+berkunci, diagnostik agregat dan serahan manual. **Bukan automasi kehadiran.**
+Butiran operasi penuh: `autohadir-cloud/README.md`.
+
+**Sempadan Fasa 1:**
+- **Penghantaran automatik MATI.** Tiada laluan pelayan yang menulis
+  kehadiran (laluan penghantaran dikenali → 405). Tiada kredensial idMe
+  disimpan, tiada sambungan GAS/AKSI/SEMAK, tiada cron, tiada D1/KV/R2.
+  Desktop Autohadir kekal laluan rasmi; HADIR/GAS/desktop tidak diubah.
+- **Satu DO SQLite** `SchoolSession` (`idFromName('JBA5054')`) menyirikan semua
+  mutasi; keadaan (fasa, sid, tarikh akhir, belanjawan, cap masa had kadar,
+  nonce) berada dalam storan DO, jadi instans sejuk mematuhi semua had.
+- **Pemerolehan berhati-hati:** kiraan harian, had kadar, keadaan `acquiring`
+  dan penggera disimpan *sebelum* `acquire`. `acquire` gagal/tamat masa/tiada
+  sid → `acquiring` tidak pasti; pelancaran baharu disekat 15 minit penuh,
+  tiada cubaan semula. sid disimpan serta-merta, kemudian navigasi CDP
+  `Page.navigate` (atau `devtools.newTarget`) ke URL enum tepat. Navigasi
+  dilaporkan `sent/failed/uncertain`; hanya "Semak halaman" mengklasifikasi
+  halaman sebenar.
+- **Carian/penutupan tidak pasti mengekalkan sid:** ralat carian/tamat masa
+  mengekalkan sid. Sesi tamat hanya selepas `null`, mesej terminal binding
+  `Session not found`, atau rekod `endTime` positif yang sepadan dengan sid;
+  `connectionEndTime` sahaja tidak mencukupi. Jika belum pasti, fasa `closing`,
+  penggera cuba semula sid yang sama, dan `start` disekat.
+- **Had:** 8 cubaan pelancaran sehari (`Asia/Kuala_Lumpur`, termasuk yang
+  gagal); hayat dinding 15 minit dikuatkuasakan oleh penggera *dan* oleh setiap
+  tindakan; `keepAlive` 5 minit; jeda 12 saat yang ditempah sebelum panggilan
+  jauh dan kekal walaupun gagal. Tiada pilihan pintasan; medan JSON tidak
+  dikenali ditolak di Worker dan di DO. Status membaca storan sahaja.
+- **Guardrails** `allowedDomains` tepat: `idme.moe.gov.my`,
+  `moeispel.moe.gov.my`, `example.com` (tiada wildcard).
+- **Diagnostik:** tab MOEIS selepas SSO diutamakan; ungkapan penilaian tetap;
+  setiap medan disahkan jenisnya; URL dikelaskan kepada enum hos/laluan. Tiada
+  tajuk, query, HTML, nama, IC, kuki atau kata laluan dipulangkan.
+- **Lihat sahaja:** URL Live View hanya jika gema `options.guardrails.mode ===
+  'readonly'` disahkan; jika tidak, tangkapan skrin PNG statik (≤ 3 MiB, tidak
+  disimpan, `no-store`). **Kawalan manual:** persetujuan eksplisit setiap
+  pautan; dinyatakan boleh MENULIS rekod. URL Live View mesti
+  `https://live.browser.run/ui/…`; tidak disimpan atau dilog.
+- **Pengesahan pemilik:** tiket HMAC-SHA256 satu-kali (90 s) daripada pelancar
+  Windows `Buka-Panel.cmd`/`scripts/open-panel.py` (kunci DPAPI CurrentUser,
+  konfigurasi `%LOCALAPPDATA%\AutohadirCloud\config.json` dengan asal Worker
+  yang disenarai putih tepat), nonce dituntut atomik dalam DO, kuki
+  `__Host-autohadir` 8 jam, Origin tepat + CSRF per-sesi. Ralat bertaip dengan
+  mesej tetap; `OWNER_KEY` tiada → 503 terkunci.
+- **Ujian langsung 30 Oktober 2026:** Worker diterbitkan; acquire, CDP navigasi/
+  inspect di example.com, guna semula sesi, Live View baca-sahaja dan penutupan
+  disahkan lulus. Pelancar DPAPI ke panel HTTPS dan UI telefon turut disahkan.
+  **idMe memaparkan “Sekatan atas faktor keselamatan.”** dalam sesi sebenar;
+  gerbang login/akses MOEIS belum lulus. Tiada pintasan sekatan, login portal
+  atau penghantaran sebenar. Kod mengekalkan penghantaran automatik MATI.
+
 ## 6. Penyelarasan murid
 
 - **Update Data Murid** menerima CSV idME dan menggunakan fungsi rasmi
@@ -1513,6 +1568,7 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 30 Oktober 2026 | 2.38 / cloud 1.0.0 / desktop kekal 1.0.22 / web kekal 1.11.40 / Apps Script kekal @126 | **Autohadir Cloud Fasa 1 (perintis, `autohadir-cloud/`)** untuk SK Paya Redan sahaja: Worker `autohadir-skpr-cloud` + DO SQLite `SchoolSession` + binding Browser Run; panel pemilik berkunci (tiket HMAC satu-kali daripada pelancar DPAPI Windows), kitaran hayat sesi yang mengekalkan sid apabila carian/penutupan tidak pasti, tempahan belanjawan/had kadar/penggera sebelum `acquire`, navigasi CDP sebenar ke URL enum, had 15 minit pada setiap tindakan, diagnostik agregat bertaip, Lihat sahaja melalui gema guardrail readonly atau tangkapan skrin statik, kawalan manual berpersetujuan eksplisit, pengesahan asal URL Live View, ralat bertaip dengan mesej tetap dan pengepala keselamatan pada setiap respons. wrangler dipin 4.156.0. Penghantaran automatik MATI; tiada perubahan pada HADIR/GAS/desktop. Lihat §5.4. | `npm test`, `npm run check` dan `npm run build` (`wrangler deploy --dry-run`) lulus dalam `autohadir-cloud/` dengan binding palsu dan data rekaan; log RED/GREEN dalam `autohadir-cloud/evidence/` (diabaikan git). Ujian langsung Browser Run (acquire/navigasi/inspect/guna semula/Live View/penutupan) dan pelancar pemilik HTTPS lulus; idMe memaparkan sekatan keselamatan dalam sesi sebenar, jadi login/MOEIS/penghantaran belum lulus. Tiada pintasan, tiada kehadiran dihantar, tiada rahsia dalam repo. |
 | 19 Oktober 2026 | 2.37 / desktop 1.0.22 / web kekal 1.11.40 / Apps Script kekal @126 | **Pembetulan tetingkap utama dimaksimumkan & butang Autohadir hilang (isu paparan 1920×1020).** (1) **Pengekalan keadaan Maximized tetingkap utama:** Membuka tetapan tempatan (Tetapan Enjin, Akaun idMe) atau mengaktifkan tetingkap yang sedang dimaksimumkan melalui `ShowFromTray` tidak lagi mengecutkan tetingkap kembali kepada saiz normal asal 1100×750. Seam boleh diuji `MainForm.LaksanaTunjukDariDulang(Form, Action, Action)` hanya menukar `WindowState` kepada `Normal` sekiranya tetingkap sedang `Minimized` (`if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;`), dan mengekalkan `WindowState == FormWindowState.Maximized`. (2) **Butang Autohadir kekal kelihatan pada 1920×1020 & DPI tinggi (125%/150%):** Punca asal disahkan: `_navLabel` (Spring) menggunakan `ToolStripStatusLabel` lalai di mana `GetPreferredSize` mengembalikan lebar teks penuh. Apabila mesej portal panjang (mis. "Portal: SedangLogin...", "Portal: PerluTindakanManusia...", atau teks ralat panjang) dan/atau DPI diskalakan (125%/150%), saiz cadangan `_navLabel` melebihi baki ruang `TableLayoutSettings` dalam `StatusStrip`, menyebabkan `StatusStrip` menggugurkan item di penghujung (`_navLabel` dan `_autohadirButton`) ke `Placement = ToolStripItemPlacement.None` (terkeluar di luar skrin). Ditukar kepada `LabelStatusTerhad` dengan pembetulan `if (Spring) return new Size(0, saizAsas.Height);` — membolehkan lajur Spring mengecut mengikut baki ruang sebenar tanpa menggugurkan butang Autohadir. (3) **Pelarasan dinamik margin krip saiz:** `ButangAutohadir.KiraMargin(StatusStrip)` memperuntukkan ruang krip (20 px) pada tetingkap Normal dengan `SizingGrip`, dan meniadakan ruang krip tambahan (2 px) apabila dimaksimumkan kerana WinForms tidak melukis krip saiz pada tetingkap dimaksimumkan, menghapuskan jurang kosong 34 px di sudut kanan bawah. | Ujian regresi baharu dalam `BugReproductionTests.cs` (13 ujian): ujian seam `LaksanaTunjukDariDulang` bagi Maximized/Minimized/Normal dan pembukaan tetapan; ujian `LabelStatusTerhad` Spring `GetPreferredSize`; ujian `KiraMargin` dinamik krip saiz; dan ujian fixture luar skrin 1920×1020 Panel tanpa screen clipping merentas penskalaan DPI 100%, 125%, 150% dengan teks pendek hingga panjang lampau. 1179 ujian dotnet lulus (1179/1179, 0 gagal), `dotnet build` 0 ralat. Tiada kredensial, rangkaian langsung, atau kehadiran produksi diubah. |
 | 8 Oktober 2026 | 2.36 / web 1.11.40 / Apps Script @126 / desktop kekal 1.0.21 | **Pembetulan HADIR v1 PDPR: Kategori A (PEMBELAJARAN DI RUMAH) dikira HADIR tetapi KEKAL dihantar ke MOEIS.** Mengikut semantik MOEIS pengguna, murid PDPR (Kategori A, Sebab PEMBELAJARAN DI RUMAH) dikira HADIR dalam sistem sekolah (disimpan `1` dalam helaian `kehadiran`, tidak mencemarkan statistik tidak hadir dalam kad kelas/semakan). Sebab PDPR KEKAL disimpan dalam tab `HADIR_MOEIS_SEBAB` dan dimuatkan ke dalam tugasan `HADIR_MOEIS_JOB`. **Invarian RMT:** Murid PDPR tidak menerima makanan di sekolah; `_rmtHadir` kekal `false` walaupun `nilai === 1`. **Invarian Job Semua-PDPR:** Kelas yang hanya ada murid PDPR (0 tidak hadir biasa) tidak diringkaskan kepada pintasan semua-hadir `[]` (`semuaHadir = false`); sebaliknya membina tugasan membawa rekod murid PDPR. **Pengesahan Pelayan:** `hadirMoeisJobSelesaiSah_` dan `hadirMoeisSahkanLengkap_` menerima nilai mentah `1` bagi PDPR dengan kategori/sebab sah. **Desktop Engine:** `PenghantaranPdprTests` mengesahkan nyahsemak kotak fizikal `case-hadir`, memilih Kategori A & Sebab A1, simpan & sahkan, serta baca semula. **Ketidaktentuan Portal Hidup:** Kelakuan portal MOEIS hidup semasa muat semula bagi rekod PDPR belum disahkan tanpa portal langsung; penolakan selamat dikekalkan jika DOM portal berbeza. | Ujian `tests/pdpr.test.cjs` 7 regresi (49/49 ujian node lulus); ujian desktop `PenghantaranPdprTests.cs` 3 ujian (1159/1159 ujian dotnet lulus, 0 ralat). Tiada kredensial, rangkaian langsung, atau kehadiran produksi diubah. |
 | 6 Oktober 2026 | 2.35 / desktop 1.0.21 | **Tiga perkara dalam satu release (1.0.20 dibatalkan sebelum diterbitkan — digabung di sini).** (1) **Butang Autohadir kembali KE bar status bawah** sebagai item terakhir (84 px, `Overflow=Never`, margin krip 18 px) dengan **jaminan struktural**: kelas baharu `LabelStatusTerhad` (`ToolStripStatusLabel` subkelas, `AutoSize=false; Width=had; TextAlign=MiddleLeft`, `GetPreferredSize` dihormati) menghadkan label tetap — Keadaan **230 px**, Backend **260 px**, Kitaran **230 px**. Punca asal disahkan: teks Kitaran luar waktu aktif setinggi **536 px** + Backend 244 px → jumlah tetap **1162–1289 px > ~1082 px** `DisplayRectangle` pada saiz lalai 1100×750, jadi WinForms berhenti melukis item terkeluar (kitaran, nav, butang hilang). Selepas: jumlah terburuk **~1021 px ≤ 1050 px**, baki ≥30 px (dijumpai ~70–112 px) untuk label Spring `_navLabel`. Mesej luar waktu aktif dipendekkan (`Kitaran: mati (luar 06:30–17:00)`, ~180 px) dan **ayat penuh + teks label lain dipindahkan ke `ToolTipText`** (tiada maklumat hilang). (2) **Warna status simpanan Kredensial** dalam tetingkap Akaun idMe: `Kredensial: ada (…)` → **hijau** (`Color.SeaGreen`); `Kredensial: tiada (belum disimpan pada PC ini)` dan `Tetapan disimpan. Kredensial TIDAK disimpan` → **merah** (`Color.Firebrick`); `Kredensial: ROSAK` kekal merah; mesej simpan berjaya `(disimpan)` kekal hijau. Sifat baca-sahaja `WarnaStatus` diekspos untuk ujian (tiada DPAPI/kredensial disentuh). (3) **Penghantaran MOEIS bagi kelas semua-hadir** (keputusan pemilik: *"kalau telah diisi dan semua hadir saya nak ia dihantar ke moeis dan disahkan kemudian beritahu penghantaran moeis"*). Apps Script: `hadirMoeisSahkanLengkap_(murid, kelas, semuaHadir)` kini **menerima senarai kosong hanya dengan penanda `semuaHadir`** (tanpa penanda tetap ditolak — fail-closed kekal); Simpan kehadiran semua-hadir **mencipta/menyegarkan job `menunggu` dengan `[]`** (cawangan pembatalan *"Tiada murid tidak hadir; tugasan menunggu dibatalkan"* dibuang; `hadirMoeisJobSenarai_` dan `hadirMoeisJobKlaim_` mengeksport `semuaHadir`); `hadirMoeisJobSelesaiSah_` menerima `bilTidakHadir === 0` + `.every()` atas senarai hampa = selesai. Desktop: `KerjaPenuh` tambah `BilHadir`/`BilMurid`/`SemuaHadir` + sifat `MenegaskanSemuaHadir`; `PembinaTugasanPenghantaran.DaripadaKerja` **menerima senarai ketidakhadiran kosong HANYA bila rekod menegaskan kehadiran lengkap** (selain itu ditolak dengan sebab *"…tiada penghantaran (kehadiran TIDAK direka)"* — kekal gagal tertutup). Laluan semua-hadir dalam `PenghantaranMoeis`: **tiada suntingan baris**, tekan **Simpan & Sahkan** (`sahkan: true` daripada `MainForm`), wajib dialog **"Berjaya."**, wajib muat semula + baca semula, kemudian **wajib `hadir == jumlah murid` dan `tidak hadir == 0`** — jika MOEIS menunjukkan ketidakhadiran: status `gagal` + kod `konflik-semua-hadir` (*"…; HADIR menyatakan semuanya hadir; tiada paksaan"*); `#statusBadge` wajib **TELAH DISAHKAN** sebelum `Berjaya=true`; mesej tugasan = `Semua hadir (N murid) — disahkan tanpa perubahan baris; hadir X/N` (itulah "beritahu penghantaran moeis"). PWA: kad bertukar **Selesai MOEIS** melalui `moeisSelesai` sedia ada — `app.js` **tidak berubah**. | Ujian desktop **1156/1156 lulus**, **dua larian berturut-turut hijau** (selepas 1.0.19: 1145, bar-fix: 1147, kini 1156 — 9 baharu: `IdMeSettingsDialogWarnaStatusTests` bagi warna hijau/merah, `PenghantaranSemuaHadirTests` bagi penolakan/terima senarai kosong, ujian bar senario terburuk dengan teks penuh 536 px); `dotnet build` **0 ralat**; `node --test tests/*.cjs` **42/42** (3 ujian tingkah laku lama diselaraskan: “Simpan semua hadir” kini mencipta/menyegarkan job, bukan membatalkan; 3 kes semua-hadir ditambah termasuk kad `Selesai MOEIS`); `git diff --check` bersih. Secret scan **2 padanan** = URL web-app AKSI/SEMAK **awam sedia ada pada HEAD** (baris 9–10 `HadirWeb.gs`, bukan perubahan release ini dan bukan rahsia; fail itu kini diubah jadi imbasan menyentuhnya). Pakej `desktop-v1.0.21`, cincang exe `0DA2C63897B63D9884E271034D2002C5CC1BC5D69569BEDB929AF10D505C4316`, zip `383ABCC6E6CF91F1C89534F8FFA1BDF8F6600A71061E3154208333A78638E029`. E2E MOEIS semua-hadir **belum** diuji hujung-ke-hujung (menunggu tetingkap waktu aktif 06:30–17:00 hari persekolahan); laluan dilindungi ujian unit/fixture. |
