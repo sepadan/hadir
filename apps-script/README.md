@@ -22,6 +22,7 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
 | `HADIR_SEMAK_URL` | Pilihan; URL produksi sudah menjadi lalai |
 | `SEPADAN_SYNC_SECRET` | Rahsia rawak sama dalam HADIR, AKSI dan SEMAK; jangan commit |
 | `HADIR_PELBAGAI_PC` | `'1'` = ON (ciri berbilang PC); ketiadaan/nilai lain = OFF |
+| `HADIR_SAMBUNG_EXEC_URL` | URL `/exec` autoritatif bukan rahsia, dipadankan dengan pin bootstrap Desktop ketika release; tiada lalai |
 
 4. Deploy **New version** pada deployment sedia ada. Jangan cipta deployment
    kedua kerana URL webhook Telegram mesti kekal.
@@ -48,6 +49,45 @@ Penyelarasan menggunakan `importGuru` + `pastikanAkaunGuru` dalam AKSI dan
 Baris, kata laluan, tugasan dan sejarah tidak dipadam atau ditindih.
 
 ## Enjin PC (Companion) — deploy semula diperlukan
+
+### Sambungan Desktop dengan satu kod (perubahan belum diterbitkan)
+
+Admin **Hantar ke MOEIS → Sambungan Desktop** menjana kod `HC1` yang
+mengekod endpoint `/exec` daripada Script Property autoritatif
+`HADIR_SAMBUNG_EXEC_URL` (bukan rahsia, ditetapkan pemilik ketika release).
+Property tiada/tidak sah menolak Jana; `getService().getUrl()` tidak digunakan.
+Kod **tidak luput**, sekali guna dan boleh dibatalkan. Desktop menebusnya sekali
+melalui `moeisSambungTukar(kod)` untuk token `HD1` unik; rahsia bersama
+`HADIR_MOEIS_ENGINE_SECRET` tidak dihantar ke PC baharu. Endpoint `/dev` ditolak.
+
+RPC admin melalui sesi `hadirSesi_(token, true)` sedia ada:
+`moeisSambungJana(token)`, `moeisSambungSenarai(token)` dan
+`moeisSambungBatal('kod'|'peranti', id, token)`. Senarai hanya metadata legap.
+`HADIR_SAMBUNG_V1` menyimpan hash SHA-256 kod/token; satu tulisan JSON di bawah
+`ScriptLock` menggabungkan penggunaan kod dan pendaftaran peranti. Had 12 kod
+belum digunakan + 12 peranti aktif, maks 8,000 bait ASCII. Kod terpakai menyimpan `idPeranti` untuk pembatalan tepat selepas balasan
+hilang; sejarah bukan-menunggu tertua dibersihkan hanya apabila had kod dicapai; peranti batal dibersihkan semasa penebusan.
+ID yang tiada sentiasa ditolak. Kerosakan/quota/storage-readback gagal tertutup.
+Pemulihan rosak menggunakan fungsi editor persendirian dengan sandaran dan
+pengesahan eksplisit; lihat prosedur pemulihan dalam kontrak Desktop.
+
+`HADIR_SAMBUNG_KADAR_V1` mengehadkan **semua** cubaan penebusan kepada 20/minit
+secara persisten di bawah kunci, termasuk kod tidak sah. Apps Script tidak
+memberi IP klien yang boleh dipercayai; had ini global dan boleh menyebabkan
+penolakan sementara kepada pengguna lain ketika diserang. Tiada cache sebagai
+sumber benar, tiada reset pada penebusan berjaya.
+
+Keempat-empat RPC tugasan (`Senarai/Klaim/Lepas/Selesai`) menerima token peranti
+aktif atau rahsia legasi. Token hanya untuk tugas MOEIS, bukan sesi admin;
+pemilik klaim mesti ID peranti token. Auth dan mutasi berada di bawah kunci
+yang sama dengan revokasi. Ciri ini bebas daripada flag `HADIR_PELBAGAI_PC`;
+ia tidak mengaktifkan kepimpinan/heartbeat `pc*` yang masih staged.
+
+Sumber rawak/redirect, pemulihan dan batas revokasi:
+[kontrak Sambungan Desktop](../desktop/docs/CONNECTION-CODE.md).
+Tiada deployment dibuat dalam perubahan ini. Urutan penerbitan ialah GAS +
+property endpoint autoritatif dahulu, kemudian Desktop. Desktop mengekalkan
+fallback manual legasi di sebalik Lanjutan, tanpa meluaskan pin sasaran. PC lama boleh terus memakai rahsia legasi.
 
 HADIR v1.11.0 menambah klaim atomik + lease bagi tugasan MOEIS: fungsi
 `hadirMoeisJobKlaim_`/`hadirMoeisJobLepas_`, kaedah `moeisJobKlaim`/
@@ -115,3 +155,13 @@ data guru membawa mod `merge` atau `sync`. Penanda asal menghalang gelung dan
 keadaan terkini. API rasmi
 setiap sasaran masih menentukan kelas layak, cache, calon dan medan tempatan;
 markah, kehadiran, kokurikulum, tugasan serta kata laluan tidak diselaraskan.
+
+
+Penggantian PC menghantar ID peranti lama kepada `moeisSambungTukar` supaya
+semakan tugas di bawah ScriptLock hanya menyekat pemilik itu; ID tidak diketahui
+kekal konservatif. Penolakan auth lama tidak melepaskan tugas. Admin boleh
+menggunakan tindakan **Asingkan tugasan untuk semakan manual** pada PC revoked,
+dengan sesi dan pengesahan eksplisit. Status `semakan_manual` mengekalkan
+snapshot, pemilik, lease dan status asal dalam mesej; ia bukan keputusan selesai,
+tidak claimable dan masih menyekat simpan semula kelas. Lihat prosedur dan
+batas pemulihan dalam [kontrak sambungan](../desktop/docs/CONNECTION-CODE.md).

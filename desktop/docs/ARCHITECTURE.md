@@ -1,5 +1,14 @@
 # HADIR Desktop — Architecture (design level, iteration 1)
 
+Current connection setup (1.0.23, unreleased): [connection-code contract](CONNECTION-CODE.md).
+The local dialog accepts one admin-issued, non-expiring single-use code; it
+exchanges that code for a scoped per-device token stored with DPAPI CurrentUser.
+Targets are pinned to the current backend or exact release bootstrap; replacements
+require explicit confirmation, a stable disk snapshot and no active jobs. The
+strict exchange transport does not replace the existing job transport. A manual
+legacy recovery fallback remains behind Advanced. Legacy configurations remain compatible. The older manual URL/secret
+descriptions below describe the legacy storage format and recovery history.
+
 Status: this document describes the intended multi-device architecture. Only
 the DEMO desktop shell (this iteration) is implemented. Nothing described
 below beyond "iteration 1" is built or deployed.

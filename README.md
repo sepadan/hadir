@@ -32,8 +32,11 @@ PWA satu muka untuk kehadiran pantas SK Paya Redan.
 - Menu admin **Hantar ke MOEIS** mengurus Kategori/Sebab wajib dan giliran
   tugasan MOEIS. HADIR Desktop pada PC sekolah mengambil tugasan apabila
   automasi dihidupkan. Menu dulang **Tetapan Tempatan** membuka dialog Windows
-  untuk URL Apps Script dan rahsia enjin; Companion tidak diperlukan untuk
+  untuk satu kod sambungan daripada admin HADIR; Companion tidak diperlukan untuk
   skrin tetapan ini. Kitaran produksi kekal 10 minit.
+  Kod tiada tarikh luput, sekali guna dan boleh dibatalkan. Token setiap PC
+  disimpan dengan DPAPI CurrentUser; pemasangan dengan rahsia lama terus serasi.
+  Panduan: [Sambungan Desktop](desktop/docs/CONNECTION-CODE.md).
 - Companion mempunyai dua opt-in tempatan yang berasingan: autostart Windows
   dan auto-mula giliran berpengawal. Kedua-duanya lalai MATI; auto-mula
   menerima kerja `menunggu`, `sedang_dihantar` (yatim) atau `tersimpan`

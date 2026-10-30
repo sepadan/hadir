@@ -1,5 +1,20 @@
 # Kemas kini HadirDesktop
 
+## 1.0.23 — Sambungan menggunakan satu kod (belum diterbitkan)
+
+Admin HADIR menjana kod dalam **Hantar ke MOEIS → Sambungan Desktop**.
+Dalam **Tetapan Tempatan** Desktop, tampal kod dan tekan **Sambung**, kemudian
+mulakan semula. Kod tiada luput, sekali guna dan boleh dibatalkan; token setiap
+PC dilindungi DPAPI CurrentUser. Rahsia lama terus serasi tanpa perlu diisi
+semula. Akaun idMe tidak berubah. Pemulihan fail rosak menggunakan butang
+**Pulihkan tetapan rosak** dengan kod baharu; fail asal disandarkan dahulu.
+Panduan lengkap: [Sambungan Desktop](docs/CONNECTION-CODE.md).
+Sasaran mesti backend semasa atau bootstrap dipercayai; penggantian memerlukan
+pengesahan deployment dan disekat ketika tugas aktif. Kedua-dua mod menguji
+DPAPI/tulisan sebelum penebusan. **Lanjutan (legasi)?** mengekalkan fallback
+manual pemilik. GAS + `HADIR_SAMBUNG_EXEC_URL` diterbitkan sebelum Desktop.
+Nota input URL/rahsia di bawah ialah sejarah versi lama.
+
 ## 1.0.22 — 19 Oktober 2026
 
 - Membuka Tetapan/Akaun idMe tidak lagi mengecilkan tetingkap utama yang dimaksimumkan.

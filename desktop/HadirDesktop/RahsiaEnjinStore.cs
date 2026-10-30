@@ -14,7 +14,10 @@ namespace HadirDesktop;
 /// URL without a secret cannot authenticate and a secret without a URL has
 /// nowhere safe to go.
 /// </summary>
-public sealed record TetapanBackendEnjin(string ApiUrl, string RahsiaEnjin);
+public sealed record TetapanBackendEnjin(string ApiUrl, string RahsiaEnjin)
+{
+    public override string ToString() => "Konfigurasi backend (dirahsiakan)";
+}
 
 /// <summary>
 /// Read-only status for any UI/log surface: BOOLEANS ONLY. Neither the secret
@@ -82,6 +85,7 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
     private readonly string _laluanPenandaMigrasi;
     private readonly object _simpanLock = new();
     private readonly Action? _selepasPenandaDitulis;
+    private readonly Action? _ujiSimpanan;
 
     public DpapiRahsiaEnjinStore() : this(DirDataLalai())
     {
@@ -100,12 +104,77 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
     {
         _selepasPenandaDitulis = selepasPenandaDitulis;
     }
+    internal DpapiRahsiaEnjinStore(string dirData, Action ujiSimpanan, bool ujianPreflight) : this(dirData)
+    { _ujiSimpanan = ujiSimpanan; }
 
     /// <summary>Desktop-owned data dir (<c>%LOCALAPPDATA%/HadirDesktop/enjin</c>).</summary>
     public static string DirDataLalai() => LaluanDataDesktop.DirEnjin();
 
     /// <summary>Only the non-secret URL may be prefilled in a settings dialog.</summary>
     public string? BacaApiUrlUntukPaparan() => BacaApiUrl();
+
+    internal bool AdaFailBackend => new[] { _laluanTetapan, _laluanRahsia, _laluanPenanda, _laluanPenandaMigrasi }.Any(p => File.Exists(p) || Directory.Exists(p));
+    internal string CapSimpanan()
+    {
+        lock (_simpanLock)
+        {
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            foreach (var p in new[] { _laluanTetapan, _laluanRahsia, _laluanPenanda, _laluanPenandaMigrasi })
+            {
+                hash.AppendData(new[] { File.Exists(p) ? (byte)1 : (byte)0 });
+                if (!File.Exists(p)) continue;
+                if (new FileInfo(p).Length > 1024 * 1024) throw new InvalidOperationException("Fail backend melebihi had; pemulihan manual diperlukan.");
+                var b = File.ReadAllBytes(p); hash.AppendData(BitConverter.GetBytes(b.Length)); hash.AppendData(b);
+            }
+            return Convert.ToHexString(hash.GetHashAndReset());
+        }
+    }
+    internal void SahkanSimpananBolehDitulis(bool pulihkan = false)
+    {
+        lock (_simpanLock)
+        {
+            if (!pulihkan)
+            {
+                BacaObjekJson(_laluanTetapan, false);
+                BacaObjekJson(_laluanRahsia, true);
+                if (File.Exists(_laluanPenanda)) throw new InvalidOperationException("Gunakan Pulihkan tetapan rosak sebelum menyambung.");
+            }
+            var dir = Path.GetDirectoryName(_laluanTetapan)!;
+            var probeDir = pulihkan ? Path.Combine(dir, ".uji-pemulihan-" + Guid.NewGuid().ToString("N")) : dir;
+            var probe = Path.Combine(probeDir, ".uji-simpanan-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                _ujiSimpanan?.Invoke();
+                Directory.CreateDirectory(dir);
+                if (pulihkan) Directory.CreateDirectory(probeDir);
+                foreach (var p in new[] { _laluanTetapan, _laluanRahsia, _laluanPenanda })
+                {
+                    if (Directory.Exists(p)) throw new IOException();
+                    if (!File.Exists(p)) continue;
+                    if (new FileInfo(p).Length > 1024 * 1024) throw new IOException();
+                    using var writable = new FileStream(p, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+                }
+                var plain = RandomNumberGenerator.GetBytes(32);
+                var encrypted = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser);
+                if (!plain.AsSpan().SequenceEqual(ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser))) throw new IOException();
+                CryptographicOperations.ZeroMemory(plain);
+                using (var f = new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+                { f.Write(encrypted); f.Flush(true); }
+                if (!encrypted.AsSpan().SequenceEqual(File.ReadAllBytes(probe))) throw new IOException();
+                File.Delete(probe);
+            }
+            catch { throw new InvalidOperationException("Ujian DPAPI atau tulisan tempatan gagal; kod belum ditebus. Semak akaun Windows dan kebenaran folder."); }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(probe)) File.Delete(probe);
+                    if (pulihkan && Directory.Exists(probeDir)) Directory.Delete(probeDir);
+                }
+                catch { throw new InvalidOperationException("Pembersihan ujian simpanan gagal; kod belum ditebus."); }
+            }
+        }
+    }
 
     /// <summary>
     /// Save a validated URL and optionally a new secret. Empty secret keeps the
@@ -149,6 +218,8 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
                 TulisAtomik(_laluanTetapan, tetapanBytes);
                 tetapanSudahDitulis = true;
                 if (rahsiaBytes is not null) TulisAtomik(_laluanRahsia, rahsiaBytes);
+                if (BacaApiUrl() != apiUrl || BacaRahsia() != (tukarRahsia ? rahsiaBaharu : rahsia["rahsiaEnjin"]!.GetValue<string>()))
+                    throw new InvalidOperationException("Simpanan tidak dapat disahkan; pemulihan diperlukan.");
                 File.Delete(_laluanPenanda);
             }
             catch
@@ -250,6 +321,7 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         if (!File.Exists(laluan)) return new JsonObject();
         try
         {
+            if (new FileInfo(laluan).Length > 1024 * 1024) throw new JsonException();
             var bytes = File.ReadAllBytes(laluan);
             if (dilindungi) bytes = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
             var json = Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF');
@@ -347,6 +419,7 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         try
         {
             if (!File.Exists(_laluanRahsia)) return null;
+            if (new FileInfo(_laluanRahsia).Length > 1024 * 1024) return null;
             var dilindungi = File.ReadAllBytes(_laluanRahsia);
             // NULL optional entropy == the companion's PowerShell `$null`.
             var mentah = ProtectedData.Unprotect(dilindungi, null, DataProtectionScope.CurrentUser);
@@ -371,9 +444,12 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         {
             using var doc = JsonDocument.Parse(jsonNyahsulit);
             if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            var keys = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in doc.RootElement.EnumerateObject()) if (!keys.Add(p.Name)) return null;
             if (!doc.RootElement.TryGetProperty("rahsiaEnjin", out var el)) return null;
             if (el.ValueKind != JsonValueKind.String) return null;
             var nilai = el.GetString();
+            if (nilai?.StartsWith("HD1.", StringComparison.Ordinal) == true && KodSambungan.IdDaripadaToken(nilai) is null) return null;
             return string.IsNullOrEmpty(nilai) ? null : nilai;
         }
         catch (JsonException)
@@ -387,6 +463,7 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         try
         {
             if (!File.Exists(_laluanTetapan)) return null;
+            if (new FileInfo(_laluanTetapan).Length > 1024 * 1024) return null;
             return AmbilApiUrl(File.ReadAllText(_laluanTetapan, Encoding.UTF8));
         }
         catch
@@ -409,6 +486,8 @@ public sealed class DpapiRahsiaEnjinStore : IRahsiaEnjinStore
         {
             using var doc = JsonDocument.Parse(jsonTetapan);
             if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            var keys = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+            foreach (var p in doc.RootElement.EnumerateObject()) if (!keys.Add(p.Name)) return null;
             if (!doc.RootElement.TryGetProperty("apiUrl", out var el) || el.ValueKind != JsonValueKind.String) return null;
             mentah = el.GetString();
         }

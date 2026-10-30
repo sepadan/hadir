@@ -25,10 +25,12 @@ public sealed class HadirBackendException : Exception
     /// retried and must never be reported as "will heal by itself".
     /// </summary>
     public bool Sementara { get; }
+    public bool AuthDitolak { get; }
 
-    public HadirBackendException(string message, bool sementara = false) : base(message)
+    public HadirBackendException(string message, bool sementara = false, bool authDitolak = false) : base(message)
     {
         Sementara = sementara;
+        AuthDitolak = authDitolak;
     }
 
     public HadirBackendException(string message, Exception inner, bool sementara = false) : base(message, inner)
@@ -136,7 +138,7 @@ public interface IHadirBackendClient
 public sealed class HadirBackendClient : IHadirBackendClient
 {
     /// <summary>Same literal as <c>UA_PELAYAR</c> in klien-hadir.mjs.</summary>
-    private const string UserAgent =
+    internal const string UserAgent =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
     /// <summary>
@@ -225,13 +227,13 @@ public sealed class HadirBackendClient : IHadirBackendClient
             _ => false,
         };
 
-        var hasil = await PanggilAsync("moeisJobKlaim", id, new object?[] { id, pemilik, benarkanCubaSemula, _rahsia }, bacaTulen: false, ct)
+        var hasil = await PanggilAsync("moeisJobKlaim", id, new object?[] { id, KodSambungan.IdDaripadaToken(_rahsia) ?? pemilik, benarkanCubaSemula, _rahsia }, bacaTulen: false, ct)
             .ConfigureAwait(false);
         return BacaKlaim(hasil);
     }
 
     public Task LepasAsync(string id, string pemilik, CancellationToken ct = default) =>
-        PanggilAsync("moeisJobLepas", id, new object?[] { id, pemilik, _rahsia }, bacaTulen: false, ct);
+        PanggilAsync("moeisJobLepas", id, new object?[] { id, KodSambungan.IdDaripadaToken(_rahsia) ?? pemilik, _rahsia }, bacaTulen: false, ct);
 
     public Task SelesaiAsync(string id, string keputusan, string mesej, int? bilHadirSelepas, string pemilik, CancellationToken ct = default)
     {
@@ -239,7 +241,7 @@ public sealed class HadirBackendClient : IHadirBackendClient
         // EMPTY STRING, never 0 — 0 would assert "no student present".
         object bil = bilHadirSelepas.HasValue ? bilHadirSelepas.Value : "";
         return PanggilAsync("moeisJobSelesai", id,
-            new object?[] { id, keputusan, mesej ?? "", bil, pemilik ?? "", _rahsia }, bacaTulen: false, ct);
+            new object?[] { id, keputusan, mesej ?? "", bil, KodSambungan.IdDaripadaToken(_rahsia) ?? pemilik ?? "", _rahsia }, bacaTulen: false, ct);
     }
 
     /// <summary>
@@ -542,12 +544,34 @@ public sealed class HadirBackendClient : IHadirBackendClient
                     // The backend's FINAL answer (bad secret, unknown task…):
                     // distinct wording, NOT temporary, never retried.
                     throw new HadirBackendException(
-                        "backend tolak: " + (ralat.Length > 0 ? ralat : "Permintaan HADIR gagal."));
+                        "backend tolak: " + (_rahsia.StartsWith("HD1.", StringComparison.Ordinal)
+                            ? PenolakanPerantiSelamat(ralat)
+                            : (ralat.Length > 0 ? ralat : "Permintaan HADIR gagal.")),
+                        authDitolak: ralat is "Akses enjin MOEIS ditolak." or "Rahsia enjin MOEIS belum ditetapkan.");
                 }
 
                 return doc.RootElement.TryGetProperty("hasil", out var hasilEl) ? hasilEl.GetRawText() : "null";
             }
         }
+    }
+
+    internal static string PenolakanPerantiSelamat(string ralat)
+    {
+        if (ralat.StartsWith("[SAMBUNG_", StringComparison.Ordinal)) return RalatSambunganSelamat.DaripadaBackend(ralat);
+        // Only server-owned fixed messages may reach status/logs; never arbitrary response text.
+        var dibenarkan = new[] {
+            "Akses enjin MOEIS ditolak.", "Tugasan tidak ditemui.", "Keputusan tugasan tidak sah.",
+            "Pemilik tugasan diperlukan untuk klaim.", "Pemilik tugasan diperlukan untuk merekod keputusan.",
+            "Tugasan tidak dipegang oleh mana-mana enjin (tiada klaim aktif).",
+            "Hanya enjin yang memegang klaim boleh merekod keputusan tugasan ini.",
+            "Hanya pemilik tugasan boleh melepaskannya.",
+            "Daftar sambungan tidak dapat dibaca; akses ditolak."
+        };
+        if (Array.IndexOf(dibenarkan, ralat) >= 0) return ralat;
+        if (System.Text.RegularExpressions.Regex.IsMatch(ralat,
+            @"\AStatus tugasan tidak sepadan untuk merekod keputusan \(status: (menunggu|sedang_dihantar|tersimpan|berjaya|gagal)\)\.\z"))
+            return "Status tugasan tidak sepadan untuk merekod keputusan; segar semula senarai.";
+        return "Permintaan peranti ditolak. Semak status tugasan dan daftar sambungan HADIR.";
     }
 }
 

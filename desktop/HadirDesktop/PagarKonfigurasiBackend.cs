@@ -73,6 +73,7 @@ public sealed class PagarKonfigurasiBackend
 
     /// <summary>Cap jari konfigurasi klien. DALAM MEMORI SAHAJA; tidak pernah dipaparkan.</summary>
     public string? CapKlien { get; }
+    public bool AdaKlaimAktif { get { lock (_kunci) return _diklaim.Count > 0; } }
 
     /// <summary>
     /// Klien aktif wujud DAN konfigurasi pada cakera sekarang sah dan sama.

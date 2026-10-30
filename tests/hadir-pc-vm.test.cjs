@@ -390,7 +390,7 @@ test('job sedia ada 11 lajur dimigrasi sebelum refresh atomik', function () {
 });
 
 test('Simpan ketika job aktif menolak tanpa mengubah kehadiran, snapshot atau lease', function () {
-  for (var status of ['sedang_dihantar', 'tersimpan']) {
+  for (var status of ['sedang_dihantar', 'tersimpan', 'semakan_manual']) {
     var f = buatKehadiranMoeisPalsu(), k = f.env.k;
     var kunciA = k.hadirKunciMurid_('fixture-a', f.tkh);
     var kunciB = k.hadirKunciMurid_('fixture-b', f.tkh);

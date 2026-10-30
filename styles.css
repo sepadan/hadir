@@ -662,3 +662,11 @@ dialog::backdrop { background: #061626aa; }
   .save-dock strong { font-size: .86rem; }
   .save-dock small { display: none; }
 }
+/* Codes and opaque registry IDs must fit a 390px phone without horizontal scroll. */
+.sambung-card { margin-top: 24px; padding: 18px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fff; min-width: 0; }
+.sambung-card p { line-height: 1.6; }
+.sambung-card textarea { width: 100%; max-width: 100%; box-sizing: border-box; resize: vertical; overflow-wrap: anywhere; margin: 8px 0; font: 13px monospace; }
+.sambung-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.sambung-actions button { white-space: normal; }
+.sambung-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; border-top: 1px solid #e2e8f0; padding: 12px 0; }
+.sambung-row span { min-width: 0; overflow-wrap: anywhere; }

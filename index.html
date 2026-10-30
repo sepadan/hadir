@@ -9,10 +9,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HADIR">
   <meta name="description" content="Aplikasi kehadiran pantas SK Paya Redan">
-  <link rel="manifest" href="manifest.webmanifest?v=1.11.40">
+  <link rel="manifest" href="manifest.webmanifest?v=1.11.41">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="stylesheet" href="styles.css?v=1.11.40">
+  <link rel="stylesheet" href="styles.css?v=1.11.41">
   <title>HADIR — SK Paya Redan</title>
 </head>
 <body>
@@ -141,6 +141,26 @@
 
         <p class="moeis-nota">Tugasan diambil secara automatik oleh aplikasi <b>HADIR Desktop</b> pada PC sekolah dalam masa kira-kira 10 minit; HADIR tidak pernah bersambung terus ke MOEIS.</p>
         <div id="moeisList" class="review-list moeis-list"></div>
+        <section class="sambung-card" aria-labelledby="sambungTajuk">
+          <h3 id="sambungTajuk">Sambungan Desktop</h3>
+          <p>Jana satu kod untuk satu PC. Tampal dalam <b>Tetapan Tempatan</b> HADIR Desktop. Akaun idMe diurus berasingan.</p>
+          <p><b>Tiada tarikh luput.</b> Kod hanya boleh digunakan sekali dan boleh dibatalkan di sini. Sesiapa yang memegang kod boleh menyambung satu PC; kongsi secara peribadi.</p>
+          <div class="sambung-actions">
+            <button id="sambungJana" type="button" class="primary">Jana kod sambungan</button>
+            <button id="sambungSegar" type="button" class="soft">Segar semula daftar</button>
+          </div>
+          <div id="sambungStatus" class="status" aria-live="polite"></div>
+          <div id="sambungHasil" hidden>
+            <p class="sambung-clipboard-warning">Menyalin kod boleh memasukkannya dalam sejarah papan klip atau penyegerakan awan Windows. Gunakan tampalan peribadi dan bersihkan sejarah papan klip selepas digunakan.</p>
+            <label for="sambungKod">Kod dipaparkan sekali sahaja</label>
+            <textarea id="sambungKod" readonly rows="4" autocomplete="off" spellcheck="false"></textarea>
+            <div class="sambung-actions">
+              <button id="sambungSalin" class="soft" type="button">Salin kod</button>
+              <button id="sambungSembunyi" class="soft" type="button">Sembunyikan kod</button>
+            </div>
+          </div>
+          <div id="sambungSenarai" aria-live="polite"></div>
+        </section>
       </section>
 
       <section id="syncPane" class="pane" hidden>
@@ -278,7 +298,7 @@
     </form>
   </dialog>
 
-  <script src="config.js?v=1.11.40"></script>
-  <script src="app.js?v=1.11.40"></script>
+  <script src="config.js?v=1.11.41"></script>
+  <script src="app.js?v=1.11.41"></script>
 </body>
 </html>

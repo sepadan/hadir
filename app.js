@@ -843,6 +843,7 @@
   }
 
   function logoutAdmin() {
+    bersihSambungan_();
     var token = state.token;
     state.token = '';
     state.peranan = 'guru';
@@ -860,6 +861,7 @@
       bukaDialogAdmin();
       return;
     }
+    if (id !== 'moeisPane') bersihSambungan_();
     state.paneAktif = id;
     ['attendancePane', 'reviewPane', 'studentSettingsPane', 'teacherSettingsPane', 'studentsPane', 'syncPane', 'moeisPane'].forEach(function (x) { $(x).hidden = x !== id; });
     document.querySelectorAll('.menu-link[data-pane]').forEach(function (b) {
@@ -1419,6 +1421,7 @@
   }
 
   function muatMoeisAdmin() {
+    muatSambungan_();
     status($('moeisStatus'), 'Memuatkan senarai kelas…', '');
     panggil('moeisSenaraiKelas', [state.token], 30000).then(function (r) {
       state.moeisKelas = Array.isArray(r) ? r : [];
@@ -1429,10 +1432,104 @@
     });
   }
 
+  var sambungVersi = 0, sambungSenaraiVersi = 0;
+  function bersihSambungan_() {
+    sambungVersi++; sambungSenaraiVersi++;
+    $('sambungKod').value = '';
+    $('sambungHasil').hidden = true;
+    $('sambungSenarai').textContent = '';
+    $('sambungJana').disabled = false;
+  }
+
+  function sambungMasihSah_(versi, token) {
+    return versi === sambungVersi && token && token === state.token && state.paneAktif === 'moeisPane';
+  }
+
+  function muatSambungan_() {
+    if (!state.token) return;
+    var versi = sambungVersi, token = state.token, nombor = ++sambungSenaraiVersi;
+    panggil('moeisSambungSenarai', [token]).then(function (r) {
+      if (!sambungMasihSah_(versi, token) || nombor !== sambungSenaraiVersi) return;
+      var root = $('sambungSenarai'); root.textContent = '';
+      ['kod', 'peranti'].forEach(function (jenis) {
+        var title = document.createElement('h4');
+        title.textContent = jenis === 'kod' ? 'Kod sambungan' : 'Peranti berdaftar'; root.appendChild(title);
+        var rows = r && Array.isArray(r[jenis]) ? r[jenis] : [];
+        if (!rows.length) { var empty = document.createElement('p'); empty.textContent = 'Tiada rekod.'; root.appendChild(empty); }
+        rows.forEach(function (item) {
+          var row = document.createElement('div'); row.className = 'sambung-row';
+          var text = document.createElement('span');
+          text.textContent = (jenis === 'kod' ? 'Kod ' : 'PC ') + item.id + ' · ' +
+            ({ menunggu: 'Belum digunakan', digunakan: 'Sudah digunakan', aktif: 'Dibenarkan', dibatalkan: 'Dibatalkan' }[item.status] || 'Tidak diketahui') +
+            ' · ' + new Date(Number(item.masa)).toLocaleString('ms-MY');
+          if (jenis === 'kod' && item.idPeranti) text.textContent += ' \u00b7 PC terpaut: ' + item.idPeranti;
+          row.appendChild(text);
+          if (item.status === 'menunggu' || item.status === 'aktif' || (jenis === 'kod' && item.status === 'digunakan' && item.idPeranti)) {
+            var button = document.createElement('button'); button.type = 'button'; button.className = 'soft'; button.textContent = jenis === 'kod' && item.idPeranti ? 'Batalkan PC terpaut' : 'Batalkan';
+            var jenisBatal = jenis === 'kod' && item.idPeranti ? 'peranti' : jenis;
+            var idBatal = jenisBatal !== jenis ? item.idPeranti : item.id;
+            button.addEventListener('click', function () {
+              if (!sambungMasihSah_(versi, token) || !window.confirm('Batalkan ' + (jenisBatal === 'kod' ? 'kod ini?' : 'akses PC ini? Tugasan yang sudah dihantar tidak boleh ditarik balik.'))) return;
+              button.disabled = true; sambungSenaraiVersi++;
+              panggil('moeisSambungBatal', [jenisBatal, idBatal, token]).then(function () {
+                if (!sambungMasihSah_(versi, token)) return;
+                $('sambungKod').value = ''; $('sambungHasil').hidden = true;
+                status($('sambungStatus'), 'Akses dibatalkan.', 'ok'); muatSambungan_();
+              }).catch(function (e) { if (sambungMasihSah_(versi, token)) { button.disabled = false; status($('sambungStatus'), ralatSambunganUi_(e), 'err'); muatSambungan_(); } });
+            });
+            row.appendChild(button);
+          }
+          if (jenis === 'peranti' && item.status === 'dibatalkan') {
+            var recover = document.createElement('button'); recover.type = 'button'; recover.className = 'soft';
+            recover.textContent = 'Asingkan tugasan untuk semakan manual';
+            recover.addEventListener('click', function () {
+              if (!sambungMasihSah_(versi, token) || !window.confirm('Hentikan PC lama dahulu. Hasil penghantaran mungkin sudah tersimpan. Asingkan tugasan PC ' + item.id + ' untuk SEMAKAN MANUAL? Kehadiran, pemilik dan hasil asal dikekalkan; tugasan tidak diselesaikan atau dihantar semula. Kelas kekal disekat daripada simpan semula sehingga semakan pemilik.')) return;
+              recover.disabled = true; sambungSenaraiVersi++;
+              panggil('moeisSambungAsingTugas', [item.id, 'ASINGKAN TUGASAN UNTUK SEMAKAN MANUAL', token]).then(function (r) {
+                if (!sambungMasihSah_(versi, token)) return;
+                status($('sambungStatus'), Number(r.bilangan) + ' tugasan diasingkan. Semak hasil secara manual; jangan hantar semula.', 'ok'); muatSambungan_();
+              }).catch(function (e) { if (sambungMasihSah_(versi, token)) { recover.disabled = false; status($('sambungStatus'), ralatSambunganUi_(e), 'err'); muatSambungan_(); } });
+            });
+            row.appendChild(recover);
+          }
+          root.appendChild(row);
+        });
+      });
+    }).catch(function (e) { if (sambungMasihSah_(versi, token) && nombor === sambungSenaraiVersi) status($('sambungStatus'), ralatSambunganUi_(e), 'err'); });
+  }
+
+  function ralatSambunganUi_(e) {
+    var match = /^\[SAMBUNG_([A-Z_]+)\]/.exec(e && e.message || '');
+    var mesej = {
+      AUTH: 'Sesi admin tamat. Log masuk semula.', ENDPOINT: 'Pemilik perlu menetapkan URL /exec autoritatif pada backend.',
+      INVALID_CODE: 'Kod tidak sah atau dibatalkan.', USED_CODE: 'Kod sudah digunakan; gunakan tindakan pada PC terpaut.',
+      ACTIVE_JOB: 'Tugasan masih aktif. Selesaikan klaim sebelum mengganti sambungan; kod belum ditebus.',
+      LIMIT: 'Had daftar dicapai. Batalkan rekod yang tidak digunakan.', RATE: 'Had kadar dicapai. Tunggu seminit.',
+      CORRUPT: 'Storan sambungan rosak. Pemilik perlu mengikuti prosedur pemulihan storan.',
+      BUSY: 'Sistem sibuk. Semak daftar sebelum mencuba lagi.', STORAGE: 'Simpanan tidak dapat disahkan. Segar semula daftar.'
+    };
+    return match && Object.prototype.hasOwnProperty.call(mesej, match[1]) ? mesej[match[1]] :
+      'Hasil tidak dapat dipastikan. Segar semula daftar dan semak rekod sebelum mencuba lagi.';
+  }
+
+  function janaSambungan_() {
+    if (!state.token || state.paneAktif !== 'moeisPane') return;
+    var versi = ++sambungVersi, token = state.token; sambungSenaraiVersi++;
+    $('sambungKod').value = ''; $('sambungHasil').hidden = true; $('sambungJana').disabled = true;
+    status($('sambungStatus'), 'Menjana kod…', '');
+    panggil('moeisSambungJana', [token]).then(function (r) {
+      if (!sambungMasihSah_(versi, token)) return;
+      if (!r || typeof r.kod !== 'string' || !/^HC1\.[A-Za-z0-9_-]+$/.test(r.kod) || r.kod.length > 2048) throw new Error();
+      $('sambungKod').value = r.kod; $('sambungHasil').hidden = false;
+      status($('sambungStatus'), 'Kod sedia. Salin sekarang; kod tidak boleh dipaparkan semula.', 'ok'); muatSambungan_();
+    }).catch(function (e) { if (sambungMasihSah_(versi, token)) status($('sambungStatus'), ralatSambunganUi_(e), 'err'); })
+      .finally(function () { if (sambungMasihSah_(versi, token)) $('sambungJana').disabled = false; });
+  }
+
   var MOEIS_LABEL_STATUS = {
     belum_dihantar: 'Belum dihantar', menunggu: 'Menunggu',
     sedang_dihantar: 'Sedang dihantar', tersimpan: 'Tersimpan — menunggu pengesahan',
-    berjaya: 'Berjaya', gagal: 'Gagal'
+    semakan_manual: 'Semakan manual - hasil tidak pasti', berjaya: 'Berjaya', gagal: 'Gagal'
   };
 
   function lukisMoeisAdmin() {
@@ -1455,7 +1552,7 @@
       var statusPenghantaran = k.mesejPenghantaran && k.statusPenghantaran === 'gagal'
         ? 'Gagal: ' + k.mesejPenghantaran
         : (MOEIS_LABEL_STATUS[k.statusPenghantaran] || 'Belum dihantar');
-      var belumDihantar = !['menunggu', 'sedang_dihantar', 'tersimpan', 'berjaya'].includes(k.statusPenghantaran);
+      var belumDihantar = !['menunggu', 'sedang_dihantar', 'tersimpan', 'semakan_manual', 'berjaya'].includes(k.statusPenghantaran);
       head.appendChild(el('span', 'review-state ' + (belumDihantar || k.statusPenghantaran === 'gagal' ? 'err' : ''), statusPenghantaran));
       card.appendChild(head);
 
@@ -1487,7 +1584,7 @@
       // pelayar tidak pernah menghantar permintaan itu.
       hantarBtn.disabled = !sudahSimpan || !lengkap || !k.bilTidakHadir ||
         k.statusPenghantaran === 'menunggu' || k.statusPenghantaran === 'sedang_dihantar' ||
-        k.statusPenghantaran === 'tersimpan';
+        k.statusPenghantaran === 'tersimpan' || k.statusPenghantaran === 'semakan_manual';
       hantarBtn.addEventListener('click', function () { hantarMoeis(k.nama); });
       badan.appendChild(hantarBtn);
 
@@ -1575,6 +1672,18 @@
   $('teacherCsvFile').addEventListener('change', bacaFailUploadGuru);
   $('teacherUploadForm').addEventListener('submit', uploadGuruCsv);
   $('syncAllBtn').addEventListener('click', syncSemua);
+  $('sambungJana').addEventListener('click', janaSambungan_);
+  $('sambungSegar').addEventListener('click', muatSambungan_);
+  $('sambungSembunyi').addEventListener('click', function () {
+    $('sambungKod').value = ''; $('sambungHasil').hidden = true;
+    status($('sambungStatus'), 'Kod disembunyikan; kod masih boleh digunakan sehingga dibatalkan.', '');
+  });
+  $('sambungSalin').addEventListener('click', function () {
+    if (!state.token || !$('sambungKod').value) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText($('sambungKod').value).catch(function () { $('sambungKod').select(); });
+    } else $('sambungKod').select();
+  });
   $('sebabKategori').addEventListener('change', function () {
     isiPilihanSebab_($('sebabKategori').value, '');
   });

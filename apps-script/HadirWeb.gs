@@ -9,6 +9,230 @@ var HADIR_LOGIN_SEKAT_SAAT = 15 * 60;
 var HADIR_AKSI_URL_LALAI = 'https://script.google.com/macros/s/AKfycby0Td2p3zoAdBWXYbbKTqmVS4Xa8R42k0suzeDFTIjgwg-hVxIzYqNkEyTE75E_bukfLA/exec';
 var HADIR_SEMAK_URL_LALAI = 'https://script.google.com/macros/s/AKfycbx306dN8vd3HR3Mu4xdum8MpG0PkbbwbKgsu88jx-nMG2LnEWszU350S2ez8TU_kX_H/exec';
 
+// Desktop connection codes, independent of staged multi-PC leadership (pc*).
+// One bounded ASCII JSON property is the commit unit: consume + credential hash
+// are written together under ScriptLock. Never log inputs or storage exceptions.
+var HADIR_SAMBUNG_KUNCI = 'HADIR_SAMBUNG_V1';
+function hadirSambungUrlSah_(url) {
+  return typeof url === 'string' && url === url.trim() && /^https:\/\/script\.google\.com(?::443)?\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url);
+}
+function hadirSambungEndpoint_() {
+  var url = PropertiesService.getScriptProperties().getProperty('HADIR_SAMBUNG_EXEC_URL');
+  if (!hadirSambungUrlSah_(url)) throw hadirSambungRalat_('ENDPOINT');
+  return url;
+}
+function hadirSambungRawak_() {
+  // Google documents getUuid as equivalent to java.util.UUID.randomUUID;
+  // Java specifies a cryptographically strong PRNG. Three v4 UUIDs supply
+  // 366 random bits before SHA-256. No Math.random, time seed or remote service.
+  var nilai = [Utilities.getUuid(), Utilities.getUuid(), Utilities.getUuid()];
+  nilai.forEach(function (v, i) {
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v) || nilai.indexOf(v) !== i)
+      throw new Error('Sumber rawak tidak tersedia.');
+  });
+  return hadirHash_('HADIR desktop v1:' + nilai.join(':'));
+}
+function hadirSambungSahDaftar_(s) {
+  if (!s || s.v !== 1 || Object.keys(s).sort().join(',') !== 'kod,peranti,v' ||
+      !Array.isArray(s.kod) || !Array.isArray(s.peranti) || s.kod.length > 12 || s.peranti.length > 12) throw new Error('Daftar tidak sah.');
+  ['kod', 'peranti'].forEach(function (jenis) {
+    var ids = [], hashes = [];
+    s[jenis].forEach(function (r) {
+      if (!r || Object.keys(r).filter(function (k) { return k !== 'idPeranti'; }).sort().join(',') !== 'hash,id,masa,status' ||
+          (r.idPeranti !== undefined && (jenis !== 'kod' || r.status !== 'digunakan' || typeof r.idPeranti !== 'string' || !/^[a-f0-9]{32}$/.test(r.idPeranti) || r.idPeranti.length !== 32)) ||
+          typeof r.id !== 'string' || r.id.length !== 32 || !/^[a-f0-9]{32}$/.test(r.id) ||
+          typeof r.hash !== 'string' || r.hash.length !== 64 || !/^[a-f0-9]{64}$/.test(r.hash) ||
+          !Number.isSafeInteger(r.masa) || r.masa <= 0 ||
+          (jenis === 'kod' ? ['menunggu', 'digunakan', 'dibatalkan'] : ['aktif', 'dibatalkan']).indexOf(r.status) < 0 ||
+          ids.indexOf(r.id) >= 0 || hashes.indexOf(r.hash) >= 0) throw new Error('Daftar tidak sah.');
+      ids.push(r.id); hashes.push(r.hash);
+    });
+  });
+  return s;
+}
+function hadirSambungBaca_() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(HADIR_SAMBUNG_KUNCI);
+    if (raw === null) return { v: 1, kod: [], peranti: [] };
+    if (typeof raw !== 'string' || raw.length > 8000 || /[^\x20-\x7e]/.test(raw)) throw new Error();
+    var parsed = JSON.parse(raw);
+    // Canonical shape also rejects duplicate JSON keys and ambiguous storage.
+    if (JSON.stringify(parsed) !== raw) throw new Error();
+    return hadirSambungSahDaftar_(parsed);
+  } catch (e) { throw hadirSambungRalat_('CORRUPT'); }
+}
+function hadirSambungTulis_(s) {
+  hadirSambungSahDaftar_(s);
+  var raw = JSON.stringify(s);
+  if (raw.length > 8000) throw hadirSambungRalat_('LIMIT');
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(HADIR_SAMBUNG_KUNCI, raw);
+  if (props.getProperty(HADIR_SAMBUNG_KUNCI) !== raw) throw new Error('Simpanan tidak disahkan.');
+}
+function hadirSambungRalat_(kod) {
+  var mesej = {
+    AUTH: 'Sesi admin tidak sah atau tamat. Log masuk semula.',
+    ENDPOINT: 'URL /exec autoritatif belum dikonfigurasi dengan sah oleh pemilik.',
+    INVALID_CODE: 'Kod tidak sah atau telah dibatalkan.',
+    USED_CODE: 'Kod sudah digunakan. Semak dan batalkan peranti terpaut dalam daftar admin.',
+    ACTIVE_JOB: 'Tugasan masih aktif. Selesaikan klaim sebelum mengganti sambungan; kod belum ditebus.',
+    LIMIT: 'Had daftar dicapai. Batalkan kod menunggu atau peranti yang tidak digunakan.',
+    RATE: 'Had kadar penebusan dicapai. Tunggu seminit sebelum mencuba lagi.',
+    CORRUPT: 'Storan sambungan rosak. Pemilik perlu menjalankan prosedur pemulihan storan.',
+    BUSY: 'Sistem sibuk. Cuba lagi kemudian; jangan anggap kod telah ditebus.',
+    STORAGE: 'Simpanan tidak dapat disahkan. Semak daftar sebelum mencuba kod baharu.',
+    RECORD: 'Rekod tidak ditemui atau jenis tindakan tidak sah.'
+  };
+  if (!Object.prototype.hasOwnProperty.call(mesej, kod)) kod = 'STORAGE';
+  var e = new Error('[SAMBUNG_' + kod + '] ' + mesej[kod]); e.hadirKod = kod; return e;
+}
+function hadirSambungAdmin_(token) {
+  try { hadirSesi_(token, true); } catch (e) { throw hadirSambungRalat_('AUTH'); }
+}
+function hadirSambungKunci_(fn) {
+  var lock = LockService.getScriptLock(), held = false;
+  try { lock.waitLock(20000); held = true; return fn(); }
+  catch (e) { throw hadirSambungRalat_(e && e.hadirKod ? e.hadirKod : (held ? 'STORAGE' : 'BUSY')); }
+  finally { if (held) lock.releaseLock(); }
+}
+function hadirSambungJana_(token) {
+  return hadirSambungKunci_(function () {
+    hadirSambungAdmin_(token);
+    var url = hadirSambungEndpoint_();
+    var s = hadirSambungBaca_();
+    // Retain bounded used-code history and its device link; never drop pending codes.
+    if (s.kod.filter(function (r) { return r.status === 'menunggu'; }).length >= 12 || s.peranti.filter(function (d) { return d.status === 'aktif'; }).length >= 12) throw hadirSambungRalat_('LIMIT');
+    if (s.kod.length >= 12) s.kod.splice(s.kod.findIndex(function (r) { return r.status !== 'menunggu'; }), 1);
+    var kod = 'HC1.' + Utilities.base64EncodeWebSafe(JSON.stringify([url, hadirSambungRawak_()]), Utilities.Charset.UTF_8).replace(/=+$/, '');
+    var id = hadirSambungRawak_().slice(0, 32);
+    s.kod.push({ id: id, hash: hadirHash_(kod), masa: Date.now(), status: 'menunggu' });
+    hadirSambungTulis_(s);
+    return { id: id, kod: kod }; // shown once, never recoverable from hashes
+  });
+}
+function hadirSambungSenarai_(token) {
+  return hadirSambungKunci_(function () {
+    hadirSambungAdmin_(token);
+    var s = hadirSambungBaca_();
+    function metadata(r) { return { id: r.id, masa: r.masa, status: r.status, idPeranti: r.idPeranti || '' }; }
+    return { kod: s.kod.map(metadata), peranti: s.peranti.map(metadata) };
+  });
+}
+function hadirSambungBatal_(jenis, id, token) {
+  return hadirSambungKunci_(function () {
+    hadirSambungAdmin_(token);
+    if (jenis !== 'kod' && jenis !== 'peranti') throw hadirSambungRalat_('RECORD');
+    var s = hadirSambungBaca_();
+    var r = s[jenis].filter(function (r) { return r.id === id; })[0];
+    if (!r) throw hadirSambungRalat_('RECORD');
+    if (jenis === 'kod' && r.status === 'digunakan') throw hadirSambungRalat_('USED_CODE');
+    if (jenis === 'kod' && r.status === 'dibatalkan') return { ok: true };
+    r.status = 'dibatalkan';
+    hadirSambungTulis_(s);
+    return { ok: true };
+  });
+}
+function hadirSambungKadar_() {
+  var props = PropertiesService.getScriptProperties(), key = 'HADIR_SAMBUNG_KADAR_V1';
+  var raw = props.getProperty(key), s;
+  try { s = raw === null ? { mula: Date.now(), n: 0 } : JSON.parse(raw); } catch (e) { throw hadirSambungRalat_('CORRUPT'); }
+  if (raw !== null && (typeof raw !== 'string' || raw.length > 128 || JSON.stringify(s) !== raw)) throw hadirSambungRalat_('CORRUPT');
+  if (!s || Object.keys(s).sort().join(',') !== 'mula,n' || !Number.isSafeInteger(s.mula) ||
+      s.mula <= 0 || !Number.isSafeInteger(s.n) || s.n < 0 || s.n > 20 || s.mula > Date.now()) throw hadirSambungRalat_('CORRUPT');
+  if (Date.now() - s.mula >= 60000) s = { mula: Date.now(), n: 0 };
+  if (s.n >= 20) throw hadirSambungRalat_('RATE');
+  s.n++;
+  var next = JSON.stringify(s); props.setProperty(key, next);
+  if (props.getProperty(key) !== next) throw new Error('Kadar tidak disimpan.');
+}
+function hadirSambungTukar_(kod, mengganti, idPerantiLama) {
+  return hadirSambungKunci_(function () {
+    hadirSambungKadar_(); // persistent global budget, including malformed attempts
+    var endpoint = hadirSambungEndpoint_();
+    if (typeof kod !== 'string' || kod.length > 2048 || !/^HC1\.[A-Za-z0-9_-]+$/.test(kod)) throw hadirSambungRalat_('INVALID_CODE');
+    var s = hadirSambungBaca_(), hash = hadirHash_(kod);
+    var r = s.kod.filter(function (r) { return r.hash === hash; })[0];
+    if (r && r.status === 'digunakan') throw hadirSambungRalat_('USED_CODE');
+    if (r && r.status !== 'menunggu') throw hadirSambungRalat_('INVALID_CODE');
+    if (!r) throw hadirSambungRalat_('INVALID_CODE');
+    var payload;
+    try { payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(kod.slice(4))).getDataAsString(Utilities.Charset.UTF_8)); }
+    catch (e) { throw hadirSambungRalat_('INVALID_CODE'); }
+    if (!Array.isArray(payload) || payload.length !== 2 || payload[0] !== endpoint) throw hadirSambungRalat_('ENDPOINT');
+    if (mengganti !== undefined && typeof mengganti !== 'boolean') throw hadirSambungRalat_('INVALID_CODE');
+    // Known device owners are scoped; unknown legacy/corrupt stores remain conservative.
+    // This is serialized against claims and revocation, including rejected old tokens.
+    if (idPerantiLama !== undefined && idPerantiLama !== null &&
+        (typeof idPerantiLama !== 'string' || !/^[a-f0-9]{32}$/.test(idPerantiLama))) throw hadirSambungRalat_('RECORD');
+    if (mengganti === true && hadirBacaJobBaris_().some(function (row) {
+      return (row[3] === 'sedang_dihantar' || row[3] === 'tersimpan') &&
+        (!idPerantiLama || String(row[11] || '') === idPerantiLama);
+    })) throw hadirSambungRalat_('ACTIVE_JOB');
+    // Keep revoked owners with unresolved jobs visible for explicit admin quarantine.
+    var jobAktif = hadirBacaJobBaris_();
+    if (mengganti === true && idPerantiLama) s.peranti.forEach(function (d) {
+      if (d.id === idPerantiLama) d.status = 'dibatalkan';
+    });
+    s.peranti = s.peranti.filter(function (d) { return d.status === 'aktif' || jobAktif.some(function (row) {
+      return String(row[11] || '') === d.id && (row[3] === 'sedang_dihantar' || row[3] === 'tersimpan');
+    }); });
+    if (s.peranti.length >= 12) throw hadirSambungRalat_('LIMIT');
+    var id = hadirSambungRawak_().slice(0, 32), tokenPeranti = 'HD1.' + id + '.' + hadirSambungRawak_();
+    r.status = 'digunakan'; r.idPeranti = id;
+    s.peranti.push({ id: id, hash: hadirHash_(tokenPeranti), masa: Date.now(), status: 'aktif' });
+    hadirSambungTulis_(s); // exactly one commit for both transitions; no retry
+    return { idPeranti: id, tokenPeranti: tokenPeranti };
+  });
+}
+
+// Explicit admin quarantine: retain outcome uncertainty, owner, lease and all attendance.
+// A quarantined row is never claimable/completable and still blocks class resaving.
+function hadirSambungAsingTugas_(idPeranti, pengesahan, token) {
+  return hadirSambungKunci_(function () {
+    hadirSambungAdmin_(token);
+    if (typeof idPeranti !== 'string' || !/^[a-f0-9]{32}$/.test(idPeranti) ||
+        pengesahan !== 'ASINGKAN TUGASAN UNTUK SEMAKAN MANUAL') throw hadirSambungRalat_('RECORD');
+    var daftar = hadirSambungBaca_();
+    if (daftar.peranti.some(function (d) { return d.id === idPeranti && d.status === 'aktif'; })) throw hadirSambungRalat_('RECORD');
+    var rows = hadirBacaJobBaris_(), sheet = ss.getSheetByName('HADIR_MOEIS_JOB'), n = 0;
+    rows.forEach(function (r, i) {
+      if (String(r[11] || '') !== idPeranti || ['sedang_dihantar', 'tersimpan'].indexOf(r[3]) < 0) return;
+      // Write the forensic annotation first: interrupted writes fail safe in active state.
+      sheet.getRange(i + 2, 5).setValue('[SEMAKAN MANUAL; status asal: ' + r[3] +
+        '; hasil penghantaran tidak pasti; jangan hantar semula] ' + String(r[4] || ''));
+      sheet.getRange(i + 2, 4).setValue('semakan_manual');
+      n++;
+    });
+    return { ok: true, bilangan: n };
+  });
+}
+
+// Project-owner maintenance ONLY, deliberately absent from the public RPC table.
+// Run from the Apps Script editor via an explicit owner-authored wrapper.
+function hadirSambungPulihStoranPemilik_(jenis, pengesahan) {
+  return hadirSambungKunci_(function () {
+    var sah = jenis === 'kadar' ? 'SET SEMULA HAD KADAR DESKTOP' :
+      jenis === 'daftar' ? 'BATALKAN SEMUA KOD DAN TOKEN DESKTOP' : '';
+    if (!sah || pengesahan !== sah) throw hadirSambungRalat_('RECORD');
+    var props = PropertiesService.getScriptProperties();
+    var key = jenis === 'kadar' ? 'HADIR_SAMBUNG_KADAR_V1' : HADIR_SAMBUNG_KUNCI;
+    var backup = 'HADIR_SAMBUNG_PEMULIHAN_' + jenis.toUpperCase();
+    var raw = props.getProperty(key), old = props.getProperty(backup);
+    // Never silently overwrite an earlier forensic backup or reset after quota failure.
+    var snapshot = raw === null ? '<tiada>' : raw;
+    if (old !== null && old !== snapshot) throw hadirSambungRalat_('STORAGE');
+    props.setProperty(backup, snapshot);
+    if (props.getProperty(backup) !== snapshot) throw hadirSambungRalat_('STORAGE');
+    if (jenis === 'daftar') hadirSambungTulis_({ v: 1, kod: [], peranti: [] });
+    else {
+      var next = JSON.stringify({ mula: Date.now(), n: 0 });
+      props.setProperty(key, next);
+      if (props.getProperty(key) !== next) throw hadirSambungRalat_('STORAGE');
+    }
+    return { ok: true, jenis: jenis }; // no backup contents, hashes, codes or tokens
+  });
+}
+
 /* Senarai rasmi Kategori + Sebab MOEIS. Sumber: MOEIS
    /sahsiah/kehadiran/pkhem/tabguru (diperoleh 17/09/2026). Salinan yang sama
    disimpan di MOEIS_SEBAB dalam app.js untuk paparan; projek ini tiada modul
@@ -75,7 +299,7 @@ function hadirAdakahPdpr_(kategori, sebab) {
 function hadirMoeisLabelStatus_(status) {
   return {
     menunggu: 'Menunggu', sedang_dihantar: 'Sedang dihantar',
-    tersimpan: 'Tersimpan — menunggu pengesahan', berjaya: 'Berjaya', gagal: 'Gagal'
+    semakan_manual: 'Semakan manual - hasil tidak pasti', tersimpan: 'Tersimpan — menunggu pengesahan', berjaya: 'Berjaya', gagal: 'Gagal'
   }[status] || status;
 }
 
@@ -120,7 +344,15 @@ function hadirMoeisSahkanLengkap_(murid, kelas, semuaHadir) {
   return true;
 }
 
-function hadirSahRahsiaMoeis_(rahsia) {
+function hadirSahRahsiaMoeis_(rahsia, pemilik) {
+  if (typeof rahsia === 'string' && rahsia.indexOf('HD1.') === 0) {
+    var padan = /^HD1\.([a-f0-9]{32})\.[a-f0-9]{64}$/.exec(rahsia);
+    var daftar = hadirSambungBaca_();
+    var peranti = padan && daftar.peranti.filter(function (d) { return d.id === padan[1]; })[0];
+    if (!peranti || peranti.status !== 'aktif' || peranti.hash !== hadirHash_(rahsia) ||
+        (pemilik !== undefined && pemilik !== peranti.id)) throw new Error('Akses enjin MOEIS ditolak.');
+    return true;
+  }
   var betul = PropertiesService.getScriptProperties().getProperty('HADIR_MOEIS_ENGINE_SECRET');
   if (!betul) throw new Error('Rahsia enjin MOEIS belum ditetapkan.');
   if (!rahsia || hadirHash_(rahsia) !== hadirHash_(betul)) throw new Error('Akses enjin MOEIS ditolak.');
@@ -300,6 +532,9 @@ function hadirDoPost_(e) {
     moeisJobBuat: hadirMoeisJobBuat_, moeisJobSenarai: hadirMoeisJobSenarai_,
     moeisJobSelesai: hadirMoeisJobSelesai_, moeisJobKlaim: hadirMoeisJobKlaim_,
     moeisJobLepas: hadirMoeisJobLepas_,
+    moeisSambungJana: hadirSambungJana_, moeisSambungSenarai: hadirSambungSenarai_,
+    moeisSambungBatal: hadirSambungBatal_, moeisSambungTukar: hadirSambungTukar_,
+    moeisSambungAsingTugas: hadirSambungAsingTugas_,
     pcTerbitKodDaftar: hadirPcTerbitKodDaftar_, pcDaftarPeranti: hadirPcDaftarPeranti_,
     pcNyahaktifPeranti: hadirPcNyahaktifPeranti_, pcDegup: hadirPcDegup_,
     pcKlaimKepimpinan: hadirPcKlaimKepimpinan_, pcSahkanPenulis: hadirPcSahkanPenulis_,
@@ -712,8 +947,8 @@ function hadirSimpanKehadiran_(kelas, senaraiSebab, token, tarikhIso) {
     if (pilihan.iso === pilihan.hariIniIso) {
       var jobAktif = hadirMoeisCariJobDiBawahLock_(kelas, pilihan.iso);
       if (jobAktif.indeks >= 0 &&
-          ['sedang_dihantar', 'tersimpan'].indexOf(jobAktif.baris[jobAktif.indeks][3]) >= 0)
-        throw new Error('Tugasan MOEIS untuk ' + kelas + ' sedang dihantar atau tersimpan; tunggu pengesahan sebelum menyimpan semula kehadiran.');
+          ['sedang_dihantar', 'tersimpan', 'semakan_manual'].indexOf(jobAktif.baris[jobAktif.indeks][3]) >= 0)
+        throw new Error('Tugasan MOEIS untuk ' + kelas + ' sedang dihantar, tersimpan atau memerlukan semakan manual; semak hasil sebelum menyimpan semula kehadiran.');
     }
     var s = ss.getSheetByName('kehadiran');
     var tkh = pilihan.tkh;
@@ -994,14 +1229,18 @@ function hadirMoeisJobBuatDiBawahLock_(kelas, tarikhIso, kelasMoeisId, peranan, 
    (termasuk IC, diperlukan oleh enjin untuk mengisi borang MOEIS) hanya
    dihantar pada laluan rahsia enjin, tidak pada paparan admin. */
 function hadirMoeisJobSenarai_(token, rahsia) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
   var modAdmin = false;
-  if (token) { hadirSesi_(token, true); modAdmin = true; }
-  else hadirSahRahsiaMoeis_(rahsia);
+  try {
+    if (token) { hadirSesi_(token, true); modAdmin = true; }
+    else hadirSahRahsiaMoeis_(rahsia);
+  } finally { lock.releaseLock(); }
   var paparan = hadirBacaJobBaris_();
   var s = ss.getSheetByName('HADIR_MOEIS_JOB');
   var nilai = (!s || s.getLastRow() < 2) ? [] :
     s.getRange(2, 1, s.getLastRow() - 1, HADIR_MOEIS_JOB_LEBAR).getValues();
-  return paparan.map(function (r, indeks) {
+  var hasil = paparan.map(function (r, indeks) {
     var diciptaMentah = nilai[indeks] && nilai[indeks][5];
     var diciptaEpochMs = diciptaMentah instanceof Date ? diciptaMentah.getTime() : NaN;
     var rekod = {
@@ -1017,6 +1256,11 @@ function hadirMoeisJobSenarai_(token, rahsia) {
     }
     return rekod;
   });
+  if (!modAdmin && typeof rahsia === 'string' && rahsia.indexOf('HD1.') === 0) {
+    lock.waitLock(20000);
+    try { hadirSahRahsiaMoeis_(rahsia); } finally { lock.releaseLock(); }
+  }
+  return hasil;
 }
 
 /* Dipanggil oleh enjin PC sahaja (rahsia HADIR_MOEIS_ENGINE_SECRET) apabila
@@ -1033,7 +1277,6 @@ function hadirMoeisJobSenarai_(token, rahsia) {
    enjin boleh menandakan mana-mana tugasan 'berjaya' tanpa sebarang bacaan
    semula MOEIS — memintas mesin keadaan klaim → sahkan → lapor. */
 function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, pemilik, rahsia) {
-  hadirSahRahsiaMoeis_(rahsia);
   keputusan = String(keputusan || '').toLowerCase();
   if (['berjaya', 'gagal', 'tersimpan'].indexOf(keputusan) < 0) throw new Error('Keputusan tugasan tidak sah.');
   pemilik = String(pemilik || '').trim();
@@ -1042,6 +1285,7 @@ function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, pemilik, r
   lock.waitLock(20000);
   var kelasLog = '';
   try {
+    hadirSahRahsiaMoeis_(rahsia, pemilik);
     var s = ss.getSheetByName('HADIR_MOEIS_JOB');
     if (!s || s.getLastRow() < 2) throw new Error('Tugasan tidak ditemui.');
     var n = s.getLastRow() - 1;
@@ -1088,12 +1332,12 @@ function hadirMoeisJobSelesai_(id, keputusan, mesej, bilHadirSelepas, pemilik, r
        apabila pengesahan selepas simpan tidak lengkap.
      - false/tiada -> gelung automatik biasa. */
 function hadirMoeisJobKlaim_(id, pemilik, benarkanCubaSemula, rahsia) {
-  hadirSahRahsiaMoeis_(rahsia);
   pemilik = String(pemilik || '').trim();
   if (!pemilik) throw new Error('Pemilik tugasan diperlukan untuk klaim.');
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    hadirSahRahsiaMoeis_(rahsia, pemilik);
     var s = ss.getSheetByName('HADIR_MOEIS_JOB');
     if (!s || s.getLastRow() < 2) return null;
     var n = s.getLastRow() - 1;
@@ -1103,6 +1347,10 @@ function hadirMoeisJobKlaim_(id, pemilik, benarkanCubaSemula, rahsia) {
     if (indeks < 0) return null;
     var status = String(baris[indeks][3] || '');
     var pemilikSediaAda = String(baris[indeks][11] || '');
+    // A revoked PC may already have sent attendance. Never turn its expired lease
+    // into another automatic submission; only explicit admin quarantine may unblock pairing.
+    if ((status === 'sedang_dihantar' || status === 'tersimpan') && /^[a-f0-9]{32}$/.test(pemilikSediaAda) &&
+        hadirSambungBaca_().peranti.some(function (d) { return d.id === pemilikSediaAda && d.status === 'dibatalkan'; })) return null;
     // LEASE_SELEPAS mesti dibaca sebagai NILAI NOMBOR (getValue), bukan
     // getDisplayValues() — bentuk paparan lokal (cth "18/9/2026 09:15:00")
     // menjadikan new Date(...) itu NaN, yang secara silap membenarkan enjin
@@ -1122,7 +1370,12 @@ function hadirMoeisJobKlaim_(id, pemilik, benarkanCubaSemula, rahsia) {
     else if (status === 'sedang_dihantar' && pemilikSediaAda !== pemilik && leaseSah && leaseMentah < sekarang) bolehKlaim = true; // lease sah dan luput, runner mati
     else if (status === 'sedang_dihantar' && pemilikSediaAda === '' && !leaseSah && leaseTiada) bolehKlaim = true; // tiada pemilik & tiada lease aktif (tugasan lama/manual) — tiada enjin memegang
     else if (status === 'gagal' && benarkanCubaSemula === true) bolehKlaim = true;
-    else if (mahuVerifikasiSahaja) bolehKlaim = true;
+    else if (mahuVerifikasiSahaja) {
+      // Kekalkan pagar lease produksi: verifikasi tidak merampas pemilik aktif.
+      if (pemilikSediaAda === pemilik) bolehKlaim = true;
+      else if (pemilikSediaAda !== '' && leaseSah && leaseMentah < sekarang) bolehKlaim = true;
+      else if (pemilikSediaAda === '' && (leaseTiada || (leaseSah && leaseMentah < sekarang))) bolehKlaim = true;
+    }
     if (!bolehKlaim) return null;
     var masa = new Date();
     var leaseBaharu = sekarang + HADIR_MOEIS_LEASE_SAAT * 1000; // simpan sebagai epoch ms, bukan Date/paparan
@@ -1143,11 +1396,11 @@ function hadirMoeisJobKlaim_(id, pemilik, benarkanCubaSemula, rahsia) {
    Hanya pemilik semasa boleh melepaskan; ini mengelakkan satu enjin
    melepaskan tugasan yang sedang dipegang oleh enjin lain. */
 function hadirMoeisJobLepas_(id, pemilik, rahsia) {
-  hadirSahRahsiaMoeis_(rahsia);
   pemilik = String(pemilik || '').trim();
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    hadirSahRahsiaMoeis_(rahsia, pemilik);
     var s = ss.getSheetByName('HADIR_MOEIS_JOB');
     if (!s || s.getLastRow() < 2) throw new Error('Tugasan tidak ditemui.');
     var n = s.getLastRow() - 1;

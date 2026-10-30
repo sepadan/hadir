@@ -39,6 +39,8 @@ public sealed class MainForm : Form
     /// </summary>
     private readonly System.Windows.Forms.Timer _pemasaLabelKitaran = new();
     private bool _kitaranAutoSedangJalan;
+    private bool _tetapanBackendDibuka;
+    private bool _kitaranBackendSedangJalan;
     /// <summary>
     /// Titik rujukan jadual pemasa: saat pemasa DIMULAKAN, kemudian saat setiap
     /// tick BERMULA. Tick berikutnya tiba kira-kira satu selang selepasnya.
@@ -1101,10 +1103,16 @@ public sealed class MainForm : Form
     /// <summary>Opens native local settings without a Companion or browser.</summary>
     private void OpenEngineSettings()
     {
+        if (_tetapanBackendDibuka || _kitaranBackendSedangJalan || _pagarBackend.AdaKlaimAktif)
+        { SetNavLabel("Selesaikan tugasan/klaim aktif sebelum menukar sambungan backend."); return; }
         ShowFromTray();
-        using var dialog = new EngineSettingsDialog(_rahsiaStore, _hasilMigrasi, _persaraanCompanion);
-        dialog.ShowDialog(this);
-        KemasKiniStatus();
+        _tetapanBackendDibuka = true;
+        try
+        {
+            using var dialog = new EngineSettingsDialog(_rahsiaStore, _hasilMigrasi, _persaraanCompanion);
+            dialog.ShowDialog(this);
+        }
+        finally { _tetapanBackendDibuka = false; KemasKiniStatus(); }
     }
 
     /// <summary>
@@ -1301,6 +1309,8 @@ public sealed class MainForm : Form
     /// </summary>
     public async Task CubaLoginAutoAtasPermintaanAsync()
     {
+        if (_tetapanBackendDibuka || _kitaranBackendSedangJalan) return;
+        _kitaranBackendSedangJalan = true;
         try
         {
             var keadaan = await _lifecycle.PeriksaDanJalankanAsync(_cycleCts.Token);
@@ -1313,6 +1323,7 @@ public sealed class MainForm : Form
             // app down on exit instead of just stopping the retry loop.
             SetNavLabel("Portal: kitaran dibatalkan (aplikasi sedang ditutup).");
         }
+        finally { _kitaranBackendSedangJalan = false; }
     }
 
     /// <summary>

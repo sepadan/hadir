@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.39 · 30 Oktober 2026**
+**Versi 2.40 · 30 Oktober 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -108,7 +108,8 @@ Kaedah: `login`, `logout`, `init`, `semakKehadiran`, `bukaKehadiranTarikh`,
 `simpanMurid`, `simpanTetapanMurid`, `uploadMuridCsv`, `syncSemua`,
 `senaraiGuru`, `simpanGuru`, `nyahaktifGuru`, `uploadGuruCsv`, `syncGuru`, `terimaSyncMurid`,
 `terimaSyncGuru`, `moeisSenaraiKelas`, `moeisSimpanSebab`, `moeisJobBuat`,
-`moeisJobSenarai`, `moeisJobSelesai`, `moeisJobKlaim`, `moeisJobLepas`.
+`moeisJobSenarai`, `moeisJobSelesai`, `moeisJobKlaim`, `moeisJobLepas`,
+`moeisSambungJana`, `moeisSambungSenarai`, `moeisSambungBatal`, `moeisSambungTukar`.
 
 `semakKehadiran(tarikhIso)` ialah bacaan awam bagi tahun semasa. Tarikh mesti
 berformat `YYYY-MM-DD`, tidak boleh melebihi hari ini, dan ditukar kepada tajuk
@@ -626,6 +627,66 @@ TIDAK berubah** — mod palsu wujud hanya sebagai fail fixture ujian, tiada
 laluan boleh-pilih jauh/tidak selamat.
 
 ### 5.3 Shell desktop (desktop/)
+
+**Sambungan melalui satu kod (Desktop 1.0.23 / web 1.11.41, belum diterbitkan).**
+Admin **Hantar ke MOEIS → Sambungan Desktop** menjana kod berentropi tinggi
+`HC1` yang mengekod URL deployment Apps Script yang disahkan. **Tiada luput
+dengan sengaja**, sekali guna dan boleh dibatalkan oleh admin. Dialog
+**Tetapan Tempatan** kini menerima satu kod, menggantikan medan URL + rahsia
+manual. Endpoint asas HTTPS hos/laluan tepat sahaja; satu redirect Content
+Service ke hos tepat `/macros/echo` dibenarkan sebagai GET tanpa badan kod/token.
+Tiada pergantungan hosting untuk menyelesaikan kod.
+Sasaran dipin kepada backend PC semasa atau allowlist bootstrap tepat dalam
+binaan Desktop; perubahan sambungan memerlukan pengesahan eksplisit yang
+memaparkan deployment. GAS membaca `HADIR_SAMBUNG_EXEC_URL` autoritatif;
+ketiadaan/tidak sah gagal tertutup, tanpa `getService().getUrl()`. Handler
+redirect ketat hanya untuk exchange; HTTP job legasi tidak diubah. GAS dan
+property itu tersedia sebelum Desktop baharu diterbitkan. Fallback manual
+legasi berada dalam Lanjutan dengan pengesahan/pin yang sama.
+
+Penebusan `moeisSambungTukar` di bawah `ScriptLock` menggunakan satu property
+JSON sebagai unit commit: hash kod ditandakan digunakan dan hash token unik
+`HD1` disimpan bersama. Auth job list/claim/release/complete menerima token
+aktif (pemilik diikat ID peranti) atau rahsia legasi; auth dan mutasi berkongsi
+kunci dengan revokasi. Token bukan sesi admin. RPC jana/senarai/batal memakai
+auth admin sedia ada. Daftar UI hanya memaparkan metadata legap, bukan hash
+atau token. Had kadar persisten global 20/minit, had 12 kod menunggu dan
+12 peranti aktif, property maks 8,000 bait; kerosakan/quota/readback menolak.
+
+Token baharu disimpan DPAPI CurrentUser dalam medan dalaman `rahsiaEnjin`
+sedia ada supaya stor, migrasi dan pagar konfigurasi terus serasi. PC baharu
+tidak menerima `HADIR_MOEIS_ENGINE_SECRET`. Konfigurasi lama yang sah terus
+boleh digunakan; pemulihan rosak memakai kod baharu selepas sandaran disahkan.
+Kedua-dua mod menguji DPAPI dan tulisan disulit sebelum exchange. Penggantian
+disekat ketika kitaran/klaim tempatan atau tugas backend lama masih aktif;
+respons konfigurasi lapuk tidak boleh menimpa fail berubah. Kod terpakai
+memaut ID peranti dan tidak boleh dibatalkan sebagai kod menunggu; admin boleh
+membatalkan PC terpaut. Bacaan helaian senarai di luar ScriptLock, dengan
+semakan auth singkat sebelum dan selepas bacaan peranti; mutasi tugas tetap
+disahkan di bawah kunci revokasi. Pemulihan property rosak oleh pemilik editor
+menggunakan sandaran disahkan dan reset eksplisit, bukan RPC awam.
+Penolakan auth lama yang eksplisit membenarkan re-pair; timeout/rangkaian
+masih menolak secara lalai. Pemulihan backend tidak dicapai mempunyai checkbox
+dan pengesahan kedua, dengan guard backend sasaran tetap wajib. Exchange
+memeriksa tugas ID peranti lama sahaja apabila diketahui pada deployment sama;
+tugas pemilik lain tidak menyekat. ID tidak diketahui/legasi atau deployment
+berubah memakai guard konservatif semua tugas aktif pada backend sasaran dan
+memerlukan semakan berasingan backend lama. Token lama dibatalkan bersama
+commit penggantian. Admin boleh mengasingkan tugas PC dibatalkan melalui
+`moeisSambungAsingTugas` dengan auth dan pengesahan eksplisit: status
+`semakan_manual`, status asal dalam mesej, snapshot/pemilik/lease kekal,
+tiada keputusan selesai atau penghantaran semula. Status ini menolak klaim,
+cipta job dan simpan semula kelas. Rekod revoked bertugas aktif dikekalkan;
+lease luputnya tidak membolehkan enjin lain menghantar semula secara automatik.
+Penanda migrasi dan keperluan mula semula dikekalkan; idMe kekal berasingan.
+Revokasi menolak RPC seterusnya tetapi tidak boleh menarik balik HTTP atau
+tulisan portal yang telah bermula. Kepimpinan `pc*` tidak diaktifkan.
+
+Kontrak terperinci, sumber rasmi PRNG/redirect, had dan ujian sintetik:
+[`desktop/docs/CONNECTION-CODE.md`](desktop/docs/CONNECTION-CODE.md).
+Huraian input manual dalam sejarah 1.0.12/1.0.13 di bawah ialah format legasi;
+UI utama menggunakan kod, dengan fallback legasi lanjutan. Tiada deploy,
+commit, push atau pemasangan dibuat.
 
 `desktop/` ialah shell Windows tray (WinForms `net8.0-windows` + WebView2)
 yang mengehoskan pandangan portal dalam satu permukaan WebView2 terbenam
@@ -1640,6 +1701,7 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 30 Oktober 2026 | 2.40 / desktop 1.0.23 / web 1.11.41 (belum diterbitkan) | Pairing satu kod tanpa luput, sekali guna/revocable; registry dan pembatalan admin, endpoint terbenam dengan allowlist ketat, exchange atomik hash-only, token peranti scoped untuk RPC tugas dan DPAPI CurrentUser. Rahsia legasi terus serasi; pemulihan bersandaran dan idMe berasingan. | Ujian GAS VM dan C#↔GAS melalui stdin/stdout, DPAPI sintetik terpencil, parser/redirect dan paparan setempat. Parent melaporkan dotnet test standard di luar sandbox lulus sepenuhnya sebelum pembetulan semakan. Pembetulan pin, endpoint autoritatif, pengesahan, fallback legasi, preflight, kaitan kod?PC dan pengendalian response/ralat diuji semula secara sintetik; bukti semasa direkod dalam laporan perubahan. Tiada portal/data sebenar, cloud source, pemasangan, deploy, commit atau push disentuh. |
 | 30 Oktober 2026 | 2.39 / cloud 1.1.0 / versi desktop, web dan GAS kekal | Aliran login cloud berterusan melalui alarm: IC → frasa → checkbox → password → dashboard → anchor aplikasi MOEIS sekali → bukti DOM kehadiran dan sekolah. Satu Mula Autohadir, cancel/close berpengawal, tab milik run, probeOnly persisten tanpa decrypt/fill/submit/SSO, vault cloud opt-in AES-GCM/HKDF tanpa import PC, auth/Origin/CSRF dan input ketat pada Worker serta DO. Hasil tidak pasti tidak dimainkan semula. Penghantaran kehadiran automatik kekal MATI. | RED/GREEN, suite cloud dan Chromium sebenar lulus tanpa skip; rantaian fixture, popup, paparan 390 px dan bundle produksi disahkan. Semakan bebas Opus diluluskan. Worker 1.1.0 diterbitkan dan deployment 100% disahkan melalui API. Ujian Browser Run sebenar pada 30 Oktober 2026 sampai idMe tetapi dihentikan oleh “Sekatan atas faktor keselamatan” sebelum login; sifar kredensial/penghantaran, sesi ujian ditutup dan idle disahkan. Regresi web serta pelancar DPAPI ke HTTPS lulus. |
 | 30 Oktober 2026 | 2.38 / cloud 1.0.0 / desktop kekal 1.0.22 / web kekal 1.11.40 / Apps Script kekal @126 | **Autohadir Cloud Fasa 1 (perintis, `autohadir-cloud/`)** untuk SK Paya Redan sahaja: Worker `autohadir-skpr-cloud` + DO SQLite `SchoolSession` + binding Browser Run; panel pemilik berkunci (tiket HMAC satu-kali daripada pelancar DPAPI Windows), kitaran hayat sesi yang mengekalkan sid apabila carian/penutupan tidak pasti, tempahan belanjawan/had kadar/penggera sebelum `acquire`, navigasi CDP sebenar ke URL enum, had 15 minit pada setiap tindakan, diagnostik agregat bertaip, Lihat sahaja melalui gema guardrail readonly atau tangkapan skrin statik, kawalan manual berpersetujuan eksplisit, pengesahan asal URL Live View, ralat bertaip dengan mesej tetap dan pengepala keselamatan pada setiap respons. wrangler dipin 4.156.0. Penghantaran automatik MATI; tiada perubahan pada HADIR/GAS/desktop. Lihat §5.4. | `npm test`, `npm run check` dan `npm run build` (`wrangler deploy --dry-run`) lulus dalam `autohadir-cloud/` dengan binding palsu dan data rekaan; log RED/GREEN dalam `autohadir-cloud/evidence/` (diabaikan git). Ujian langsung Browser Run (acquire/navigasi/inspect/guna semula/Live View/penutupan) dan pelancar pemilik HTTPS lulus; idMe memaparkan sekatan keselamatan dalam sesi sebenar, jadi login/MOEIS/penghantaran belum lulus. Tiada pintasan, tiada kehadiran dihantar, tiada rahsia dalam repo. |
 | 19 Oktober 2026 | 2.37 / desktop 1.0.22 / web kekal 1.11.40 / Apps Script kekal @126 | **Pembetulan tetingkap utama dimaksimumkan & butang Autohadir hilang (isu paparan 1920×1020).** (1) **Pengekalan keadaan Maximized tetingkap utama:** Membuka tetapan tempatan (Tetapan Enjin, Akaun idMe) atau mengaktifkan tetingkap yang sedang dimaksimumkan melalui `ShowFromTray` tidak lagi mengecutkan tetingkap kembali kepada saiz normal asal 1100×750. Seam boleh diuji `MainForm.LaksanaTunjukDariDulang(Form, Action, Action)` hanya menukar `WindowState` kepada `Normal` sekiranya tetingkap sedang `Minimized` (`if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;`), dan mengekalkan `WindowState == FormWindowState.Maximized`. (2) **Butang Autohadir kekal kelihatan pada 1920×1020 & DPI tinggi (125%/150%):** Punca asal disahkan: `_navLabel` (Spring) menggunakan `ToolStripStatusLabel` lalai di mana `GetPreferredSize` mengembalikan lebar teks penuh. Apabila mesej portal panjang (mis. "Portal: SedangLogin...", "Portal: PerluTindakanManusia...", atau teks ralat panjang) dan/atau DPI diskalakan (125%/150%), saiz cadangan `_navLabel` melebihi baki ruang `TableLayoutSettings` dalam `StatusStrip`, menyebabkan `StatusStrip` menggugurkan item di penghujung (`_navLabel` dan `_autohadirButton`) ke `Placement = ToolStripItemPlacement.None` (terkeluar di luar skrin). Ditukar kepada `LabelStatusTerhad` dengan pembetulan `if (Spring) return new Size(0, saizAsas.Height);` — membolehkan lajur Spring mengecut mengikut baki ruang sebenar tanpa menggugurkan butang Autohadir. (3) **Pelarasan dinamik margin krip saiz:** `ButangAutohadir.KiraMargin(StatusStrip)` memperuntukkan ruang krip (20 px) pada tetingkap Normal dengan `SizingGrip`, dan meniadakan ruang krip tambahan (2 px) apabila dimaksimumkan kerana WinForms tidak melukis krip saiz pada tetingkap dimaksimumkan, menghapuskan jurang kosong 34 px di sudut kanan bawah. | Ujian regresi baharu dalam `BugReproductionTests.cs` (13 ujian): ujian seam `LaksanaTunjukDariDulang` bagi Maximized/Minimized/Normal dan pembukaan tetapan; ujian `LabelStatusTerhad` Spring `GetPreferredSize`; ujian `KiraMargin` dinamik krip saiz; dan ujian fixture luar skrin 1920×1020 Panel tanpa screen clipping merentas penskalaan DPI 100%, 125%, 150% dengan teks pendek hingga panjang lampau. 1179 ujian dotnet lulus (1179/1179, 0 gagal), `dotnet build` 0 ralat. Tiada kredensial, rangkaian langsung, atau kehadiran produksi diubah. |

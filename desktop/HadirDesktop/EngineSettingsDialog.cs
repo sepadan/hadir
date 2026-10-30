@@ -1,22 +1,27 @@
-using System.Drawing;
+﻿using System.Drawing;
 using System.Windows.Forms;
 
 namespace HadirDesktop;
 
-/// <summary>Local Desktop configuration; never opens Companion or a browser.</summary>
+/// <summary>One admin code. No portal activity or idMe credential access.</summary>
 public sealed class EngineSettingsDialog : Form
 {
     private readonly DpapiRahsiaEnjinStore _store;
-    private readonly TextBox _url = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _rahsia = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true };
-    private readonly Label _status = new() { Dock = DockStyle.Fill, ForeColor = Color.DimGray };
+    private readonly TextBox _kod = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true, MaxLength = 2048, Name = "kodSambungan" };
+    private readonly Label _status = new() { Dock = DockStyle.Fill, ForeColor = Color.DimGray, Name = "statusSambungan" };
     private readonly PersaraanAutostartCompanion? _persaraan;
     private readonly Label _companion = new() { Dock = DockStyle.Fill };
     private readonly Button _hentikanCompanion = new() { Text = "Matikan autostart Companion lama", AutoSize = true };
     private readonly Button _pulihkanCompanion = new() { Text = "Pulihkan autostart Companion", AutoSize = true };
+    private readonly Button _sambung = new() { Text = "Sambung", AutoSize = true };
+    private readonly Button _pulihkan = new() { Text = "Pulihkan tetapan rosak", AutoSize = true };
+    private readonly Button _tutup = new() { Text = "Tutup", AutoSize = true };
+    private readonly CheckBox _semakanTidakPasti = new() { Dock = DockStyle.Fill, Name = "pemulihanBackendTidakDicapai",
+        Text = "Pemulihan: backend lama tidak dapat dicapai (perlu pengesahan berasingan)", AutoSize = true };
+    private bool _sibuk;
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly Label _sasaran = new() { Dock = DockStyle.Fill, Name = "sasaranDeployment", Text = "Sasaran deployment akan dipaparkan selepas kod ditampal." };
 
-    /// <param name="migrasi">Keputusan migrasi semasa lancar (nama keputusan sahaja dipaparkan).</param>
-    /// <param name="persaraan">Tindakan autostart Companion yang eksplisit dan boleh diundur.</param>
     public EngineSettingsDialog(DpapiRahsiaEnjinStore store, HasilMigrasi? migrasi = null, PersaraanAutostartCompanion? persaraan = null)
     {
         _store = store;
@@ -24,107 +29,100 @@ public sealed class EngineSettingsDialog : Form
         Text = "Tetapan Tempatan — HADIR Desktop";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
-        MaximizeBox = false;
-        MinimizeBox = false;
-        ShowInTaskbar = false;
-        ClientSize = new Size(610, 400);
-
-        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 8 };
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 135));
+        MaximizeBox = MinimizeBox = ShowInTaskbar = false;
+        AutoScaleMode = AutoScaleMode.Dpi;
+        ClientSize = new Size(660, 540);
+        var panel = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 9, AutoScroll = true };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 42));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-        panel.Controls.Add(new Label { Text = "URL API Apps Script", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
-        panel.Controls.Add(_url, 1, 0);
-        panel.Controls.Add(new Label { Text = "Rahsia enjin", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
-        panel.Controls.Add(_rahsia, 1, 1);
-        panel.Controls.Add(new Label { Text = "Biarkan rahsia kosong untuk mengekalkan nilai sedia ada. Nilai tersimpan tidak dipaparkan.", Dock = DockStyle.Fill }, 0, 2);
-        panel.SetColumnSpan(panel.GetControlFromPosition(0, 2)!, 2);
-        _status.Text = "Simpan tetapan, kemudian mulakan semula HADIR Desktop untuk menggunakannya.";
-        panel.Controls.Add(_status, 0, 3);
-        panel.SetColumnSpan(_status, 2);
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
-        var tutup = new Button { Text = "Tutup", AutoSize = true };
-        var simpan = new Button { Text = "Simpan", AutoSize = true };
-        var pulihkan = new Button { Text = "Pulihkan tetapan rosak", AutoSize = true };
-        tutup.Click += (_, _) => Close();
-        simpan.Click += (_, _) => Simpan();
-        pulihkan.Click += (_, _) => PulihkanRosak();
-        buttons.Controls.Add(tutup);
-        buttons.Controls.Add(simpan);
-        buttons.Controls.Add(pulihkan);
-        panel.Controls.Add(buttons, 0, 4);
-        panel.SetColumnSpan(buttons, 2);
-
-        // Data dan Companion lama: status migrasi (nama keputusan sahaja) dan
-        // persaraan autostart yang hanya berlaku apabila pemilik menekan butang.
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
-        var migrasiTeks = new Label
+        foreach (var height in new[] { 70, 28, 34, 60, 78, 42, 52, 52, 42 }) panel.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        panel.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Dalam HADIR, buka Hantar ke MOEIS → Sambungan Desktop → Jana kod. Tampal satu kod penuh di bawah. Kod tiada tarikh luput, sekali guna dan boleh dibatalkan oleh admin. Akaun idMe diurus secara berasingan." }, 0, 0);
+        panel.Controls.Add(new Label { Dock = DockStyle.Fill, Text = "Kod sambungan", TextAlign = ContentAlignment.MiddleLeft }, 0, 1);
+        panel.Controls.Add(_kod, 0, 2);
+        panel.Controls.Add(_sasaran, 0, 3);
+        _kod.TextChanged += (_, _) =>
         {
-            Dock = DockStyle.Fill,
-            ForeColor = Color.DimGray,
-            Text = "Data disimpan dalam folder HADIR Desktop sendiri. " +
-                (migrasi is null ? "" : "Migrasi daripada Companion: backend " + migrasi.Backend.Keputusan +
-                    ", kredensial " + migrasi.Kredensial.Keputusan + "."),
+            try
+            {
+                var value = KodSambungan.Baca(_kod.Text);
+                var trusted = SambunganDesktopClient.SasaranDipercayai(value.ApiUrl, _store.BacaApiUrlUntukPaparan(), new[] { SambunganDesktopClient.BootstrapUrl });
+                _sasaran.Text = (trusted ? "Sasaran dipercayai: " : "DITOLAK — sasaran tidak dipercayai: ") + value.ApiUrl;
+                _sasaran.ForeColor = trusted ? Color.DarkGreen : Color.Firebrick;
+            }
+            catch { _sasaran.Text = "Tampal kod penuh untuk melihat deployment sasaran."; }
         };
-        panel.Controls.Add(migrasiTeks, 0, 5);
-        panel.SetColumnSpan(migrasiTeks, 2);
-        panel.Controls.Add(_companion, 0, 6);
-        panel.SetColumnSpan(_companion, 2);
-        var butangCompanion = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
-        butangCompanion.Controls.Add(_pulihkanCompanion);
-        butangCompanion.Controls.Add(_hentikanCompanion);
-        panel.Controls.Add(butangCompanion, 0, 7);
-        panel.SetColumnSpan(butangCompanion, 2);
+        _status.Text = _store.Status().Sedia
+            ? "Sambungan sedia ada dikekalkan. Gunakan kod baharu hanya untuk menggantinya. Mulakan semula selepas menyambung."
+            : "Belum ada sambungan yang boleh digunakan. Sambung dengan kod daripada admin, kemudian mulakan semula Desktop.";
+        var idSedia = KodSambungan.IdDaripadaToken(_store.Baca()?.RahsiaEnjin);
+        if (idSedia is not null) _status.Text = "ID PC: " + idSedia + ". " + _status.Text;
+        panel.Controls.Add(_status, 0, 4);
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
+        buttons.Controls.AddRange(new Control[] { _tutup, _sambung, _pulihkan });
+        var lanjutan = new Button { Text = "Lanjutan (legasi)…", AutoSize = true };
+        buttons.Controls.Add(lanjutan);
+        lanjutan.Click += (_, _) => { if (!_sibuk) { using var d = new LegacyConnectionDialog(_store); d.ShowDialog(this); } };
+        panel.Controls.Add(buttons, 0, 5);
+        panel.Controls.Add(_semakanTidakPasti, 0, 6);
+        panel.Controls.Add(_companion, 0, 7);
+        var legacy = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
+        legacy.Controls.AddRange(new Control[] { _pulihkanCompanion, _hentikanCompanion });
+        panel.Controls.Add(legacy, 0, 8);
+        Controls.Add(panel);
+        AcceptButton = _sambung; CancelButton = _tutup;
+        _tutup.Click += (_, _) => Close();
+        _sambung.Click += async (_, _) => await SambungAsync(false);
+        _pulihkan.Click += async (_, _) => await SambungAsync(true);
         _hentikanCompanion.Click += (_, _) => HentikanCompanion();
         _pulihkanCompanion.Click += (_, _) => Jalankan(_persaraan!.Pulihkan());
-
-        Controls.Add(panel);
-        AcceptButton = simpan;
-        CancelButton = tutup;
-        _url.Text = _store.BacaApiUrlUntukPaparan() ?? "";
+        FormClosing += (_, e) => { e.Cancel = TangguhTutup(_sibuk, e.CloseReason); if (!e.Cancel) { _lifetime.Cancel(); _kod.Clear(); } };
         KemasKiniCompanion();
     }
+    internal static bool TangguhTutup(bool sibuk, CloseReason reason) => sibuk && reason == CloseReason.UserClosing;
 
-    /// <summary>
-    /// Pemulihan EKSPLISIT fail backend Desktop yang rosak/separa. Memerlukan URL
-    /// penuh dan rahsia enjin yang dimasukkan semula; fail lama disandarkan dahulu.
-    /// Tidak membaca Companion. Tiada klien backend dibina dalam proses ini.
-    /// </summary>
-    private void PulihkanRosak()
+    private async Task SambungAsync(bool pulihkan)
     {
-        if (string.IsNullOrWhiteSpace(_rahsia.Text))
-        {
-            _status.ForeColor = Color.Firebrick;
-            _status.Text = "Pemulihan memerlukan URL penuh DAN rahsia enjin yang dimasukkan semula.";
-            return;
-        }
-        var jawapan = MessageBox.Show(this,
-            "Fail tetapan backend HADIR Desktop sedia ada akan disandarkan, kemudian diganti dengan URL dan rahsia enjin yang anda masukkan.\n\n" +
-            "Tiada data diambil daripada Companion. HADIR Desktop MESTI dimulakan semula selepas ini.\n\nTeruskan?",
-            "Pulihkan tetapan rosak", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
-        if (jawapan != DialogResult.Yes) return;
+        if (_sibuk) return;
+        string sasaran, cap;
         try
         {
-            var sandaran = _store.PulihkanGantiRosak(_url.Text.Trim(), _rahsia.Text);
-            _rahsia.Clear();
+            using var previewHttp = AppsScriptHttpHandler.BuatHttpClient();
+            sasaran = new SambunganDesktopClient(previewHttp).SahkanSasaran(_kod.Text, _store);
+            cap = _store.CapSimpanan();
+        }
+        catch (InvalidOperationException e) { _status.Text = e.Message; _status.ForeColor = Color.Firebrick; return; }
+        catch { _status.Text = "Tetapan tempatan tidak dapat diperiksa; tiada kod ditebus."; return; }
+        var mengganti = _store.AdaFailBackend;
+        if ((pulihkan || mengganti) && MessageBox.Show(this,
+            "Sasaran: " + sasaran + "\n\nSambungan semasa: " + (_store.BacaApiUrlUntukPaparan() ?? "tiada/tidak dapat dibaca") +
+            "\n\nGanti sambungan pada PC ini? Tugasan aktif mesti selesai dahulu. Pemulihan rosak menyandarkan fail asal. Mulakan semula selepas selesai.",
+            "Sahkan penggantian sambungan", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+        var pulihTidakPasti = _semakanTidakPasti.Checked && mengganti;
+        if (pulihTidakPasti && MessageBox.Show(this,
+            "Semakan backend lama mungkin gagal. Ini bukan bukti bahawa tugasan belum dihantar. " +
+            "Semak PC lama dihentikan dan hasil tidak pasti dengan admin. Jangan hantar semula kehadiran. " +
+            "Backend sasaran tetap menyekat tugasan aktif pemilik lama (atau semua pemilik jika ID/deployment lama tidak diketahui). " +
+            "Jika deployment berubah, admin mesti menyemak tugasan pada backend lama secara berasingan. Teruskan pemulihan?",
+            "Sahkan pemulihan tanpa semakan lama", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+        var kod = _kod.Text; _kod.Clear();
+        _sibuk = true;
+        _semakanTidakPasti.Enabled = _kod.Enabled = _sambung.Enabled = _pulihkan.Enabled = _tutup.Enabled = false;
+        _hentikanCompanion.Enabled = _pulihkanCompanion.Enabled = false;
+        _status.ForeColor = Color.DimGray; _status.Text = "Menyambung… Tunggu keputusan sebelum menutup dialog.";
+        try
+        {
+            using var http = AppsScriptHttpHandler.BuatHttpClient();
+            var id = await new SambunganDesktopClient(http).SambungAsync(kod, _store, pulihkan, _lifetime.Token, mengganti || pulihkan, cap, sahkanSemakanTidakPasti: pulihTidakPasti);
+            if (IsDisposed) return;
             _status.ForeColor = Color.DarkGreen;
-            _status.Text = "Tetapan dipulihkan (fail lama dalam " + sandaran + "). MULAKAN SEMULA HADIR Desktop; tiada penghantaran sebelum itu.";
+            _status.Text = "ID PC: " + id + ". Sambungan disimpan. MULAKAN SEMULA HADIR Desktop untuk menggunakan token peranti baharu. Akaun idMe kekal berasingan.";
         }
-        catch (InvalidOperationException error)
+        catch (InvalidOperationException e) { if (!IsDisposed) { _status.ForeColor = Color.Firebrick; _status.Text = e.Message; } }
+        catch { if (!IsDisposed) { _status.ForeColor = Color.Firebrick; _status.Text = "Sambungan tidak dapat disimpan. Semak daftar peranti dalam HADIR sebelum menjana kod baharu."; } }
+        finally
         {
-            _status.ForeColor = Color.Firebrick;
-            _status.Text = error.Message;
-        }
-        catch (Exception error)
-        {
-            _status.ForeColor = Color.Firebrick;
-            _status.Text = "Pemulihan gagal (" + error.GetType().Name + "); fail lama tidak dibuang. Tiada rahsia dipaparkan.";
+            _sibuk = false;
+            if (!IsDisposed) { _semakanTidakPasti.Enabled = _kod.Enabled = _sambung.Enabled = _pulihkan.Enabled = _tutup.Enabled = true; KemasKiniCompanion(); }
         }
     }
 
@@ -136,7 +134,6 @@ public sealed class EngineSettingsDialog : Form
             _hentikanCompanion.Visible = _pulihkanCompanion.Visible = false;
             return;
         }
-
         _companion.Text = _persaraan.TeksStatus();
         _hentikanCompanion.Enabled = _persaraan.AutostartAda();
         _pulihkanCompanion.Enabled = !_persaraan.AutostartAda() && _persaraan.SandaranAda();
@@ -144,12 +141,10 @@ public sealed class EngineSettingsDialog : Form
 
     private void HentikanCompanion()
     {
-        var jawapan = MessageBox.Show(this,
-            "Ini memadam entri autostart Windows untuk Companion lama (sandaran disimpan; boleh dipulihkan).\n\n" +
-            "Proses Companion yang sedang berjalan TIDAK dihentikan dan tiada fail Companion dipadam.\n\n" +
-            "Teruskan?",
-            "Matikan autostart Companion lama", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2);
-        if (jawapan == DialogResult.Yes) Jalankan(_persaraan!.Hentikan());
+        if (MessageBox.Show(this,
+            "Ini memadam entri autostart Companion lama dengan sandaran yang boleh dipulihkan. Proses berjalan dan fail Companion tidak dipadam. Teruskan?",
+            "Matikan autostart Companion lama", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) == DialogResult.Yes)
+            Jalankan(_persaraan!.Hentikan());
     }
 
     private void Jalankan(HasilPersaraan hasil)
@@ -157,26 +152,5 @@ public sealed class EngineSettingsDialog : Form
         _status.ForeColor = hasil.Berjaya ? Color.DarkGreen : Color.Firebrick;
         _status.Text = hasil.Mesej;
         KemasKiniCompanion();
-    }
-
-    private void Simpan()
-    {
-        try
-        {
-            _store.Simpan(_url.Text.Trim(), _rahsia.Text);
-            _rahsia.Clear();
-            _status.ForeColor = Color.DarkGreen;
-            _status.Text = "Disimpan. Mulakan semula HADIR Desktop untuk menggunakan tetapan baharu.";
-        }
-        catch (InvalidOperationException error)
-        {
-            _status.ForeColor = Color.Firebrick;
-            _status.Text = error.Message;
-        }
-        catch (Exception)
-        {
-            _status.ForeColor = Color.Firebrick;
-            _status.Text = "Simpanan gagal. Semak URL dan fail tetapan tempatan; tiada rahsia dipaparkan.";
-        }
     }
 }

@@ -43,11 +43,14 @@ dihantar semasa semakan — ia hanya permintaan GET biasa.
 3. **Isi tetapan sambungan pada PC itu sendiri** (tidak boleh disalin dari PC
    lain):
    - Klik ikon dulang HADIR Desktop → **Tetapan Tempatan**.
-   - **URL API**: endpoint Web App penuh
-     `https://script.google.com/macros/s/<id-deployment>/exec`
-   - **Rahsia enjin**: nilai `HADIR_MOEIS_ENGINE_SECRET` daripada
-     *Script Properties* projek Apps Script HADIR.
-   - Simpan, kemudian **mulakan semula HADIR Desktop**.
+   - Admin HADIR membuka **Hantar ke MOEIS → Sambungan Desktop → Jana kod**.
+   - Tampal satu **Kod sambungan** pada Desktop dan tekan **Sambung**.
+   - Kod tiada tarikh luput tetapi hanya sekali guna. Simpan secara peribadi;
+     admin boleh membatalkan kod belum digunakan atau akses peranti.
+   - **Mulakan semula HADIR Desktop** selepas sambungan disimpan.
+   - Jika hasil sambungan tidak pasti, semak daftar di HADIR, batalkan PC
+     baharu yang tidak digunakan dan jana kod baharu. Jangan cuba kod sama
+     berulang kali. Panduan lengkap dalam repo: `desktop/docs/CONNECTION-CODE.md`.
 4. **Masuk akaun idMe** melalui ikon dulang → **Akaun idMe…** (login dibuat
    dalam tetingkap terbenam HADIR Desktop sendiri).
 5. **Sahkan**: label Backend pada tetingkap utama mesti menunjukkan klaim &
@@ -69,8 +72,8 @@ sekolah:
 
 - Blob DPAPI hanya boleh dibaca oleh **akaun Windows yang membuatnya** — pada
   PC lain ia gagal dinyahsulit dan aplikasi akan gagal-tertutup.
-- Rahsia backend ialah **satu rahsia sepasukan**; ia ditaip pada setiap PC,
-  tidak diedarkan sebagai fail.
+- PC baharu menerima token unik yang boleh dibatalkan secara berasingan;
+  rahsia enjin bersama tidak lagi diedarkan. Konfigurasi lama terus serasi.
 
 Setiap PC mempunyai keahlian sendiri. Desktop **tidak** menyalin apa-apa
 daripada Companion pada PC yang tiada Companion — tiada Companion, tiada
