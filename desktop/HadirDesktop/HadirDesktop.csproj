@@ -13,7 +13,6 @@
     <!-- Versi binaan: SATU sumber kebenaran. VersiAplikasi.cs membacanya semula
          daripada assembly; jangan tulis nombor versi di tempat lain. -->
     <Version>1.0.25</Version>
-    <InformationalVersion>1.0.24</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
