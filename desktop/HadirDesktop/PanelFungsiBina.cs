@@ -56,7 +56,7 @@ public static class PanelFungsiBina
         new KelompokFungsi("Tetapan", new[]
         {
             new ItemFungsi(FungsiDulang.TetapanTempatan, DemoLabel.TrayOpenSettings,
-                "URL Apps Script dan rahsia enjin pada PC ini.", JenisFungsi.Perintah),
+                "Kod sambungan Desktop pada PC ini.", JenisFungsi.Perintah),
             new ItemFungsi(FungsiDulang.AkaunIdMe, DemoLabel.TrayIdMeSettings,
                 "Kredensial idMe, pilihan automatik dan waktu aktif.", JenisFungsi.Perintah),
             new ItemFungsi(FungsiDulang.Autostart, DemoLabel.TrayAutostart,

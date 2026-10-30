@@ -1,5 +1,21 @@
 # Kemas kini HadirDesktop
 
+## 1.0.24 - Tetapan boleh dibuka semasa tugasan aktif (belum diterbitkan)
+
+Bukti pengguna, 30 Oktober 2026 kira-kira 20:20: Tetapan Tempatan dari dulang
+tidak muncul ketika status portal sedang-login untuk tugasan belum siap;
+label meminta tugasan/klaim diselesaikan. Kini tugasan aktif memaparkan
+pengesahan amaran (No secara lalai); Yes membuka tetapan untuk semakan
+sambungan. Simpan kod biasa, pemulihan dan legasi tetap disekat selagi kitaran
+atau klaim tempatan aktif. Perihal Semua fungsi menyebut kod sambungan Desktop.
+Web 1.11.41 dan GAS @130 tidak berubah; tiada tugasan dilepas atau dihantar semula.
+
+Ujian sintetik: RED 6 gagal sebelum seam ditambah; GREEN filter akses/pairing/
+panel 79 lulus (termasuk 9 regresi akses baharu), Node 74 lulus. Perintah dotnet
+standard disekat sandbox `MSB4184` sebelum ujian. Larian offline dengan override
+SDK dan tanpa ujian pelancar exe: 1,187 lulus, 45 gagal pada fixture HttpListener
+(`The handle is invalid`), 0 skip. Tiada Desktop exe atau portal dibuka.
+
 ## 1.0.23 — Sambungan menggunakan satu kod (belum diterbitkan)
 
 Admin HADIR menjana kod dalam **Hantar ke MOEIS → Sambungan Desktop**.

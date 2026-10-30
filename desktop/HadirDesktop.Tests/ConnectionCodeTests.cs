@@ -484,7 +484,7 @@ public class ConnectionCodeTests
         Assert.DoesNotContain("_deviceHttp = AppsScriptHttpHandler",main);
         Assert.Contains("_pagarBackend.AdaKlaimAktif",main); Assert.Contains("if (_tetapanBackendDibuka || _kitaranBackendSedangJalan) return;",main);
         var dialog=File.ReadAllText(Path.Combine(root.FullName,"desktop","HadirDesktop","EngineSettingsDialog.cs"));
-        Assert.Contains("new LegacyConnectionDialog(_store)",dialog);
+        Assert.Contains("new LegacyConnectionDialog(_store, _adaAktivitiSemasa)",dialog);
         Assert.Contains("Sahkan penggantian sambungan",dialog);
     }
 

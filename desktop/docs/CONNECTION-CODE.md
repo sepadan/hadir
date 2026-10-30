@@ -1,7 +1,8 @@
 # Sambungan Desktop melalui satu kod
 
-Perubahan kerja pada `feat/desktop-connection-code`, belum dideploy atau
-diterbitkan. Desktop 1.0.23 / aset web 1.11.41. Pelepasan oleh penyemak induk.
+Desktop 1.0.23 telah diterbitkan menurut laporan pengguna. Pembetulan Desktop
+1.0.24 dalam worktree ini belum diterbitkan; aset web 1.11.41 dan GAS @130
+tidak berubah. Pelepasan oleh penyemak induk.
 
 Admin HADIR log masuk seperti biasa, buka **Hantar ke MOEIS → Sambungan
 Desktop**, jana dan salin satu kod. Pada PC sasaran buka **Tetapan Tempatan**,
@@ -109,7 +110,13 @@ fail asal disandarkan dan disahkan sebelum diganti. Penanda migrasi tidak
 dipadam oleh pairing; mula semula memuktamadkan data Desktop seperti dahulu.
 Tiada import semula Companion atau perubahan idMe semasa pairing.
 
-Penggantian disekat semasa kitaran/klaim tempatan aktif; sementara dialog
+Dialog Tetapan Tempatan boleh dibuka ketika kitaran/klaim tempatan aktif
+selepas pengesahan amaran **Tugasan masih aktif** (No secara lalai). Yes hanya
+membenarkan paparan tetapan, bukan simpan atau gangguan tugasan. Simpan kod
+biasa, pemulihan kod dan legasi mempunyai satu semakan aktiviti tempatan hidup
+pada handler masing-masing; aktiviti aktif memaparkan amaran tunggu siap
+sebelum menyimpan sambungan baharu. Pairing preflight masih memeriksa tugas
+backend secara berasingan, tanpa guard tempatan berganda. Sementara dialog
 tetapan dibuka, tiada kitaran baharu boleh bermula. Penolakan auth eksplisit
 (`Akses enjin MOEIS ditolak.` atau rahsia legasi belum ditetapkan) bermaksud
 kredensial lama tidak lagi berfungsi, bukan bukti tugas sudah selesai. Ia

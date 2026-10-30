@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.40 · 30 Oktober 2026**
+**Versi 2.41 · 30 Oktober 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -680,6 +680,12 @@ commit penggantian. Admin boleh mengasingkan tugas PC dibatalkan melalui
 tiada keputusan selesai atau penghantaran semula. Status ini menolak klaim,
 cipta job dan simpan semula kelas. Rekod revoked bertugas aktif dikekalkan;
 lease luputnya tidak membolehkan enjin lain menghantar semula secara automatik.
+Tetapan Tempatan boleh dibuka semasa kitaran/klaim aktif selepas amaran
+Yes/No (lalai No), supaya pemilik tidak terkunci daripada melihat tetapan.
+Pengesahan membuka dialog tidak membenarkan simpan: semakan aktiviti tempatan
+hidup menolak pairing biasa/pemulihan dan fallback legasi sebelum preflight.
+Semasa dialog dibuka, kitaran baharu masih disekat; guard backend pairing
+sedia ada tidak diduplikasi atau dilangkaui.
 Penanda migrasi dan keperluan mula semula dikekalkan; idMe kekal berasingan.
 Revokasi menolak RPC seterusnya tetapi tidak boleh menarik balik HTTP atau
 tulisan portal yang telah bermula. Kepimpinan `pc*` tidak diaktifkan.
@@ -1703,6 +1709,7 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 30 Oktober 2026 | 2.41 / desktop 1.0.24 (belum diterbitkan) / web 1.11.41 dan GAS @130 tidak berubah | Bukti pengguna sekitar 20:20: tugasan belum siap dengan portal sedang-login membuat Tetapan Tempatan dari dulang ditolak sebelum tetingkap muncul. Ganti penolakan senyap dengan pengesahan amaran Yes/No; reentrancy masih ditolak, Yes menunjukkan tetingkap dan dialog. Semakan aktiviti hidup yang sama disalur ke dialog; simpan pairing biasa/pemulihan dan legasi tetap disekat ketika kitaran/klaim aktif. Perihal Semua fungsi menyebut kod sambungan Desktop. | Regresi seam idle, No, Yes dan reentrancy serta handler simpan sebenar tanpa startup Desktop, portal atau data sebenar. RED 6 gagal; GREEN filter 79 lulus, Node 74 lulus. Standard dotnet disekat MSB4184; fallback offline tanpa pelancar exe: 1,187 lulus, 45 kegagalan fixture HttpListener sandbox, 0 skip. Pairing preflight backend dikekalkan; satu guard aktiviti tempatan setiap laluan simpan. Tiada pembatalan klaim, perubahan tugasan, deploy, commit atau push. |
 | 30 Oktober 2026 | 2.40 / desktop 1.0.23 / web 1.11.41 (belum diterbitkan) | Pairing satu kod tanpa luput, sekali guna/revocable; registry dan pembatalan admin, endpoint terbenam dengan allowlist ketat, exchange atomik hash-only, token peranti scoped untuk RPC tugas dan DPAPI CurrentUser. Rahsia legasi terus serasi; pemulihan bersandaran dan idMe berasingan. | Ujian GAS VM dan C#↔GAS melalui stdin/stdout, DPAPI sintetik terpencil, parser/redirect dan paparan setempat. Parent melaporkan dotnet test standard di luar sandbox lulus sepenuhnya sebelum pembetulan semakan. Pembetulan pin, endpoint autoritatif, pengesahan, fallback legasi, preflight, kaitan kod?PC dan pengendalian response/ralat diuji semula secara sintetik; bukti semasa direkod dalam laporan perubahan. Tiada portal/data sebenar, cloud source, pemasangan, deploy, commit atau push disentuh. |
 | 30 Oktober 2026 | 2.39 / cloud 1.1.0 / versi desktop, web dan GAS kekal | Aliran login cloud berterusan melalui alarm: IC → frasa → checkbox → password → dashboard → anchor aplikasi MOEIS sekali → bukti DOM kehadiran dan sekolah. Satu Mula Autohadir, cancel/close berpengawal, tab milik run, probeOnly persisten tanpa decrypt/fill/submit/SSO, vault cloud opt-in AES-GCM/HKDF tanpa import PC, auth/Origin/CSRF dan input ketat pada Worker serta DO. Hasil tidak pasti tidak dimainkan semula. Penghantaran kehadiran automatik kekal MATI. | RED/GREEN, suite cloud dan Chromium sebenar lulus tanpa skip; rantaian fixture, popup, paparan 390 px dan bundle produksi disahkan. Semakan bebas Opus diluluskan. Worker 1.1.0 diterbitkan dan deployment 100% disahkan melalui API. Ujian Browser Run sebenar pada 30 Oktober 2026 sampai idMe tetapi dihentikan oleh “Sekatan atas faktor keselamatan” sebelum login; sifar kredensial/penghantaran, sesi ujian ditutup dan idle disahkan. Regresi web serta pelancar DPAPI ke HTTPS lulus. |
 | 30 Oktober 2026 | 2.38 / cloud 1.0.0 / desktop kekal 1.0.22 / web kekal 1.11.40 / Apps Script kekal @126 | **Autohadir Cloud Fasa 1 (perintis, `autohadir-cloud/`)** untuk SK Paya Redan sahaja: Worker `autohadir-skpr-cloud` + DO SQLite `SchoolSession` + binding Browser Run; panel pemilik berkunci (tiket HMAC satu-kali daripada pelancar DPAPI Windows), kitaran hayat sesi yang mengekalkan sid apabila carian/penutupan tidak pasti, tempahan belanjawan/had kadar/penggera sebelum `acquire`, navigasi CDP sebenar ke URL enum, had 15 minit pada setiap tindakan, diagnostik agregat bertaip, Lihat sahaja melalui gema guardrail readonly atau tangkapan skrin statik, kawalan manual berpersetujuan eksplisit, pengesahan asal URL Live View, ralat bertaip dengan mesej tetap dan pengepala keselamatan pada setiap respons. wrangler dipin 4.156.0. Penghantaran automatik MATI; tiada perubahan pada HADIR/GAS/desktop. Lihat §5.4. | `npm test`, `npm run check` dan `npm run build` (`wrangler deploy --dry-run`) lulus dalam `autohadir-cloud/` dengan binding palsu dan data rekaan; log RED/GREEN dalam `autohadir-cloud/evidence/` (diabaikan git). Ujian langsung Browser Run (acquire/navigasi/inspect/guna semula/Live View/penutupan) dan pelancar pemilik HTTPS lulus; idMe memaparkan sekatan keselamatan dalam sesi sebenar, jadi login/MOEIS/penghantaran belum lulus. Tiada pintasan, tiada kehadiran dihantar, tiada rahsia dalam repo. |

@@ -8,8 +8,9 @@ internal sealed class LegacyConnectionDialog : Form
 {
     private readonly CancellationTokenSource _lifetime = new();
     private bool _busy;
-    internal LegacyConnectionDialog(DpapiRahsiaEnjinStore store)
+    internal LegacyConnectionDialog(DpapiRahsiaEnjinStore store, Func<bool>? adaAktivitiSemasa = null)
     {
+        adaAktivitiSemasa ??= () => false;
         Text = "Lanjutan — pemulihan sambungan legasi";
         StartPosition = FormStartPosition.CenterParent; FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = MinimizeBox = false; ClientSize = new Size(660, 365);
@@ -24,17 +25,19 @@ internal sealed class LegacyConnectionDialog : Form
         panel.Controls.Add(secret, 0, 3);
         var recovery = new CheckBox { Text = "Pulihkan fail rosak dengan sandaran (rahsia perlu diisi semula)", Dock = DockStyle.Fill };
         panel.Controls.Add(recovery, 0, 4);
-        var status = new Label { Dock = DockStyle.Fill, ForeColor = Color.DimGray };
+        var status = new Label { Name = "legacyStatus", Dock = DockStyle.Fill, ForeColor = Color.DimGray };
         panel.Controls.Add(status, 0, 5);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft };
         var close = new Button { Text = "Tutup", AutoSize = true };
-        var save = new Button { Text = "Simpan legasi…", AutoSize = true };
+        var save = new Button { Name = "legacySave", Text = "Simpan legasi…", AutoSize = true };
         buttons.Controls.AddRange(new Control[] { close, save }); panel.Controls.Add(buttons, 0, 6); Controls.Add(panel);
         close.Click += (_, _) => Close();
         FormClosing += (_, e) => { e.Cancel = EngineSettingsDialog.TangguhTutup(_busy, e.CloseReason); if (!e.Cancel) { _lifetime.Cancel(); secret.Clear(); } };
         save.Click += async (_, _) =>
         {
             if (_busy) return;
+            if (!EngineSettingsDialog.BenarkanSimpanBackend(adaAktivitiSemasa,
+                s => { status.Text = s; status.ForeColor = Color.Firebrick; })) return;
             try
             {
                 var target = url.Text.Trim();

@@ -7,6 +7,7 @@ namespace HadirDesktop;
 public sealed class EngineSettingsDialog : Form
 {
     private readonly DpapiRahsiaEnjinStore _store;
+    private readonly Func<bool> _adaAktivitiSemasa;
     private readonly TextBox _kod = new() { Dock = DockStyle.Fill, UseSystemPasswordChar = true, MaxLength = 2048, Name = "kodSambungan" };
     private readonly Label _status = new() { Dock = DockStyle.Fill, ForeColor = Color.DimGray, Name = "statusSambungan" };
     private readonly PersaraanAutostartCompanion? _persaraan;
@@ -22,9 +23,10 @@ public sealed class EngineSettingsDialog : Form
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Label _sasaran = new() { Dock = DockStyle.Fill, Name = "sasaranDeployment", Text = "Sasaran deployment akan dipaparkan selepas kod ditampal." };
 
-    public EngineSettingsDialog(DpapiRahsiaEnjinStore store, HasilMigrasi? migrasi = null, PersaraanAutostartCompanion? persaraan = null)
+    public EngineSettingsDialog(DpapiRahsiaEnjinStore store, HasilMigrasi? migrasi = null, PersaraanAutostartCompanion? persaraan = null, Func<bool>? adaAktivitiSemasa = null)
     {
         _store = store;
+        _adaAktivitiSemasa = adaAktivitiSemasa ?? (() => false);
         _persaraan = persaraan;
         Text = "Tetapan Tempatan — HADIR Desktop";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -60,7 +62,7 @@ public sealed class EngineSettingsDialog : Form
         buttons.Controls.AddRange(new Control[] { _tutup, _sambung, _pulihkan });
         var lanjutan = new Button { Text = "Lanjutan (legasi)…", AutoSize = true };
         buttons.Controls.Add(lanjutan);
-        lanjutan.Click += (_, _) => { if (!_sibuk) { using var d = new LegacyConnectionDialog(_store); d.ShowDialog(this); } };
+        lanjutan.Click += (_, _) => { if (!_sibuk) { using var d = new LegacyConnectionDialog(_store, _adaAktivitiSemasa); d.ShowDialog(this); } };
         panel.Controls.Add(buttons, 0, 5);
         panel.Controls.Add(_semakanTidakPasti, 0, 6);
         panel.Controls.Add(_companion, 0, 7);
@@ -79,9 +81,20 @@ public sealed class EngineSettingsDialog : Form
     }
     internal static bool TangguhTutup(bool sibuk, CloseReason reason) => sibuk && reason == CloseReason.UserClosing;
 
-    private async Task SambungAsync(bool pulihkan)
+    // One local live-activity guard per save entry (pairing normal/restore and legacy).
+    // The existing pairing preflight still checks BACKEND jobs; it does not check
+    // MainForm's local cycle/claim. No duplicate local guard is added to that preflight.
+    internal static bool BenarkanSimpanBackend(Func<bool> adaAktivitiSemasa, Action<string> status)
+    {
+        if (!adaAktivitiSemasa()) return true;
+        status("Tugasan sedang berjalan \u2014 tunggu siap sebelum menyimpan sambungan baharu.");
+        return false;
+    }
+
+    internal async Task SambungAsync(bool pulihkan)
     {
         if (_sibuk) return;
+        if (!BenarkanSimpanBackend(_adaAktivitiSemasa, s => { _status.Text = s; _status.ForeColor = Color.Firebrick; })) return;
         string sasaran, cap;
         try
         {

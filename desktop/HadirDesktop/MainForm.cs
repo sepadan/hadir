@@ -1100,19 +1100,41 @@ public sealed class MainForm : Form
         ExitForReal();
     }
 
-    /// <summary>Opens native local settings without a Companion or browser.</summary>
+    internal Func<bool>? PengesahanTukarBackendSemasaAktif { get; set; }
+    private bool AdaAktivitiBackendSemasa() => _kitaranBackendSedangJalan || _pagarBackend.AdaKlaimAktif;
+
+    // Injectable entry orchestration: tests never construct MainForm or start its engine.
+    internal static void LaksanaBukaTetapanBackend(bool tetapanDibuka, bool adaAktiviti,
+        Func<bool> pengesahan, Action<string> nav, Action buka)
+    {
+        if (tetapanDibuka) return;
+        if (adaAktiviti && !pengesahan())
+        { nav("Selesaikan tugasan/klaim aktif sebelum menukar sambungan backend."); return; }
+        buka();
+    }
+
+    /// <summary>Opening settings is permitted with consent; saving still checks live activity.</summary>
     private void OpenEngineSettings()
     {
-        if (_tetapanBackendDibuka || _kitaranBackendSedangJalan || _pagarBackend.AdaKlaimAktif)
-        { SetNavLabel("Selesaikan tugasan/klaim aktif sebelum menukar sambungan backend."); return; }
-        ShowFromTray();
-        _tetapanBackendDibuka = true;
-        try
-        {
-            using var dialog = new EngineSettingsDialog(_rahsiaStore, _hasilMigrasi, _persaraanCompanion);
-            dialog.ShowDialog(this);
-        }
-        finally { _tetapanBackendDibuka = false; KemasKiniStatus(); }
+        if (_tetapanBackendDibuka) return;
+        LaksanaBukaTetapanBackend(false, AdaAktivitiBackendSemasa(),
+            () => PengesahanTukarBackendSemasaAktif?.Invoke() ?? MessageBox.Show(this,
+                "Tugasan atau klaim masih aktif. Menukar backend sekarang mungkin mengganggu penghantaran yang sedang berjalan. " +
+                "Tekan No kecuali anda memang mahu membaiki sambungan.",
+                "Tugasan masih aktif", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                MessageBoxDefaultButton.Button2) == DialogResult.Yes,
+            SetNavLabel, () =>
+            {
+                ShowFromTray();
+                _tetapanBackendDibuka = true;
+                try
+                {
+                    using var dialog = new EngineSettingsDialog(_rahsiaStore, _hasilMigrasi, _persaraanCompanion,
+                        adaAktivitiSemasa: AdaAktivitiBackendSemasa);
+                    dialog.ShowDialog(this);
+                }
+                finally { _tetapanBackendDibuka = false; KemasKiniStatus(); }
+            });
     }
 
     /// <summary>
