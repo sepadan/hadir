@@ -22,7 +22,7 @@ if (hadirAdakahPermintaan_(e)) return hadirDoPost_(e);
 | `HADIR_SEMAK_URL` | Pilihan; URL produksi sudah menjadi lalai |
 | `SEPADAN_SYNC_SECRET` | Rahsia rawak sama dalam HADIR, AKSI dan SEMAK; jangan commit |
 | `HADIR_PELBAGAI_PC` | `'1'` = ON (ciri berbilang PC); ketiadaan/nilai lain = OFF |
-| `HADIR_SAMBUNG_EXEC_URL` | URL `/exec` autoritatif bukan rahsia, dipadankan dengan pin bootstrap Desktop ketika release; tiada lalai |
+| `HADIR_SAMBUNG_EXEC_URL` | Pilihan pemilik: menetapkan semula URL `/exec` autoritatif bukan rahsia. Jika tiada, lalai ialah pemalar terp dalam kod (`HADIR_SAMBUNG_URL_LALAI`) yang sama tepat dengan bootstrap Desktop. Nilai tidak sah menolak Jana (gagal tertutup) |
 
 4. Deploy **New version** pada deployment sedia ada. Jangan cipta deployment
    kedua kerana URL webhook Telegram mesti kekal.
@@ -53,9 +53,11 @@ Baris, kata laluan, tugasan dan sejarah tidak dipadam atau ditindih.
 ### Sambungan Desktop dengan satu kod (perubahan belum diterbitkan)
 
 Admin **Hantar ke MOEIS → Sambungan Desktop** menjana kod `HC1` yang
-mengekod endpoint `/exec` daripada Script Property autoritatif
-`HADIR_SAMBUNG_EXEC_URL` (bukan rahsia, ditetapkan pemilik ketika release).
-Property tiada/tidak sah menolak Jana; `getService().getUrl()` tidak digunakan.
+mengekod endpoint `/exec` autoritatif: Script Property pilihan pemilik
+`HADIR_SAMBUNG_EXEC_URL` jika ditetapkan, jika tidak pemalar terp
+`HADIR_SAMBUNG_URL_LALAI` (sama tepat dengan bootstrap Desktop).
+Property TIDAK SAH menolak Jana (gagal tertutup); `getService().getUrl()` tidak
+digunakan.
 Kod **tidak luput**, sekali guna dan boleh dibatalkan. Desktop menebusnya sekali
 melalui `moeisSambungTukar(kod)` untuk token `HD1` unik; rahsia bersama
 `HADIR_MOEIS_ENGINE_SECRET` tidak dihantar ke PC baharu. Endpoint `/dev` ditolak.

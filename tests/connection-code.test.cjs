@@ -116,11 +116,15 @@ test('bounded registry: pending code limit, active device limit, corrupted rate 
   assert.throws(()=>h.k.hadirSambungTukar_(a.kod));
   assert.equal(h.k.hadirSambungSenarai_('synthetic-admin').kod[0].status,'menunggu');
 });
-test('authoritative endpoint required; getService is never a source of trust', () => {
+test('authoritative endpoint: property override, pinned code default, getService never trusted', () => {
   const f=fixture(); f.data.delete('HADIR_SAMBUNG_EXEC_URL');
+  f.k.ScriptApp.getService=()=>{throw Error('must not be called');};
+  // No property: pinned default constant (same URL as Desktop BootstrapUrl).
+  assert.equal(JSON.parse(Buffer.from(generate(f).kod.slice(4),'base64url'))[0],f.k.HADIR_SAMBUNG_URL_LALAI);
+  // Invalid override fails closed rather than silently falling back.
+  f.data.set('HADIR_SAMBUNG_EXEC_URL','https://evil.example/exec');
   assert.throws(()=>generate(f), /ENDPOINT/);
   f.data.set('HADIR_SAMBUNG_EXEC_URL',endpoint);
-  f.k.ScriptApp.getService=()=>{throw Error('must not be called');};
   assert.equal(JSON.parse(Buffer.from(generate(f).kod.slice(4),'base64url'))[0],endpoint);
 });
 test('redeemed codes link device and cannot be misleadingly revoked as pending codes', () => {
@@ -138,11 +142,13 @@ test('fixed sanitized errors distinguish admin auth, invalid code, rate, corrupt
   f.data.set('HADIR_SAMBUNG_V1','corrupt-synthetic-secret');
   assert.throws(()=>generate(f),e=> /CORRUPT/.test(e.message) && !e.message.includes('synthetic-secret'));
 });
-test('exchange fails closed if authority disappears or differs from the embedded deployment', () => {
+test('exchange fails closed if authority differs from the embedded deployment; default is stable across property removal', () => {
   const f=fixture(), a=generate(f);
-  f.data.delete('HADIR_SAMBUNG_EXEC_URL'); assert.throws(()=>f.k.hadirSambungTukar_(a.kod),/ENDPOINT/);
   f.data.set('HADIR_SAMBUNG_EXEC_URL','https://script.google.com/macros/s/OTHER_DEPLOYMENT/exec');
   assert.throws(()=>f.k.hadirSambungTukar_(a.kod),/ENDPOINT/);
   assert.equal(f.k.hadirSambungSenarai_('synthetic-admin').kod[0].status,'menunggu');
   f.data.set('HADIR_SAMBUNG_EXEC_URL',endpoint); assert.match(f.k.hadirSambungTukar_(a.kod).tokenPeranti,/^HD1\./);
+  // Real-life default path: code generated with the pinned default still redeems after property removal.
+  const g=fixture(); g.data.delete('HADIR_SAMBUNG_EXEC_URL'); const b=generate(g);
+  g.data.delete('HADIR_SAMBUNG_EXEC_URL'); assert.match(g.k.hadirSambungTukar_(b.kod).tokenPeranti,/^HD1\./);
 });

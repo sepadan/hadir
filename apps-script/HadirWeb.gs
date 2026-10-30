@@ -13,11 +13,15 @@ var HADIR_SEMAK_URL_LALAI = 'https://script.google.com/macros/s/AKfycbx306dN8vd3
 // One bounded ASCII JSON property is the commit unit: consume + credential hash
 // are written together under ScriptLock. Never log inputs or storage exceptions.
 var HADIR_SAMBUNG_KUNCI = 'HADIR_SAMBUNG_V1';
+// Pilihan pemilik (property) mengatasi lalai; lalai ialah URL produksi tetap
+// yang SAMA dengan BootstrapUrl Desktop — bukan ScriptApp.getUrl().
+var HADIR_SAMBUNG_URL_LALAI = 'https://script.google.com/macros/s/AKfycbzqppwOPHQZz7dZe9OW3Hbhf1nA5wdfqBeQUUXmOxrt1ILDezw_HsLE4wgpbKMt8hbe/exec';
 function hadirSambungUrlSah_(url) {
   return typeof url === 'string' && url === url.trim() && /^https:\/\/script\.google\.com(?::443)?\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(url);
 }
 function hadirSambungEndpoint_() {
   var url = PropertiesService.getScriptProperties().getProperty('HADIR_SAMBUNG_EXEC_URL');
+  if (url === null) url = HADIR_SAMBUNG_URL_LALAI;
   if (!hadirSambungUrlSah_(url)) throw hadirSambungRalat_('ENDPOINT');
   return url;
 }

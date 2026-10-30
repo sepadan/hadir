@@ -638,8 +638,10 @@ Service ke hos tepat `/macros/echo` dibenarkan sebagai GET tanpa badan kod/token
 Tiada pergantungan hosting untuk menyelesaikan kod.
 Sasaran dipin kepada backend PC semasa atau allowlist bootstrap tepat dalam
 binaan Desktop; perubahan sambungan memerlukan pengesahan eksplisit yang
-memaparkan deployment. GAS membaca `HADIR_SAMBUNG_EXEC_URL` autoritatif;
-ketiadaan/tidak sah gagal tertutup, tanpa `getService().getUrl()`. Handler
+memaparkan deployment. GAS membaca `HADIR_SAMBUNG_EXEC_URL` autoritatif
+pilihan pemilik; jika tiada, pemalar terp `HADIR_SAMBUNG_URL_LALAI` (sama
+dengan bootstrap Desktop); tidak sah gagal tertutup, tanpa
+`getService().getUrl()`. Handler
 redirect ketat hanya untuk exchange; HTTP job legasi tidak diubah. GAS dan
 property itu tersedia sebelum Desktop baharu diterbitkan. Fallback manual
 legasi berada dalam Lanjutan dengan pengesahan/pin yang sama.
