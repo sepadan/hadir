@@ -29,5 +29,6 @@
   "observability": {
     "enabled": false
   },
-  "upload_source_maps": false
+  "upload_source_maps": false,
+  "keep_names": false
 }

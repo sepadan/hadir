@@ -4,6 +4,9 @@ import { acquireBrowserSession, requestLiveView, captureSnapshot } from './brows
 import { inspectActivePage, resolveInspectTarget } from './inspect.mjs';
 import { runCdpCommand, withTimeout, CDP_TIMEOUT_MS } from './cdp.mjs';
 import { parseJsonBody, jsonResponse, readBoundedBody } from './http.mjs';
+import { FlowController } from './flow.mjs';
+import { requireOwnerSession, validateStateChangingSecurity } from './auth.mjs';
+import { ACCOUNT_FIELDS, validateAccount } from './vault.mjs';
 
 export { TARGET_ENUMS };
 
@@ -41,7 +44,7 @@ const IDLE_STATE = Object.freeze({
 const READONLY_WARNING = 'Pautan Live View baca-sahaja (guardrail readonly disahkan oleh Cloudflare). Pautan masih memaparkan data halaman: jangan kongsi.';
 const SNAPSHOT_WARNING = 'Tangkapan semasa, bukan siaran langsung. Guardrail readonly tidak dapat disahkan, jadi tiada pautan interaktif dikeluarkan.';
 const MANUAL_WARNING =
-  'KAWALAN PENUH: pautan ini boleh MENULIS rekod di portal (termasuk butang Simpan kehadiran). Dihoskan oleh Cloudflare; tiada kata laluan idMe disimpan oleh Autohadir Cloud. Penghantaran automatik kekal MATI. Jangan tekan Simpan.';
+  'KAWALAN PENUH: pautan ini boleh MENULIS rekod di portal (termasuk butang Simpan kehadiran). Akaun idMe cloud ialah opt-in disulit dalam akaun Cloudflare pemilik. Penghantaran automatik kekal MATI. Jangan tekan Simpan.';
 
 const ROUTE_FIELDS = Object.freeze({
   '/start': ['target'],
@@ -49,6 +52,10 @@ const ROUTE_FIELDS = Object.freeze({
   '/inspect': [],
   '/liveview': ['mode', 'manualConsent'],
   '/close': [],
+  '/flow-start': ['probeOnly'],
+  '/flow-cancel': [],
+  '/account-save': ACCOUNT_FIELDS,
+  '/account-delete': [],
   '/claim-nonce': ['nonce', 'exp']
 });
 
@@ -83,7 +90,7 @@ export class SchoolSession {
   /**
    * @param {object} ctx DurableObjectState
    * @param {object} env bindings (BROWSER)
-   * @param {{now?: () => number}} [deps] jam disuntik untuk ujian; produksi guna Date.now
+   * @param {{now?: () => number, openVault?: Function}} [deps] suntikan ujian sahaja
    */
   constructor(ctx, env, deps = {}) {
     this.ctx = ctx;
@@ -91,6 +98,7 @@ export class SchoolSession {
     this.storage = ctx.storage;
     this.now = typeof deps.now === 'function' ? deps.now : () => Date.now();
     this.queue = Promise.resolve();
+    this.flow = new FlowController(this, deps);
   }
 
   // Semua operasi yang mengubah keadaan atau menyentuh pelayar disirikan.
@@ -99,6 +107,11 @@ export class SchoolSession {
     this.queue = next.catch(() => {});
     return next;
   }
+
+  startFlow(options) { return this.flow.start(options); }
+  cancelFlow() { return this.flow.cancel(); }
+  saveAccount(value) { return this.flow.saveAccount(value); }
+  deleteAccount() { return this.flow.deleteAccount(); }
 
   async loadState() {
     const s = await this.storage.get(STATE_KEY);
@@ -111,6 +124,7 @@ export class SchoolSession {
   }
 
   async resetState(endedReason) {
+    await this.flow.invalidate('session-ended');
     await this.storage.deleteAlarm();
     return this.saveState({ ...IDLE_STATE, endedReason });
   }
@@ -156,6 +170,7 @@ export class SchoolSession {
    * Jika belum disahkan, sid dikekalkan dalam fasa 'closing' dan penggera cubaan semula dijadualkan.
    */
   async closeAndVerify(state, reason) {
+    await this.flow.invalidate(reason === 'expired' ? 'expired' : 'session-ended');
     const sid = state.sessionId;
     state = await this.saveState({
       ...state,
@@ -198,17 +213,18 @@ export class SchoolSession {
   }
 
   /** Navigasi ke URL enum tetap; keputusan disimpan; kegagalan mengekalkan sesi. */
-  async navigateTo(state, url) {
+  async navigateTo(state, url, beforeSend = null) {
     let navigation;
     if (state.targetId) {
       try {
-        const r = await runCdpCommand(this.env.BROWSER, state.sessionId, state.targetId, 'Page.navigate', { url });
+        const r = await runCdpCommand(this.env.BROWSER, state.sessionId, state.targetId, 'Page.navigate', { url }, { beforeSend });
         navigation = r && typeof r.errorText === 'string' && r.errorText ? 'failed' : 'sent';
       } catch (err) {
         navigation = err.code === 'cdp-timeout' ? 'uncertain' : 'failed';
       }
     } else {
       try {
+        if (beforeSend) await beforeSend();
         const t = await withTimeout(this.env.BROWSER.devtools.newTarget(state.sessionId, url), CDP_TIMEOUT_MS);
         if (t && typeof t.id === 'string') {
           state.targetId = t.id;
@@ -228,8 +244,15 @@ export class SchoolSession {
   }
 
   async startSession(targetKey = 'idme') {
-    const url = resolveTarget(targetKey); // ditolak sebelum sebarang tindakan berbayar
+    resolveTarget(targetKey);
     return this.enqueue(async () => {
+      if ((await this.flow.load())?.status === 'running') throw new AppError('flow-active');
+      return this.startSessionInternal(targetKey);
+    });
+  }
+
+  async startSessionInternal(targetKey, beforeNavigate = null) {
+    const url = resolveTarget(targetKey);
       const now = this.now();
       let state = await this.loadState();
 
@@ -283,19 +306,27 @@ export class SchoolSession {
         deadline: now + MAX_WALL_LIFETIME_MS,
         acquireStartedAt: null
       });
-      // Penggera sedia ada (now + 15 minit) sama dengan tarikh akhir.
+      // The owned sid is now known. A run that restarts while navigation is
+      // in flight must wake promptly and stop as uncertain, not wait 15 min.
+      if (beforeNavigate) await this.storage.setAlarm(Math.min(this.now()+RATE_LIMIT_GAP_MS,state.deadline));
 
-      const navigation = await this.navigateTo(state, url);
+      if (beforeNavigate) await beforeNavigate();
+      await this.requireActive(this.now());
+      const navigation = await this.navigateTo(state, url, beforeNavigate ? async () => {
+        await this.requireActive(this.now());
+        await beforeNavigate();
+      } : null);
       return { ok: true, reused: false, navigation, session: this.publicSession(state, now) };
-    });
   }
 
   async navigateSession(targetKey) {
     const url = resolveTarget(targetKey);
     return this.enqueue(async () => {
+      if ((await this.flow.load())?.status === 'running') throw new AppError('flow-active');
       const now = this.now();
       const state = await this.requireActive(now);
       await this.reserveRate(now);
+      await this.flow.invalidate('session-changed');
       state.requestedTarget = targetKey;
       const navigation = await this.navigateTo(state, url);
       return { ok: true, navigation, session: this.publicSession(state, now) };
@@ -304,6 +335,7 @@ export class SchoolSession {
 
   async inspectPage() {
     return this.enqueue(async () => {
+      if ((await this.flow.load())?.status === 'running') return { ok: true, pageStatus: (await this.loadState()).lastSafeStatus || null };
       const now = this.now();
       const state = await this.requireActive(now);
       await this.reserveRate(now);
@@ -319,13 +351,18 @@ export class SchoolSession {
     if (mode !== 'readonly' && mode !== 'manual') throw new AppError('invalid-mode');
     if (mode === 'manual' && options.manualConsent !== true) throw new AppError('manual-consent-required');
     return this.enqueue(async () => {
+      if ((await this.flow.load())?.status === 'running') throw new AppError('flow-active');
       const now = this.now();
       const state = await this.requireActive(now);
       await this.reserveRate(now);
-      const sel = await resolveInspectTarget(this.env.BROWSER, state.sessionId, state.targetId);
+      const flow = await this.flow.load();
+      const sel = flow?.reason === 'ready' && flow.targetId === state.targetId
+        ? { targetId: state.targetId }
+        : await resolveInspectTarget(this.env.BROWSER, state.sessionId, state.targetId);
       const targetId = sel.targetId || state.targetId;
 
       if (mode === 'manual') {
+        await this.flow.invalidate('manual-control');
         const { url } = await requestLiveView(this.env.BROWSER, state.sessionId, targetId, 'manual');
         return { ok: true, mode: 'manual', url, warning: MANUAL_WARNING };
       }
@@ -345,7 +382,9 @@ export class SchoolSession {
   }
 
   async closeSession() {
+    this.flow.cancelEpoch++;
     return this.enqueue(async () => {
+      await this.flow.invalidate('cancelled');
       const now = this.now();
       const state = await this.loadState();
       if (state.phase === 'acquiring') {
@@ -380,8 +419,10 @@ export class SchoolSession {
       }
       if (state.phase === 'active' && state.sessionId) {
         if (now >= state.deadline) await this.closeAndVerify(state, 'expired');
-        else await this.storage.setAlarm(state.deadline); // jangan tutup awal
+        else if (!(await this.flow.tick())) await this.storage.setAlarm(state.deadline);
+        return;
       }
+      await this.flow.tick();
     });
   }
 
@@ -418,7 +459,9 @@ export class SchoolSession {
       dailyLaunches: { count: budget.count, max: MAX_LAUNCHES_PER_DAY, date: budget.date },
       nextActionAt: gate && gate.lastAt + RATE_LIMIT_GAP_MS > now ? gate.lastAt + RATE_LIMIT_GAP_MS : null,
       session: this.publicSession(state, now),
-      pageStatus: state.lastSafeStatus || null
+      pageStatus: state.lastSafeStatus || null,
+      flow: await this.flow.publicStatus(state, now),
+      account: await this.flow.accountStatus()
     };
   }
 
@@ -426,10 +469,24 @@ export class SchoolSession {
     try {
       const path = new URL(request.url).pathname;
       if (path === '/status' && request.method === 'GET') return jsonResponse(await this.getStatus());
+      if (path === '/account-status' && request.method === 'GET') {
+        await requireOwnerSession(request, this.env);
+        return jsonResponse({ok:true,account:await this.flow.accountStatus()});
+      }
       if (request.method !== 'POST' || !Object.hasOwn(ROUTE_FIELDS, path)) throw new AppError('not-found');
       const body = parseJsonBody(await readBoundedBody(request), ROUTE_FIELDS[path]);
+      if (['/flow-start','/flow-cancel','/account-save','/account-delete'].includes(path)) {
+        const owner = await requireOwnerSession(request, this.env);
+        await validateStateChangingSecurity(request, this.env, owner);
+        if (path === '/flow-start' && body.probeOnly !== undefined && typeof body.probeOnly !== 'boolean') throw new AppError('invalid-request');
+        if (path === '/account-save') validateAccount(body);
+      }
       let result;
       switch (path) {
+        case '/flow-start': result = await this.startFlow(body); break;
+        case '/flow-cancel': result = await this.cancelFlow(); break;
+        case '/account-save': result = await this.saveAccount(body); break;
+        case '/account-delete': result = await this.deleteAccount(); break;
         case '/start':
           result = await this.startSession(body.target === undefined ? 'idme' : body.target);
           break;

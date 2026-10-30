@@ -5,6 +5,7 @@ import { getSessionFromRequest, requireOwnerSession, validateStateChangingSecuri
 import { applySecurityHeaders, errorResponse, htmlResponse, jsonResponse, parseJsonBody, readBoundedBody } from './http.mjs';
 import { renderLockedHtml, renderAuthenticatedHtml, renderNotConfiguredHtml, renderStyleCss, renderAppJs } from './ui.mjs';
 import { VERSION } from './version.mjs';
+import { ACCOUNT_FIELDS, validateAccount } from './vault.mjs';
 
 export { SchoolSession };
 
@@ -40,6 +41,14 @@ function staticAsset(body, type, method) {
 
 function sessionStub(env) {
   return env.SESSION.get(env.SESSION.idFromName('JBA5054'));
+}
+
+function flowHeaders(request) {
+  const headers=new Headers({'Content-Type':'application/json'});
+  for(const name of ['Cookie','Origin','X-Autohadir-CSRF']) {
+    const value=request.headers.get(name);if(value!==null)headers.set(name,value);
+  }
+  return headers;
 }
 
 /** Terima respons DO; hanya kod ralat yang dikenali diteruskan. */
@@ -98,6 +107,29 @@ async function route(request, env) {
     const data = await relayDo(await sessionStub(env).fetch('https://session-do/status'));
     const csrf = await deriveCsrfToken(env.OWNER_KEY, session.nonce);
     return jsonResponse({ ...data, csrf, version: VERSION, automaticSending: false });
+  }
+
+  const flowAccountRoutes = {
+    '/api/flow/start': ['/flow-start', ['probeOnly']],
+    '/api/flow/cancel': ['/flow-cancel', []],
+    '/api/account/save': ['/account-save', ACCOUNT_FIELDS],
+    '/api/account/delete': ['/account-delete', []]
+  };
+  if (path === '/api/account/status') {
+    if (method !== 'GET') throw new AppError('method-not-allowed');
+    await requireOwnerSession(request, env);
+    return jsonResponse(await relayDo(await sessionStub(env).fetch(new URL('/account-status',url.origin).toString(), {headers:flowHeaders(request)})));
+  }
+  if (Object.hasOwn(flowAccountRoutes, path)) {
+    if (method !== 'POST') throw new AppError('method-not-allowed');
+    const owner = await requireOwnerSession(request, env);
+    await validateStateChangingSecurity(request, env, owner);
+    const [internal, allowed] = flowAccountRoutes[path];
+    const fields = parseJsonBody(body, allowed);
+    if (path === '/api/flow/start' && fields.probeOnly !== undefined && typeof fields.probeOnly !== 'boolean') throw new AppError('invalid-request');
+    if (path === '/api/account/save') validateAccount(fields);
+    // Owner cookie, Origin and CSRF reach the DO for independent verification.
+    return jsonResponse(await relayDo(await sessionStub(env).fetch(new URL(internal,url.origin).toString(), {method:'POST',headers:flowHeaders(request),body:JSON.stringify(fields)})));
   }
 
   if (path.startsWith('/api/session/')) {

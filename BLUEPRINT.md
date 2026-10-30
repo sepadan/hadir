@@ -1,6 +1,6 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.38 · 30 Oktober 2026**
+**Versi 2.39 · 30 Oktober 2026**
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >
@@ -1198,21 +1198,71 @@ lalai dan tidak pernah dideploy / dihidupkan dalam produksi**:
   gelung degup, dan integrasi HTTP palsu (daftar → simpan rahsia → degup →
   nyahaktif → tamat terminal) melalui loopback.
 
-### 5.4 Autohadir Cloud (Perintis Browser Run Fasa 1)
+### 5.4 Autohadir Cloud (Perintis Browser Run 1.1.0)
 
 `autohadir-cloud/` ialah Worker Cloudflare `autohadir-skpr-cloud` untuk SK Paya
 Redan sahaja (`JBA5054`): satu sesi pelayar Browser Run milik pemilik, panel
-berkunci, diagnostik agregat dan serahan manual. **Bukan automasi kehadiran.**
+berkunci, aliran login berperingkat, diagnostik agregat dan serahan manual.
+**Penghantaran kehadiran automatik MATI.**
 Butiran operasi penuh: `autohadir-cloud/README.md`.
 
 **Sempadan Fasa 1:**
 - **Penghantaran automatik MATI.** Tiada laluan pelayan yang menulis
-  kehadiran (laluan penghantaran dikenali → 405). Tiada kredensial idMe
-  disimpan, tiada sambungan GAS/AKSI/SEMAK, tiada cron, tiada D1/KV/R2.
+  kehadiran (laluan penghantaran dikenali → 405). Kredensial idMe cloud hanya
+  melalui opt-in eksplisit pemilik (vault AES-GCM di bawah); tiada import
+  Desktop/DPAPI, sambungan GAS/AKSI/SEMAK, cron atau D1/KV/R2.
   Desktop Autohadir kekal laluan rasmi; HADIR/GAS/desktop tidak diubah.
 - **Satu DO SQLite** `SchoolSession` (`idFromName('JBA5054')`) menyirikan semua
   mutasi; keadaan (fasa, sid, tarikh akhir, belanjawan, cap masa had kadar,
   nonce) berada dalam storan DO, jadi instans sejuk mematuhi semua had.
+- **Mula Autohadir (1.1.0):** satu run berterusan dalam `login_flow`,
+  diteruskan oleh penggera tanpa poll klien. Run sentiasa membuka idMe sebenar,
+  termasuk tab idMe baharu apabila sesi lama digunakan semula. Urutan port
+  Desktop: IC → frasa → `#check_log` → password kelihatan → Daftar Masuk
+  sebenar (bukan dummy disabled) sekali → dashboard dengan anchor aplikasi →
+  `list_aplikasi` → anchor MOEIS sebenar sekali → pemerhatian hos MOEIS →
+  kehadiran. Sedia MOEIS memerlukan DOM kehadiran dan identiti **JBA5054 serta
+  SK Paya Redan**, bukan URL/breadcrumb/badan kosong. Popup dipilih hanya
+  jika milik run atau baharu selepas handoff; tab MOEIS lama tidak digunakan
+  untuk membuktikan run. Href bertoken tidak disimpan/dilog/dipulangkan.
+- **Pengawal login:** pemerhatian sekatan/hos/CAPTCHA lulus sebelum decrypt;
+  hos HTTPS tepat, tiada userinfo, port lalai dan pengawal sekatan/CAPTCHA
+  disemak lagi dalam skrip menaip/klik yang sama. Sekatan portal menghentikan
+  run tanpa stealth, IP alternatif, fingerprint, retry sekatan, URL pintasan,
+  OCR atau penyelesaian CAPTCHA. Frasa tidak padan sentiasa berhenti; frasa
+  canvas tidak boleh dibaca memerlukan opt-in berasingan (lalai MATI).
+  Canvas frasa `#captcha` bukan CAPTCHA/OTP sebenar.
+- **Run bersempadan:** maksimum dua submission tersimpan (satu IC, satu
+  password), satu tindakan mutasi setiap peringkat penggera dengan jeda
+  12 saat; pemerhatian keselamatan mendahului tindakan dalam peringkat sama.
+  Maksimum lima pemerhatian belum sedia per stage. Penanda in-flight disimpan
+  sebelum dispatch; cold restart/hasil tidak pasti menghentikan run tanpa
+  replay. Revision akaun mengikat IC/password pada satu akaun; simpan/padam
+  membatalkan run kredensial. Dua penolakan password eksplisit tersimpan
+  menyekat login automatik berikutnya; WAF/ralat tidak mengira penolakan.
+  Cancel/close diperiksa semula sebelum penghantaran CDP; arahan yang sudah
+  dihantar tidak boleh ditarik balik. Alarm mengambil min(masa tindakan,
+  deadline); acquiring/closing/expiry kekal didahulukan. Kemajuan sejarah
+  bertahan selepas close tetapi readiness tidak kekal aktif.
+- **Vault cloud milik pemilik:** `cloud_account` menyimpan revision rawak,
+  AES-256-GCM ciphertext dan IV rawak 12 bait sahaja. Kunci diterbitkan
+  WebCrypto HKDF-SHA256 daripada OWNER_KEY dengan konteks versi berasingan
+  dan AAD terikat JBA5054. Tamper/kunci salah gagal tertutup; rotasi OWNER_KEY
+  memerlukan pendaftaran semula. UI akaun dilipat, tiga medan bertopeng,
+  persetujuan simpanan Cloudflare eksplisit, tiada auto-login semasa simpan,
+  tiada nilai pramuat/gema/localStorage/analitik. Metadata API hanya boolean
+  `configured`; tiada import fail/perfil/vault PC.
+- **API baharu:** GET `/api/account/status`; POST `/api/account/save`
+  `{identifier,password,phrase,consent:true,allowUnreadablePhrase:boolean}`;
+  POST `/api/account/delete {}`; POST `/api/flow/start {probeOnly?:boolean}`;
+  POST `/api/flow/cancel {}`. Status sedia ada menambah `flow` dan `account`.
+  Mutasi flow/vault memerlukan kuki pemilik + Origin tepat + CSRF secara
+  bebas di Worker **dan** DO, dengan whitelist/jenis/panjang/4 KiB disemak
+  pada kedua-duanya. `probeOnly:true` disimpan dan tidak boleh ditukar oleh
+  start pendua: sifar decrypt/fill/checkbox/submit/SSO walaupun akaun didaftar
+  serentak. Borang sah → `login-form-ready`, bukan bukti auth; sekatan menang
+  sebelum akaun tiada. Semasa run aktif, inspect cache sahaja dan kawalan
+  pelayar diagnostik/Live View ditolak supaya penggera tidak kebuluran kadar.
 - **Pemerolehan berhati-hati:** kiraan harian, had kadar, keadaan `acquiring`
   dan penggera disimpan *sebelum* `acquire`. `acquire` gagal/tamat masa/tiada
   sid → `acquiring` tidak pasti; pelancaran baharu disekat 15 minit penuh,
@@ -1232,7 +1282,8 @@ Butiran operasi penuh: `autohadir-cloud/README.md`.
   dikenali ditolak di Worker dan di DO. Status membaca storan sahaja.
 - **Guardrails** `allowedDomains` tepat: `idme.moe.gov.my`,
   `moeispel.moe.gov.my`, `example.com` (tiada wildcard).
-- **Diagnostik:** tab MOEIS selepas SSO diutamakan; ungkapan penilaian tetap;
+- **Diagnostik:** tab MOEIS selepas SSO diutamakan dalam diagnostik lama;
+  run login mengikat tab sendiri. Ungkapan/deklarasi fungsi penilaian tetap;
   setiap medan disahkan jenisnya; URL dikelaskan kepada enum hos/laluan. Tiada
   tajuk, query, HTML, nama, IC, kuki atau kata laluan dipulangkan.
 - **Lihat sahaja:** URL Live View hanya jika gema `options.guardrails.mode ===
@@ -1246,12 +1297,33 @@ Butiran operasi penuh: `autohadir-cloud/README.md`.
   yang disenarai putih tepat), nonce dituntut atomik dalam DO, kuki
   `__Host-autohadir` 8 jam, Origin tepat + CSRF per-sesi. Ralat bertaip dengan
   mesej tetap; `OWNER_KEY` tiada → 503 terkunci.
-- **Ujian langsung 30 Oktober 2026:** Worker diterbitkan; acquire, CDP navigasi/
+- **Ujian langsung 1.0.0 pada 30 Oktober 2026:** Worker diterbitkan; acquire, CDP navigasi/
   inspect di example.com, guna semula sesi, Live View baca-sahaja dan penutupan
   disahkan lulus. Pelancar DPAPI ke panel HTTPS dan UI telefon turut disahkan.
   **idMe memaparkan “Sekatan atas faktor keselamatan.”** dalam sesi sebenar;
   gerbang login/akses MOEIS belum lulus. Tiada pintasan sekatan, login portal
   atau penghantaran sebenar. Kod mengekalkan penghantaran automatik MATI.
+- **Bukti pembangunan 1.1.0:** RED/GREEN Node, ujian Chromium sebenar dan
+  paparan 390 px lulus tanpa skip dalam semakan ketua di luar sandbox asal.
+  Rantaian fixture dua peringkat, tab sama/popup, sekolah/header terpilih,
+  spoof hos, CAPTCHA/OTP, pembatalan dan alarm/cold restart turut diuji.
+  Harness menggunakan profil baru serta proxy/resolver deny-all untuk
+  memastikan tiada akses portal sebenar dari fixture. Semakan sintaks,
+  dry-run Wrangler, regresi web dan pelancar Python lulus. Semakan Opus dan
+  ketua membaiki pegangan objectId merentas soket, helper bundler `__name`
+  (`keep_names:false`) serta cubaan tidak pasti yang tidak dikira; belanjawan
+  dua cubaan kini ditempah persisten sebelum tindakan kredensial dan tidak
+  dipulihkan oleh start semula. Bukti fixture/bundle bukan bukti login portal
+  hidup. Tiada vault PC dipindah, kata laluan sebenar ditaip, atau penghantaran
+  kehadiran dilakukan dalam ujian.
+- **Pengesahan produksi 1.1.0, 30 Oktober 2026:** deployment Worker 100%
+  disahkan melalui API; satu run `probeOnly:true` benar-benar berjalan melalui
+  alarm DO dan Browser Run tanpa kredensial. idMe `/login` memaparkan
+  “Sekatan atas faktor keselamatan”; aliran berhenti pada langkah login,
+  `submissions:0`, `ready:false`, akaun belum didaftarkan. Bukti Live View
+  baca-sahaja, UI telefon dan pelancar DPAPI ke HTTPS disahkan. Sesi remote
+  ujian ditutup dan keadaan idle disahkan. Login hidup/MOEIS/penghantaran
+  belum lulus; HADIR Desktop kekal laluan operasi. Tiada cubaan memintas.
 
 ## 6. Penyelarasan murid
 
@@ -1568,6 +1640,7 @@ tanpa `loginAuto`, log masuk kekal MANUAL oleh manusia pada PC itu. Had penuh:
 
 | Tarikh | Versi | Perubahan | Data |
 |---|---|---|---|
+| 30 Oktober 2026 | 2.39 / cloud 1.1.0 / versi desktop, web dan GAS kekal | Aliran login cloud berterusan melalui alarm: IC → frasa → checkbox → password → dashboard → anchor aplikasi MOEIS sekali → bukti DOM kehadiran dan sekolah. Satu Mula Autohadir, cancel/close berpengawal, tab milik run, probeOnly persisten tanpa decrypt/fill/submit/SSO, vault cloud opt-in AES-GCM/HKDF tanpa import PC, auth/Origin/CSRF dan input ketat pada Worker serta DO. Hasil tidak pasti tidak dimainkan semula. Penghantaran kehadiran automatik kekal MATI. | RED/GREEN, suite cloud dan Chromium sebenar lulus tanpa skip; rantaian fixture, popup, paparan 390 px dan bundle produksi disahkan. Semakan bebas Opus diluluskan. Worker 1.1.0 diterbitkan dan deployment 100% disahkan melalui API. Ujian Browser Run sebenar pada 30 Oktober 2026 sampai idMe tetapi dihentikan oleh “Sekatan atas faktor keselamatan” sebelum login; sifar kredensial/penghantaran, sesi ujian ditutup dan idle disahkan. Regresi web serta pelancar DPAPI ke HTTPS lulus. |
 | 30 Oktober 2026 | 2.38 / cloud 1.0.0 / desktop kekal 1.0.22 / web kekal 1.11.40 / Apps Script kekal @126 | **Autohadir Cloud Fasa 1 (perintis, `autohadir-cloud/`)** untuk SK Paya Redan sahaja: Worker `autohadir-skpr-cloud` + DO SQLite `SchoolSession` + binding Browser Run; panel pemilik berkunci (tiket HMAC satu-kali daripada pelancar DPAPI Windows), kitaran hayat sesi yang mengekalkan sid apabila carian/penutupan tidak pasti, tempahan belanjawan/had kadar/penggera sebelum `acquire`, navigasi CDP sebenar ke URL enum, had 15 minit pada setiap tindakan, diagnostik agregat bertaip, Lihat sahaja melalui gema guardrail readonly atau tangkapan skrin statik, kawalan manual berpersetujuan eksplisit, pengesahan asal URL Live View, ralat bertaip dengan mesej tetap dan pengepala keselamatan pada setiap respons. wrangler dipin 4.156.0. Penghantaran automatik MATI; tiada perubahan pada HADIR/GAS/desktop. Lihat §5.4. | `npm test`, `npm run check` dan `npm run build` (`wrangler deploy --dry-run`) lulus dalam `autohadir-cloud/` dengan binding palsu dan data rekaan; log RED/GREEN dalam `autohadir-cloud/evidence/` (diabaikan git). Ujian langsung Browser Run (acquire/navigasi/inspect/guna semula/Live View/penutupan) dan pelancar pemilik HTTPS lulus; idMe memaparkan sekatan keselamatan dalam sesi sebenar, jadi login/MOEIS/penghantaran belum lulus. Tiada pintasan, tiada kehadiran dihantar, tiada rahsia dalam repo. |
 | 19 Oktober 2026 | 2.37 / desktop 1.0.22 / web kekal 1.11.40 / Apps Script kekal @126 | **Pembetulan tetingkap utama dimaksimumkan & butang Autohadir hilang (isu paparan 1920×1020).** (1) **Pengekalan keadaan Maximized tetingkap utama:** Membuka tetapan tempatan (Tetapan Enjin, Akaun idMe) atau mengaktifkan tetingkap yang sedang dimaksimumkan melalui `ShowFromTray` tidak lagi mengecutkan tetingkap kembali kepada saiz normal asal 1100×750. Seam boleh diuji `MainForm.LaksanaTunjukDariDulang(Form, Action, Action)` hanya menukar `WindowState` kepada `Normal` sekiranya tetingkap sedang `Minimized` (`if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;`), dan mengekalkan `WindowState == FormWindowState.Maximized`. (2) **Butang Autohadir kekal kelihatan pada 1920×1020 & DPI tinggi (125%/150%):** Punca asal disahkan: `_navLabel` (Spring) menggunakan `ToolStripStatusLabel` lalai di mana `GetPreferredSize` mengembalikan lebar teks penuh. Apabila mesej portal panjang (mis. "Portal: SedangLogin...", "Portal: PerluTindakanManusia...", atau teks ralat panjang) dan/atau DPI diskalakan (125%/150%), saiz cadangan `_navLabel` melebihi baki ruang `TableLayoutSettings` dalam `StatusStrip`, menyebabkan `StatusStrip` menggugurkan item di penghujung (`_navLabel` dan `_autohadirButton`) ke `Placement = ToolStripItemPlacement.None` (terkeluar di luar skrin). Ditukar kepada `LabelStatusTerhad` dengan pembetulan `if (Spring) return new Size(0, saizAsas.Height);` — membolehkan lajur Spring mengecut mengikut baki ruang sebenar tanpa menggugurkan butang Autohadir. (3) **Pelarasan dinamik margin krip saiz:** `ButangAutohadir.KiraMargin(StatusStrip)` memperuntukkan ruang krip (20 px) pada tetingkap Normal dengan `SizingGrip`, dan meniadakan ruang krip tambahan (2 px) apabila dimaksimumkan kerana WinForms tidak melukis krip saiz pada tetingkap dimaksimumkan, menghapuskan jurang kosong 34 px di sudut kanan bawah. | Ujian regresi baharu dalam `BugReproductionTests.cs` (13 ujian): ujian seam `LaksanaTunjukDariDulang` bagi Maximized/Minimized/Normal dan pembukaan tetapan; ujian `LabelStatusTerhad` Spring `GetPreferredSize`; ujian `KiraMargin` dinamik krip saiz; dan ujian fixture luar skrin 1920×1020 Panel tanpa screen clipping merentas penskalaan DPI 100%, 125%, 150% dengan teks pendek hingga panjang lampau. 1179 ujian dotnet lulus (1179/1179, 0 gagal), `dotnet build` 0 ralat. Tiada kredensial, rangkaian langsung, atau kehadiran produksi diubah. |
 | 8 Oktober 2026 | 2.36 / web 1.11.40 / Apps Script @126 / desktop kekal 1.0.21 | **Pembetulan HADIR v1 PDPR: Kategori A (PEMBELAJARAN DI RUMAH) dikira HADIR tetapi KEKAL dihantar ke MOEIS.** Mengikut semantik MOEIS pengguna, murid PDPR (Kategori A, Sebab PEMBELAJARAN DI RUMAH) dikira HADIR dalam sistem sekolah (disimpan `1` dalam helaian `kehadiran`, tidak mencemarkan statistik tidak hadir dalam kad kelas/semakan). Sebab PDPR KEKAL disimpan dalam tab `HADIR_MOEIS_SEBAB` dan dimuatkan ke dalam tugasan `HADIR_MOEIS_JOB`. **Invarian RMT:** Murid PDPR tidak menerima makanan di sekolah; `_rmtHadir` kekal `false` walaupun `nilai === 1`. **Invarian Job Semua-PDPR:** Kelas yang hanya ada murid PDPR (0 tidak hadir biasa) tidak diringkaskan kepada pintasan semua-hadir `[]` (`semuaHadir = false`); sebaliknya membina tugasan membawa rekod murid PDPR. **Pengesahan Pelayan:** `hadirMoeisJobSelesaiSah_` dan `hadirMoeisSahkanLengkap_` menerima nilai mentah `1` bagi PDPR dengan kategori/sebab sah. **Desktop Engine:** `PenghantaranPdprTests` mengesahkan nyahsemak kotak fizikal `case-hadir`, memilih Kategori A & Sebab A1, simpan & sahkan, serta baca semula. **Ketidaktentuan Portal Hidup:** Kelakuan portal MOEIS hidup semasa muat semula bagi rekod PDPR belum disahkan tanpa portal langsung; penolakan selamat dikekalkan jika DOM portal berbeza. | Ujian `tests/pdpr.test.cjs` 7 regresi (49/49 ujian node lulus); ujian desktop `PenghantaranPdprTests.cs` 3 ujian (1159/1159 ujian dotnet lulus, 0 ralat). Tiada kredensial, rangkaian langsung, atau kehadiran produksi diubah. |

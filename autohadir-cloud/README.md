@@ -1,219 +1,233 @@
-# Autohadir Cloud — Fasa 1 (SK Paya Redan, JBA5054)
+# Autohadir Cloud 1.1.0 — SK Paya Redan (JBA5054)
 
-Worker Cloudflare `autohadir-skpr-cloud` yang memegang **satu** sesi pelayar
-Browser Run untuk pemilik sekolah, dengan panel berkunci, diagnostik agregat
-dan serahan manual.
+Perintis Worker `autohadir-skpr-cloud`: satu sesi Browser Run, panel pemilik,
+aliran idMe → aplikasi MOEIS → bukti DOM kehadiran dan sekolah.
+**Penghantaran automatik MATI.** Tiada kod dispatch/Simpan kehadiran,
+GAS, giliran sekolah, cron, D1/KV/R2 atau import vault Desktop/DPAPI.
+Desktop kekal laluan operasi. Perubahan ini belum dideploy.
 
-> **Perintis • Penghantaran automatik MATI.** Fasa 1 ialah panel sesi pemilik,
-> **bukan** automasi kehadiran. Tiada laluan pelayan yang menulis kehadiran,
-> tiada kredensial idMe disimpan, tiada sambungan GAS/AKSI/SEMAK, tiada cron.
-> Aplikasi desktop Autohadir kekal laluan rasmi.
+Ujian binding/jam sintetik bukan bukti login hidup. Gerbang portal hidup
+terdahulu memaparkan **“Sekatan atas faktor keselamatan.”** Tiada akses portal,
+login hidup, kredensial sebenar atau rekod sekolah digunakan dalam perubahan
+ini. Ujian DOM Chromium dan dry-run Wrangler belum lulus dalam sandbox
+pembangunan ini; batas bukti diterangkan di bawah.
 
-## 1. Komponen
+## Panel pemilik
 
-| Fail | Peranan |
-| --- | --- |
-| `src/index.mjs` | Penghala Worker: pengendalian ralat global, pengepala keselamatan pada setiap respons, had badan 4 KiB, auth, relay ke DO. |
-| `src/session.mjs` | Durable Object SQLite `SchoolSession` (singleton `idFromName('JBA5054')`): kitaran hayat sesi, belanjawan, had kadar, penggera. |
-| `src/browser.mjs` | `acquire` dengan guardrails, Live View, pengesahan URL Live View, tangkapan skrin PNG. |
-| `src/cdp.mjs` | Pembantu CDP satu-arahan dengan tamat masa dan pembersihan pendengar/soket. Hanya `Page.navigate` (URL enum), `Runtime.evaluate` (ungkapan tetap), `Page.captureScreenshot` (png). |
-| `src/inspect.mjs`, `src/evaluator.mjs` | Pemilihan tab, ungkapan penilaian tetap, klasifikasi URL enum, pengesahan jenis keputusan. |
-| `src/auth.mjs`, `src/crypto.mjs` | Tiket satu-kali, kuki sesi, CSRF, Origin. |
-| `src/errors.mjs`, `src/http.mjs` | Ralat bertaip dengan mesej tetap; pembantu respons/badan. |
-| `src/ui.mjs` | Panel BM (HTML/CSS/JS sebaris dalam modul, dihidang sebagai `/`, `/style.css`, `/app.js`). |
-| `scripts/open-panel.py`, `Buka-Panel.cmd` | Pelancar pemilik Windows. |
-| `scripts/check.mjs` | Semakan sintaks semua modul JS, `/app.js` yang dijana dan Python. |
+`Buka-Panel.cmd` membuka panel melalui tiket HMAC sekali guna dan kuki HTTPS.
+**Mula Autohadir** mencipta satu run. Kemajuan empat langkah dipaparkan;
+Durable Object meneruskan run melalui penggera walaupun panel ditutup.
+**Henti / Tutup sesi** membatalkan run dan meminta penutupan yang disahkan.
 
-Konfigurasi: `wrangler.jsonc` — akaun `dcb3aa58b278e9a5c46103139fbb3367`,
-binding `BROWSER` (Browser Run), DO `SESSION` → `SchoolSession`
-(`new_sqlite_classes`), `observability.enabled: false`,
-`upload_source_maps: false`, tiada `triggers`, D1, KV, R2 atau `vars`.
-Rahsia tunggal: `OWNER_KEY` (ditetapkan oleh pentadbir di luar repo).
+**Akaun idMe (cloud)** ialah bahagian pilihan yang dilipat. Pemilik menaip
+pengenalan, kata laluan dan Kata Kunci Keselamatan sendiri dalam medan
+bertopeng serta memberi persetujuan eksplisit: kredensial diproses/disimpan
+disulit dalam akaun Cloudflare pemilik, bukan PC. Tiada nilai pramuat/import,
+gema nilai, localStorage, sessionStorage atau analitik. Medan dikosongkan
+selepas permintaan simpan. Simpan akaun tidak memulakan login. Tidak perlu
+mendaftar akaun semasa portal disekat. Jangan beri kredensial melalui chat.
 
-## 2. Kitaran hayat sesi (DO)
+Opt-in **berasingan**, lalai MATI, membenarkan frasa imej/canvas yang tidak
+boleh dibaca: tiada OCR/tekaan; perlindungan kemudian bergantung pada HTTPS
++ hos tepat dan kotak semak. Frasa yang dapat dibaca tetapi berbeza sentiasa
+menghentikan login. CAPTCHA/OTP/2FA sebenar menghentikan run; canvas frasa
+`#captcha` bukan CAPTCHA sebenar.
 
-Keadaan disimpan dalam storan DO (`session_state`, `daily_budget`,
-`rate_gate`, `claimed_nonces`). Tiada keadaan penting dalam memori, jadi
-instans DO baharu (diusir/sejuk) mematuhi semua had. Semua operasi mutasi
-disirikan dalam satu giliran janji.
+Diagnostik/kawalan manual dilipat. Semasa run aktif, inspect membaca cache;
+start/navigate diagnostik dan Live View ditolak 409 supaya penggera tidak
+kehilangan slot kadar atau bertukar tab. Kawalan manual selepas run memerlukan
+persetujuan setiap pautan: ia boleh **MENULIS** rekod di portal. Penghantaran
+automatik kekal MATI; jangan tekan Simpan kehadiran.
 
-Fasa: `idle` → `acquiring` → `active` → `closing` → `idle`.
+## Aliran produksi dan keselamatan DOM
 
-**Mula (`start`)**
-1. Sasaran disahkan terhadap enum tetap **sebelum** apa-apa tindakan berbayar
-   (`control` = `https://example.com`, `idme` = `https://idme.moe.gov.my/login`,
-   `moeis` = `https://moeispel.moe.gov.my/sahsiah/kehadiran/pkhem/tabguru`).
-2. `acquiring` belum tamat tempoh selamat → 409. `closing` → 409.
-   `active` belum tamat → `getSession(sid)`: ada → guna semula (tiada
-   pelancaran); `null`, rekod `endTime` positif yang sepadan dengan sid, atau
-   mesej terminal `Session not found` daripada binding berwibawa → sesi tamat.
-   Ralat lain/tamat masa → 503, sid dikekalkan, tiada pelancaran.
-3. Semak had harian dan jeda 12 saat.
-4. **Sebelum** `acquire` ditunggu: kiraan harian +1, cap masa had kadar,
-   keadaan `acquiring` dan penggera keras (+15 minit) disimpan.
-5. `acquire` membaling / tiada `sessionId` / melebihi 30 saat → kekal
-   `acquiring` (tidak pasti). Pelancaran baharu disekat sehingga 15 minit
-   penuh berlalu (lebih panjang daripada `keepAlive` 5 minit). Tiada cubaan
-   semula automatik.
-6. `sessionId` diterima → disimpan serta-merta (`active`, tarikh akhir = masa
-   tempahan + 15 minit), **kemudian** navigasi: CDP `Page.navigate` ke URL enum
-   tepat pada sasaran halaman asal, atau `devtools.newTarget(sid, url)` jika
-   `acquire` tidak memulangkan sasaran. Keputusan navigasi ialah
-   `sent`/`failed`/`uncertain` — **bukan** "halaman dimuatkan". Hanya
-   "Semak halaman" mengklasifikasi halaman yang benar-benar dicapai. Navigasi
-   gagal → 502, sid dan penggera dikekalkan.
+Port daripada `desktop/HadirDesktop/IdMeLoginFlow.cs`, `IdMeLoginWebView2.cs`,
+`IdMeLoginSafety.cs`, `AplikasiIdMe.cs`. `src/flow-dom.mjs` mengeksport satu
+deklarasi fungsi tetap. CDP menerima `Runtime.callFunctionOn` hanya untuk
+deklarasi tepat itu dan hujah yang disahkan, serta `Runtime.evaluate`
+`globalThis` tetap untuk pemegang konteks. Tiada JS/URL/pemilih/CDP klien.
 
-**Tutup (`close`)** memanggil `closeSession(sid)` (boleh memulangkan
-`closing`), kemudian mengesahkan `getSession(sid)` ialah `null`, rekod akhir
-`endTime` positif untuk sid yang sama, atau ralat terminal `Session not found`
-(tingkah laku binding sebenar yang disahkan pada 30 Oktober 2026). `connectionEndTime`
-sahaja bukan bukti pelayar telah tamat. Hanya selepas itu keadaan dikosongkan.
-Jika belum disahkan (masih wujud atau carian gagal): fasa `closing`, sid dikekalkan, penggera cuba semula
-(30 s, berganda hingga 5 minit), dan `start` disekat. Tutup semasa
-`acquiring` tidak memadam tempahan (tiada sid diketahui); tempahan hanya
-dibersihkan selepas tempoh selamat.
+Urutan: navigasi sebenar idMe → borang IC → isi dan lanjut sekali → frasa →
+`#check_log` → kata laluan benar-benar kelihatan dalam `#submit_form` → isi
+dan klik Daftar Masuk aktif sekali (abaikan dummy `#log_disbale_form`) →
+papan pemuka dengan anchor aplikasi → `list_aplikasi` → anchor MOEIS sebenar
+sekali → pemerhatian hos MOEIS → URL kehadiran tetap → DOM kehadiran dan
+**kedua-dua** identiti `JBA5054` serta `SK Paya Redan`.
 
-**Penggera** membaca tarikh akhir yang disimpan: tidak menutup awal (jadual
-semula ke tarikh akhir), menutup apabila tamat, mencuba semula `closing`, dan
-membersihkan `acquiring` yang luput.
+Skrip menaip/klik menyemak HTTPS, hos tepat, port lalai, tiada userinfo,
+sekatan dan CAPTCHA/OTP dalam skrip yang sama. Pemerhatian pra-tindakan mesti
+lulus sebelum decrypt. Halaman awal yang disekat dilaporkan sebelum akaun
+tiada, tanpa decrypt. URL, breadcrumb generik atau badan kosong tidak
+membuktikan login. Frasa/teks/href bertoken/ralat skrip tidak keluar dalam
+hasil DOM; hanya enum + boolean yang disanitasi.
 
-**Had 15 minit dikuatkuasakan pada setiap tindakan**, bukan hanya oleh
-penggera: `navigate`/`inspect`/`liveview` selepas tarikh akhir → penutupan
-serta-merta + 409 `session-expired`, walaupun penggera lewat.
+Run baharu membuka idMe walaupun menggunakan sesi lama; sesi lama mendapat
+tab idMe baharu milik run. Handoff memilih anchor mengikut keutamaan label
+Pengurusan Murid/Modul Murid/MOEIS dan HTTPS hos tepat `moeispel.moe.gov.my`.
+Href tidak disalin ke DO/log/status. Selepas popup, hanya tab milik run atau
+satu tab MOEIS baharu yang tiada sebelum handoff boleh dipilih. Calon berganda
+berhenti. Tiada navigasi kehadiran sebelum handoff dan pemerhatian MOEIS lulus.
+Redirect tidak selamat/sekatan berhenti; tiada URL alternatif atau pintasan.
 
-**Had**: 8 **cubaan** pelancaran sehari (termasuk yang gagal) mengikut
-`Asia/Kuala_Lumpur`; jeda 12 saat antara `acquire`/`navigate`/`inspect`/
-`liveview`, ditempah sebelum panggilan jauh dan kekal walaupun panggilan
-gagal. Tiada pilihan pintasan dalam kod produksi; ujian menggunakan jam
-disuntik. Status (`GET /api/status`) membaca storan sahaja — tiada panggilan
-pelayar, tiada penulisan. Lencana kiraan bukan anggaran kos.
+## Run berterusan dan had
 
-## 3. Semak halaman
+`src/flow.mjs` menyimpan `login_flow`: stage, enum sebab, empat boolean
+kemajuan, probeOnly, ID tab dalaman, revision akaun, masa tindakan seterusnya,
+kaunter submission dan penanda in-flight. Status membaca cache sahaja.
 
-`devtools.listTargets(sid)` (sesi sendiri sahaja) → pilih tab: tab MOEIS
-(selepas popup SSO) diutamakan, kemudian tab asal, kemudian tab pertama yang
-dibenarkan. Beberapa tab MOEIS, kegagalan senarai tab, atau hos DOM ≠ hos
-metadata ditanda `ambiguous`. Metadata sasaran tidak menyatakan tab "aktif",
-jadi panel melaporkan *tab yang diperiksa*.
+- Satu run aktif; start pendua tidak mengubah pilihan probe.
+- Satu tindakan mutasi setiap sambungan penggera; jeda 12 saat ditempah dalam
+  `rate_gate` sebelum peringkat jauh, kekal merentas restart. Pemerhatian
+  keselamatan dan tindakan yang dipagarnya berada dalam peringkat sama;
+  tindakan seterusnya menunggu sekurang-kurangnya 12 saat lagi.
+- Maksimum dua submission per run: satu IC dan satu kata laluan. Tiada
+  replay submission/handoff/navigasi tidak pasti. Penanda in-flight disimpan
+  sebelum dispatch; cold restart berhenti jika hasil belum direkod.
+  Pemerhatian belum sedia ditinjau maksimum lima kali per stage tanpa replay.
+- Simpan/padam akaun membatalkan run kredensial dan mengikat run kepada satu
+  revision; IC lama tidak boleh dipasangkan dengan kata laluan baharu.
+- Hanya penolakan eksplisit selepas submission kata laluan menambah
+  `account_rejections`; dua penolakan tersimpan menyekat login automatik
+  seterusnya. WAF/ralat rangkaian tidak menambah kiraan. Tiada API reset atau
+  reset senyap ketika simpan/padam akaun.
+- Cancel/close menanda pembatalan sebelum menunggu giliran. Guard diperiksa
+  semula selepas await dan sebelum penghantaran CDP. Arahan yang SUDAH
+  dihantar tidak boleh ditarik balik; hasil tidak pasti tidak dimainkan semula.
+- Penggera memilih min(masa tindakan, deadline sesi). Acquiring tidak pasti
+  dan closing retry mempunyai keutamaan. Kemajuan sejarah kekal selepas run;
+  readiness tamat selepas close/expiry/navigasi diagnostik/kawalan manual.
 
-Ungkapan `Runtime.evaluate` tetap memulangkan boolean (borang idMe, medan kata
-laluan wujud, sekatan/Imperva, CAPTCHA/OTP), satu kiraan pemilih MOEIS (hanya
-pada hos `moeispel.moe.gov.my` tepat) dan `location.href`. Worker mengesahkan
-jenis setiap medan (`=== true`, integer 0–5000) dan membuang yang lain.
-`href` hanya dikelaskan kepada enum (`idme-login`, `idme-other`,
-`moeis-attendance`, `moeis-other`, `control`, `blank`, `disallowed`, `unknown`)
-dengan URL ternormal hos + laluan dikenali (laluan lain menjadi `/…`). Tiada
-tajuk, query, HTML, nama, IC, kuki atau kata laluan dipulangkan atau disimpan.
-"Halaman MOEIS dicapai" **bukan** pengesahan kehadiran.
+Had sedia ada kekal: **8 cubaan pelancaran sehari KL**, hayat dinding 15 minit,
+keepAlive 5 minit. Tempahan kiraan/kadar/acquiring/penggera berlaku sebelum
+acquire. Acquire tidak pasti menyekat pelancaran 15 minit. Carian tidak pasti
+mengekalkan sid. Close disahkan hanya oleh null, ralat terminal `Session not
+found`, atau endTime positif bagi sid sama; connectionEndTime sahaja bukan
+bukti. Closing mencuba sid sama selepas 30 s, berganda hingga 5 minit.
+Tiada had dilonggarkan untuk ujian.
 
-## 4. Lihat sahaja dan kawalan manual
+## Vault dan pengesahan
 
-**Lihat sahaja** (`mode: readonly`): memohon `getLiveView` dengan
-`guardrails: { mode: 'readonly' }`. Dokumentasi menyatakan guardrails Live View
-ialah ciri REST sahaja, jadi URL hanya dipulangkan jika respons menggemakan
-`options.guardrails.mode === 'readonly'` **dan** URL lulus pengesahan asal.
-Jika tidak, panel jatuh balik kepada **tangkapan skrin statik**
-(`Page.captureScreenshot`, PNG disahkan tandatangan dan ≤ 3 MiB):
-`{ mode: 'snapshot', image: 'data:image/png;base64,…', warning }`. Tiada URL
-interaktif dikeluarkan di bawah label baca-sahaja. Imej tidak disimpan
-dalam DO, tidak dilog, dan dihantar `no-store`; panel memaparkannya dalam
-modal dengan butang muat semula (tertakluk jeda 12 saat). Tangkapan gagal →
-503.
+`src/vault.mjs`: WebCrypto HKDF-SHA256 daripada `OWNER_KEY`, salt
+`autohadir-cloud:v1`, info/AAD `autohadir-cloud:v1:idme-vault:JBA5054`,
+AES-256-GCM, IV rawak 12 bait. `cloud_account` dalam DO menyimpan revision
+rawak dan envelope `{version:1,iv,ciphertext}` sahaja. Tamper/kunci salah
+gagal tertutup; tiada plaintext fallback. Rotasi OWNER_KEY memerlukan
+pendaftaran semula akaun. API metadata akaun hanya `{configured:boolean}`;
+tiada ciphertext, pengguna, kata laluan atau frasa dipulangkan.
 
-**Kawalan manual** (`mode: manual`): memerlukan `manualConsent === true` pada
-setiap permintaan (kotak semak dinyahtanda selepas setiap pautan). Pautan
-memberi **kawalan penuh yang boleh MENULIS rekod** di portal; panel
-menyatakannya dengan jelas. Tiada kata laluan dikendalikan oleh backend.
-Panel tidak pernah klik apa-apa secara automatik.
+Tiket sekali guna 90 s, kuki `__Host-autohadir` HttpOnly/Secure/SameSite=Strict
+8 jam dan CSRF HMAC per-sesi kekal. Mutasi flow/vault memerlukan sesi pemilik,
+Origin sama-asal tepat dan CSRF di **Worker dan DO**; header asal diteruskan.
+Whitelist JSON, jenis dan panjang disemak di kedua-dua sempadan, badan
+maksimum 4 KiB. Ralat tetap tidak membawa mesej hulu. HTML/API no-store, CSP,
+DENY, nosniff, no-referrer kekal. Observability dan source maps MATI;
+allowedDomains tidak diluaskan: idMe, MOEIS dan example.com tepat sahaja.
 
-URL Live View (kedua-dua mod) mesti bermula `https://live.browser.run/ui/`,
-HTTPS, tanpa userinfo/port; `javascript:`, asal lain dan userinfo ditolak
-502. URL ialah kredensial: tidak disimpan, tidak dilog, dibuka hanya melalui
-pautan `rel="noopener noreferrer"` yang dibina dengan DOM dan dibuang selepas
-60 saat. Pautan sah 60 saat (`expiresInMs`).
+## Kontrak API 1.1
 
-## 5. Pengesahan pemilik
+Semua POST JSON memerlukan kuki pemilik, `Origin` tepat dan
+`X-Autohadir-CSRF` daripada GET `/api/status`. Medan tambahan ditolak 400.
 
-**Tiket** = `b64url(JSON) + "." + b64url(HMAC-SHA256(OWNER_KEY ASCII, b64url(JSON)))`
-dengan JSON `{"kind":"owner-login","nonce":<≥16 aksara [A-Za-z0-9_-]>,"iat":<s>,"exp":iat+90}`.
-`POST /auth/exchange` (hanya `application/x-www-form-urlencoded`, medan
-`ticket` tunggal) menyemak tandatangan (WebCrypto), jenis, iat/exp integer,
-`iat ≤ now+5`, `exp ≤ now+120`, kemudian menuntut nonce secara atomik dalam
-DO (maksimum 64 nonce hidup; luput dicantas). Kuki `__Host-autohadir`
-(`HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800`, `kind:
-owner-session`) dan halaman `location.replace('/')` dengan nonce CSP.
+| Kaedah/laluan | Badan | Hasil |
+| --- | --- | --- |
+| GET `/api/status` | — | status sesi + `flow`, `account`, `csrf`, `version`, `automaticSending:false`; tiada tindakan pelayar |
+| GET `/api/account/status` | — | `{ok:true,account:{configured:boolean}}` |
+| POST `/api/account/save` | `{identifier,password,phrase,consent:true,allowUnreadablePhrase:boolean}` | `{ok:true,account:{configured:true}}`; tiada auto-login |
+| POST `/api/account/delete` | `{}` | `{ok:true,account:{configured:false}}` |
+| POST `/api/flow/start` | `{}` atau `{probeOnly:boolean}` | `{ok:true,reused:boolean}` segera; kerja melalui penggera |
+| POST `/api/flow/cancel` | `{}` | `{ok:true}`; tiada lagi tindakan run, sesi masih boleh ditutup |
+| POST `/api/session/close` | `{}` | `closed`, `closing`, `idle` atau `acquire-uncertain`; turut membatalkan run |
 
-Semua `POST` mutasi (`/api/session/*`, `/auth/logout`) memerlukan `Origin`
-sama-asal tepat dan `X-Autohadir-CSRF` = `HMAC(OWNER_KEY, "csrf:"+nonce sesi)`.
-`GET`/`HEAD` tidak pernah memulakan sesi.
+Panjang identifier 1–128, password 1–512, phrase 1–160; string bukan kosong,
+aksara kawalan ditolak. Identifier/phrase ditrim; password dikekalkan.
+consent mesti boolean true; allowUnreadablePhrase mesti boolean.
 
-**Sempadan input**: badan dibaca mengikut bait sebenar (pembaca dibatalkan
-melebihi 4 KiB → 413). JSON ketat: kosong → `{}`, mesti objek, kunci di luar
-senarai tindakan → 400 — disemak di Worker **dan** di DO. JSON rosak → 400.
+`flow`: null atau `{status,stage,reason,probeOnly,submissions,steps,startedAt,
+nextAt,ready}`. Status `running|stopped`. Stage:
+`begin|login|identifier|verification|password|dashboard|applications|
+application-list|handoff|handoff-result|attendance-result`.
+Sebab terminal termasuk `ready`, `login-form-ready`, `probe-complete`,
+`needs-account`, `portal-blocked`, `human-required`, `phrase-mismatch`,
+`phrase-unreadable`, `credential-rejected`, `vault-unavailable`,
+`account-changed`, `action-uncertain`, `page-not-ready`, `ambiguous-tab`,
+`school-mismatch`, `untrusted-page`, `cancelled`, `expired`, `session-ended`.
+Sebab lain juga enum tetap, tidak pernah rentetan portal.
 
-**Ralat**: kod bertaip (`src/errors.mjs`) dengan mesej tetap; ralat tidak
-dikenali → 500 generik. Mesej hulu (CDP, Browser Run) tidak pernah
-dipulangkan. Setiap respons (termasuk 404/ralat) membawa `X-Frame-Options:
-DENY`, `nosniff`, `Referrer-Policy: no-referrer`, CSP `frame-ancestors 'none'`;
-API dan HTML `no-store`. `OWNER_KEY` tiada/pendek → 503 terkunci tanpa
-butiran.
+**Probe pemilik:** POST `/api/flow/start` `{probeOnly:true}`. Ia membuka idMe
+dan menjalankan guards sama tetapi **tidak pernah** decrypt, isi IC/password,
+tanda kotak, submit atau handoff SSO walaupun akaun disimpan semasa run.
+Borang login → `login-form-ready`; halaman lain → `probe-complete`; sekatan
+mengatasi kedua-duanya. Tiada dakwaan auth. Start pendua tidak menukar probe
+menjadi login; cancel kemudian start baharu eksplisit diperlukan.
 
-## 6. Pelancar pemilik (Windows)
+API diagnostik lama `/api/session/start {target}`, `/navigate {target}`,
+`/inspect {}`, `/liveview {mode,manualConsent}` kekal. Target hanya enum
+`control|idme|moeis`, bukan URL klien. Readonly memerlukan gema
+`options.guardrails.mode==='readonly'`; jika tiada, fallback PNG ≤3 MiB.
+URL hanya `https://live.browser.run/ui/…`, tidak dilog/disimpan; pautan UI
+dibuang selepas 60 s. Laluan penghantaran kekal 404/405.
 
-`Buka-Panel.cmd` memilih CPython bukan Microsoft Store (runtime Hermes jika ada,
-kemudian `python` yang lulus `--check-runtime`) dan menjalankan pelancar dengan `-I`.
-Python Microsoft Store mengalihkan `LOCALAPPDATA` ke salinan maya; ia ditolak
-supaya kunci DPAPI dan konfigurasi sentiasa dibaca dari laluan Windows sebenar.
-
-- Konfigurasi awam: `%LOCALAPPDATA%\AutohadirCloud\config.json`
-  `{"baseUrl": "https://autohadir-skpr-cloud.sekolah-3458-cm1.workers.dev"}`.
-  `baseUrl` mesti tepat asal yang dibenarkan (HTTPS, tiada laluan/query/port/
-  userinfo). Tiada nilai lalai senyap — konfigurasi tiada atau salah →
-  ralat jelas, tiada tiket dijana.
-- Kunci: `%LOCALAPPDATA%\AutohadirCloud\owner-key.dpapi` = output
-  `CryptProtectData` (CurrentUser) bagi kunci ASCII mentah (bukan JSON).
-  Dinyahsulit melalui ctypes dengan `argtypes`/`restype` eksplisit; penimbal
-  dikekalkan hidup; output dikosongkan dan `LocalFree`.
-- Pelayan sekali-guna pada `127.0.0.1:<rawak>/<laluan rawak>`: semakan Host
-  (421), laluan lain 404, kaedah lain 405, tiada CORS, tiada log permintaan,
-  `no-store`, CSP `script-src 'nonce-…'` + `form-action <asal>/auth/exchange`,
-  `no-referrer`. Berhenti selepas satu hidangan atau 90 saat (gelung
-  `handle_request`, tiada perlumbaan shutdown).
-- Kunci dan tiket tidak pernah dicetak. Tiada mod CLI yang menerima kunci.
-
-## 7. Operasi
+## Ujian dan bukti pembangunan
 
 ```powershell
 cd autohadir-cloud
-npm ci
-npm test          # ujian Node (termasuk ujian unit Python melalui python -I)
-npm run check     # sintaks semua modul + /app.js dijana + Python
-npm run build     # wrangler deploy --dry-run --outdir dist (wrangler 4.156.0 dipin)
+npm.cmd test
+npm.cmd run check
+npm.cmd run build
+node --test tests/flow.test.mjs tests/vault.test.mjs tests/flow-command.test.mjs
+node --test tests/dom-browser.test.mjs
 ```
 
-Bukti RED/GREEN berada dalam `evidence/` (diabaikan git; data rekaan sahaja).
+`tests/helpers/fakes.mjs` menyuntik jam/storage/binding; tiada pintasan
+produksi. `flow.test.mjs` memajukan jam ke alarm tersimpan dan mencipta DO
+baharu pada setiap tick. `dom-browser.test.mjs` memanggil deklarasi DOM
+produksi melalui CDP dalam Chrome baharu dengan profil temp terasing,
+Fetch interception bagi setiap fixture dan abort URL lain. Ia ditulis untuk
+rantaian dua peringkat, tab MOEIS lama, popup, frasa/canvas, checkbox/password
+tersembunyi, butang dummy, sekatan/OTP, DOM tidak jelas dan paparan 390 px.
+`FIXTURE_CHROMIUM` boleh memilih executable Chromium setempat. Tiada profil
+pengguna diimport, `--no-sandbox` atau perubahan fingerprint produksi.
 
-## 8. Had yang diketahui (belum dibuktikan / tidak dilaksanakan)
+Bukti sebenar di `evidence/` (diabaikan git):
 
-- **Perintis langsung 30 Oktober 2026:** Worker diterbitkan dan diuji dengan
-  Browser Run sebenar: acquire, navigasi ke example.com, CDP inspect, guna semula
-  sesi, Live View baca-sahaja dan penutupan yang disahkan lulus. Binding sebenar
-  menggemakan `options.guardrails.mode === 'readonly'`; fallback PNG kekal diuji
-  dengan fixture. Pelancar DPAPI → localhost sekali-guna → kuki HTTPS pemilik
-  turut lulus hujung-ke-hujung; panel 390 px tiada limpahan/ralat JavaScript.
-- **Gerbang portal BELUM lulus:** Live View idMe memaparkan
-  **“Sekatan atas faktor keselamatan.”** dalam sesi ujian ini. URL yang betul
-  bukan bukti borang login dicapai. Diagnostik mengesan frasa sekatan BM itu.
-  Ini bukan bukti semua hos awan atau semua permintaan Cloudflare akan disekat.
-  Tiada cubaan memintas, tiada login portal, tiada rekod kehadiran dihantar.
-  Desktop kekal laluan operasi; cloud belum boleh menggantikannya.
-- Log masuk idMe manual mungkin memerlukan hos tambahan (SSO/CDN) yang tidak
-  ada dalam `allowedDomains`; ia akan disekat oleh guardrails dan dilaporkan,
-  bukan diluaskan.
-- Pengesanan tab "aktif" tidak boleh dipastikan daripada metadata sasaran;
-  panel melaporkan tab yang diperiksa dan menanda keadaan samar-samar.
-- Tiada pengesahan bahawa sesi Browser Run tidak terbiar selepas `acquire`
-  yang tidak pasti; reka bentuk bergantung pada `keepAlive` 5 minit dan
-  sekatan 15 minit, bukan pada senarai sesi akaun.
-- Tiada penghantaran kehadiran, tiada penyimpanan kredensial idMe, tiada
-  sambungan GAS/AKSI/SEMAK, tiada cron, tiada pintasan CAPTCHA/OTP.
+- `flow-red-01.log` → `flow-green-01.log`: vault dan start persisten.
+- `flow-red-02.log` → `flow-green-02.log`: mesin keadaan/pembatalan/probe.
+- `flow-api-ui-red.log` → `flow-api-ui-green.log`: API dan UI.
+- `flow-popup-red.log` → `flow-popup-green.log`: target popup menjadi target sesi.
+- `flow-cdp-context-red.log` → `flow-cdp-context-green.log`: pemegang objek DOM
+  digunakan pada sambungan CDP yang sama, dengan pengawal cancel sebelum send.
+- `flow-extended.log`: guard tambahan, ralat/tamper dan cancel sebelum send.
+- `test-final.log`, `check-final.log`, `web-final.log`, `build.log`: keputusan akhir.
+
+Semakan pelaksana dalam sandbox asal memang gagal memulakan renderer dan
+bundler. Semakan ketua di luar sandbox kemudian **menjalankan semuanya**:
+`npm test` lulus tanpa skip, termasuk Chromium sebenar bagi rantaian login,
+popup/tab sama, sekolah salah/footer/picker, spoof hos, CAPTCHA/OTP dan
+paparan 390 px. `npm run check`, dry-run Wrangler dan regresi web/Python
+pelancar turut lulus. Profil ujian terasing menggunakan proxy loopback mati
+serta resolver deny-all di samping Fetch interception; fixture tidak boleh
+menghubungi portal sebenar.
+
+Semakan Opus dan ketua menemui serta membaiki dua kecacatan yang tidak
+tertangkap fake awal: objectId CDP mesti kekal pada satu sambungan, dan
+`keep_names:false` diperlukan supaya serialisasi fungsi DOM tiada helper
+`__name` luar. Kedua-duanya diuji dengan skrip produksi/bundle dalam Chromium.
+Cubaan akaun kini ditempah secara persisten **sebelum tindakan kredensial**;
+hasil timeout/tidak pasti tetap menggunakan belanjawan dua cubaan, walaupun
+run dimulakan semula. Ia hanya dipulihkan melalui enrollment eksplisit atau
+bukti dashboard sah. Tiada dakwaan bahawa ujian fixture membuktikan login
+portal hidup; penerimaan idMe/MOEIS mesti disahkan berasingan.
+
+## Keputusan produksi — 30 Oktober 2026
+
+Versi **1.1.0 sudah diterbitkan** ke Worker sekolah yang sama; deployment
+100% disahkan semula melalui API Cloudflare. Satu run `probeOnly:true`
+berjalan autonomi melalui alarm DO dan Browser Run sebenar. idMe `/login`
+masih menunjukkan **“Sekatan atas faktor keselamatan.”** Aliran berhenti
+sebelum login; tiada decrypt/fill/submit/SSO dalam mod probe, tiada akaun
+cloud didaftarkan dan tiada kehadiran dihantar. Sesi ujian ditutup dan idle
+disahkan. Panel telefon, keselamatan API dan pelancar DPAPI → HTTPS lulus.
+
+Kod aliran login/SSO kini dibina dan diuji, **bukan bukti portal menerima
+login cloud**. Jangan isi kredensial untuk cuba mengatasi halaman sekatan.
+HADIR Desktop kekal laluan operasi; penghantaran cloud masih MATI.

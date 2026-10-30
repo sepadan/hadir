@@ -196,7 +196,7 @@ describe('runCdpCommand', () => {
       await assert.rejects(runCdpCommand(browser, sessionId, targets[0].id, m, {}), (err) => err.code === 'cdp-method-denied');
     }
     assert.equal(browser.callsOf('connectSession').length, 0);
-    assert.deepEqual([...ALLOWED_CDP_METHODS].sort(), ['Page.captureScreenshot', 'Page.navigate', 'Runtime.evaluate']);
+    assert.deepEqual([...ALLOWED_CDP_METHODS].sort(), ['Page.captureScreenshot', 'Page.navigate', 'Runtime.callFunctionOn', 'Runtime.evaluate']);
   });
 
   it('Runtime.evaluate hanya menerima ungkapan tetap SAFE_EVALUATE_SCRIPT', async () => {

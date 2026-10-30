@@ -1,7 +1,7 @@
 import vm from 'node:vm';
 import { renderAppJs } from '../src/ui.mjs';
 
-export async function runUi(pageStatus = null, phase = 'active', expired = false) {
+export async function runUi(pageStatus = null, phase = 'active', expired = false, flow = null) {
   const nodes = new Map(), timers = [];
   function element() {
     return { textContent:'', className:'', innerHTML:'', hidden:true, disabled:false,
@@ -14,7 +14,7 @@ export async function runUi(pageStatus = null, phase = 'active', expired = false
     createElement:element, addEventListener(){} };
   let fetchCount = 0;
   const payload = {csrf:'fixture-csrf',dailyLaunches:{count:1,max:8,date:'2026-10-30'},
-    nextActionAt:null,session:{phase,requestedTarget:'control',navigation:'sent',expiresAt:Date.now()+(expired ? -1 : 900000)},pageStatus};
+    nextActionAt:null,session:{phase,requestedTarget:'control',navigation:'sent',expiresAt:Date.now()+(expired ? -1 : 900000)},pageStatus,flow};
   const window = { location:{replace(){}}, addEventListener(){} };
   const context = {document,window,console,Date,
     fetch:async()=>{fetchCount++;return {ok:true,status:200,json:async()=>payload};},

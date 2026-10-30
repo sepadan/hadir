@@ -19,7 +19,7 @@ const HEADER = `<header class="header">
     </header>`;
 
 const FOOTER = `<footer class="footer">
-      <p>Autohadir Cloud v${VERSION} • Fasa 1 perintis: sesi pelayar + diagnostik sahaja, bukan automasi kehadiran.</p>
+      <p>Autohadir Cloud v${VERSION} • Aliran login perintis. Penghantaran kehadiran automatik MATI.</p>
     </footer>`;
 
 export function renderNotConfiguredHtml() {
@@ -62,7 +62,7 @@ export function renderLockedHtml() {
           </ol>
         </div>
         <div class="notice-box">
-          Kunci pemilik disulit dengan Windows DPAPI pada PC pentadbir. Tiada kata laluan idMe/MOEIS disimpan di awan.
+          Kunci pemilik disulit dengan Windows DPAPI pada PC pentadbir. Akaun idMe cloud pilihan disimpan disulit dalam akaun Cloudflare pemilik.
           Penghantaran kehadiran automatik disekat sepenuhnya dalam Fasa 1.
         </div>
       </div>
@@ -117,6 +117,33 @@ export function renderAuthenticatedHtml() {
         </div>
       </section>
 
+      <section class="card" aria-labelledby="flowHeading">
+        <h2 id="flowHeading">Autohadir</h2>
+        <p class="desc">Buka idMe → log masuk → pilih aplikasi MOEIS → sahkan halaman kehadiran dan sekolah. Sekatan portal menghentikan aliran.</p>
+        <div class="button-group">
+          <button id="btnFlowStart" class="btn btn-primary" type="button">Mula Autohadir</button>
+          <button id="btnFlowStop" class="btn btn-danger" type="button">Henti / Tutup sesi</button>
+        </div>
+        <ol class="workflow-steps">
+          <li id="flowStep1">1. Buka idMe — belum bermula</li>
+          <li id="flowStep2">2. Log masuk idMe — belum disahkan</li>
+          <li id="flowStep3">3. Aplikasi MOEIS — belum diikuti</li>
+          <li id="flowStep4">4. Kehadiran dan sekolah — belum disahkan</li>
+        </ol>
+        <p id="flowReason" role="status" aria-live="polite">Belum bermula. Penghantaran automatik MATI.</p>
+      </section>
+      <details class="card">
+        <summary>Akaun idMe (cloud)</summary>
+        <p class="desc">Pilihan sahaja. Tidak perlu mendaftar akaun semasa portal disekat. Tiada import atau salinan vault Desktop/DPAPI.</p>
+        <p id="cloudAccountStatus">Akaun belum disemak.</p>
+        <label class="cloud-field">Pengenalan idMe<input type="password" id="cloudIdentifier" autocomplete="off" maxlength="128"></label>
+        <label class="cloud-field">Kata laluan<input type="password" id="cloudPassword" autocomplete="new-password" maxlength="512"></label>
+        <label class="cloud-field">Kata Kunci Keselamatan<input type="password" id="cloudPhrase" autocomplete="off" maxlength="160"></label>
+        <label class="checkbox-container"><input type="checkbox" id="cloudConsent">Saya bersetuju kredensial diproses dan disimpan disulit dalam akaun Cloudflare saya, bukan pada PC. Login hanya selepas saya menekan Mula Autohadir.</label>
+        <label class="checkbox-container"><input type="checkbox" id="cloudUnreadable">Opt-in berasingan: teruskan jika frasa imej/canvas tidak boleh dibaca. Tiada OCR; perlindungan bergantung pada hos HTTPS tepat dan kotak semak. Frasa yang berbeza tetap menghentikan login.</label>
+        <div class="button-group"><button id="btnAccountSave" class="btn btn-secondary" type="button">Simpan akaun cloud</button><button id="btnAccountDelete" class="btn btn-danger" type="button">Padam akaun cloud</button></div>
+      </details>
+      <details class="card"><summary>Diagnostik dan kawalan manual</summary>
       <section class="card" aria-labelledby="heading-actions">
         <h2 id="heading-actions">Tindakan pelayar Cloudflare</h2>
         <p class="desc text-sm">Setiap tindakan pelayar mesti berjarak sekurang-kurangnya 12 saat. Muat semula status tidak menyentuh pelayar.</p>
@@ -139,7 +166,7 @@ export function renderAuthenticatedHtml() {
         <div class="warning-callout">
           <strong>Baca dahulu:</strong> pautan kawalan manual memberi kawalan penuh kepada pelayar awan (dihoskan oleh Cloudflare).
           Anda boleh menaip, klik dan <strong>MENULIS rekod di portal, termasuk menyimpan kehadiran</strong>.
-          Autohadir Cloud tidak menyimpan kata laluan idMe anda. Penghantaran automatik kekal MATI; panel ini tidak pernah klik apa-apa bagi pihak anda.
+          Akaun idMe cloud pilihan disimpan disulit dalam akaun Cloudflare pemilik. Aliran login boleh klik borang login dan aplikasi MOEIS selepas Mula Autohadir. Penghantaran automatik kekal MATI.
           <strong>Jangan tekan Simpan kehadiran.</strong>
         </div>
         <div class="checkbox-container">
@@ -171,6 +198,7 @@ export function renderAuthenticatedHtml() {
           <div class="diag-row"><span class="diag-label">Disemak pada</span><span id="diagAt" class="diag-val">–</span></div>
         </div>
       </section>
+      </details>
     </main>
 
     ${FOOTER}
@@ -590,6 +618,10 @@ body {
 }
 
 .stat-hint { font-size: 0.6875rem; color: var(--text-muted); }
+summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+.cloud-field { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-size: .875rem; }
+.cloud-field input { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 6px; }
+#flowReason { overflow-wrap: anywhere; font-size: .875rem; }
 .status-msg.status-ok { display: block; background-color: var(--success-bg); color: var(--success); }
 .status-msg.status-error { display: block; background-color: var(--danger-bg); color: var(--danger); }
 .step-indicator.step-yes { background-color: #bbf7d0; }
@@ -685,12 +717,48 @@ export function renderAppJs() {
     renderExpiry(s);
     el.target.textContent = s.requestedTarget ? s.requestedTarget.toUpperCase() + ' · ' + (NAV_LABEL[s.navigation] || '–') : '–';
     renderDiagnostics(data.pageStatus || null);
+    renderFlow(data);
+  }
+
+  const FLOW_REASON = {
+    starting: 'Memulakan idMe.', waiting: 'Menunggu halaman dan jeda keselamatan 12 saat.',
+    'portal-blocked': 'Portal menolak akses atas faktor keselamatan. Aliran dihentikan; tiada cubaan memintas. Tidak perlu menyimpan akaun semasa disekat.',
+    'human-required': 'CAPTCHA/OTP/2FA memerlukan manusia. Aliran dihentikan.',
+    'login-form-ready': 'Probe selesai: borang login idMe dikesan. Tiada akaun dinyahsulit, medan diisi atau login dihantar.',
+    'probe-complete': 'Probe selesai; login dan akses MOEIS belum dibuktikan.',
+    'needs-account': 'Borang idMe tersedia. Simpan akaun cloud secara pilihan sebelum memulakan run baharu.',
+    'phrase-mismatch': 'Frasa keselamatan tidak padan. Login dihentikan.',
+    'phrase-unreadable': 'Frasa keselamatan tidak boleh dibaca. Login dihentikan.',
+    'checkbox-required': 'Kotak semak tidak mendedahkan kata laluan. Login dihentikan.',
+    'credential-rejected': 'idMe menolak kredensial secara eksplisit. Tiada cubaan semula automatik.',
+    'account-attempt-limit': 'Had penolakan akaun tercapai. Tindakan manusia diperlukan.',
+    'account-changed': 'Akaun berubah; run dihentikan. Mulakan run baharu secara eksplisit.',
+    'vault-unavailable': 'Vault tidak dapat dibaca atau akaun berubah. Simpan semula secara peribadi dan mulakan run baharu.',
+    'action-uncertain': 'Keputusan tindakan tidak pasti. Dihentikan tanpa menghantar semula.',
+    cancelled: 'Aliran dihentikan.', expired: 'Had sesi 15 minit tamat.',
+    'session-ended': 'Sesi telah tamat. Bukti akses terdahulu tidak lagi aktif.',
+    'school-mismatch': 'Halaman kehadiran dijumpai tetapi sekolah tidak disahkan.',
+    ready: 'Sedia MOEIS: DOM kehadiran dan SK Paya Redan JBA5054 disahkan dalam sesi ini. Penghantaran automatik MATI.'
+  };
+  function renderFlow(data) {
+    const f = data.flow;
+    const label = ['Buka idMe','Log masuk idMe','Aplikasi MOEIS','Kehadiran dan sekolah'];
+    for (let i=0;i<4;i++) {
+      const node=$('flowStep'+(i+1));
+      if (node) node.textContent=(i+1)+'. '+label[i]+' — '+(f && f.steps && f.steps[i] ? 'diperiksa' : 'belum disahkan');
+    }
+    const s=data.session || {};
+    const reason=f && f.reason==='ready' && !(f.ready && s.phase==='active' && s.expiresAt>Date.now()) ? 'session-ended' : f && f.reason;
+    if ($('flowReason')) $('flowReason').textContent = f ? FLOW_REASON[reason] || 'Halaman tidak dapat disahkan; aliran dihentikan atau menunggu. Penghantaran automatik MATI.' : 'Belum bermula. Penghantaran automatik MATI.';
+    if ($('cloudAccountStatus')) $('cloudAccountStatus').textContent = data.account && data.account.configured ? 'Akaun cloud disimpan disulit.' : 'Tiada akaun cloud disimpan.';
+    if ($('btnFlowStart')) $('btnFlowStart').disabled = !!f && f.status === 'running';
   }
 
   function renderExpiry(s) {
     if (s.phase === 'active' && s.expiresAt && Date.now() >= s.expiresAt) {
       el.badge.textContent = PHASE_LABEL.expired[0];
       el.badge.className = 'badge ' + PHASE_LABEL.expired[1];
+      if (lastStatus && lastStatus.flow && lastStatus.flow.reason==='ready' && $('flowReason')) $('flowReason').textContent='Sesi telah tamat. Bukti akses terdahulu tidak lagi aktif.';
     }
     if (s.phase === 'active' && s.expiresAt) el.expiry.textContent = fmtRemaining(s.expiresAt - Date.now());
     else if (s.phase === 'acquiring' && s.acquireBlockedUntil) el.expiry.textContent = 'disekat ' + fmtRemaining(s.acquireBlockedUntil - Date.now());
@@ -763,6 +831,30 @@ export function renderAppJs() {
   action(el.startIdme, 'Memulakan sesi idMe…', async () => {
     const r = await api('/api/session/start', 'POST', { target: 'idme' });
     return r.reused ? 'Sesi sedia ada digunakan semula (tiada pelancaran baharu).' : 'Sesi dibuka; arahan navigasi ke idMe dihantar. Guna "Semak halaman" untuk mengesahkan.';
+  });
+  action($('btnFlowStart'), 'Memulakan Autohadir…', async () => {
+    await api('/api/flow/start', 'POST', {});
+    return 'Run dimulakan; kemajuan diteruskan oleh pelayan walaupun panel ditutup. Penghantaran automatik MATI.';
+  });
+  action($('btnFlowStop'), 'Menghentikan dan menutup sesi…', async () => {
+    await api('/api/flow/cancel', 'POST', {});
+    const r=await api('/api/session/close', 'POST', {});
+    return r.status==='closed'||r.status==='idle' ? 'Aliran dihentikan dan sesi ditutup.' : 'Aliran dihentikan; pengesahan penutupan masih berjalan.';
+  });
+  action($('btnAccountSave'), 'Menyimpan akaun cloud…', async () => {
+    if (!$('cloudConsent').checked) throw new Error('Persetujuan simpanan cloud diperlukan.');
+    try {
+      await api('/api/account/save', 'POST', {identifier:$('cloudIdentifier').value,password:$('cloudPassword').value,phrase:$('cloudPhrase').value,consent:true,allowUnreadablePhrase:$('cloudUnreadable').checked});
+      return 'Akaun cloud disimpan disulit. Tiada login dimulakan.';
+    } finally {
+      for (const id of ['cloudIdentifier','cloudPassword','cloudPhrase']) $(id).value='';
+      $('cloudConsent').checked=false; $('cloudUnreadable').checked=false;
+    }
+  });
+  action($('btnAccountDelete'), 'Memadam akaun cloud…', async () => {
+    await api('/api/account/delete','POST',{});
+    for (const id of ['cloudIdentifier','cloudPassword','cloudPhrase']) $(id).value='';
+    return 'Akaun cloud dipadam.';
   });
   action(el.startControl, 'Memulakan sesi kawalan…', async () => {
     const r = await api('/api/session/start', 'POST', { target: 'control' });
@@ -844,7 +936,8 @@ export function renderAppJs() {
   refreshStatus();
   setInterval(() => {
     const phase = lastStatus && lastStatus.session && lastStatus.session.phase;
-    if (document.visibilityState === 'visible' && phase && phase !== 'idle') refreshStatus();
+    const running = lastStatus && lastStatus.flow && lastStatus.flow.status === 'running';
+    if (document.visibilityState === 'visible' && (running || (phase && phase !== 'idle'))) refreshStatus();
   }, 15000);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refreshStatus();

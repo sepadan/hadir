@@ -75,6 +75,17 @@ describe('Penghala Worker', () => {
     ctx = createEnv();
   });
 
+  it('flow relay reconstructs only auth headers, never stale length or arbitrary authorization',async()=>{
+    const get=ctx.env.SESSION.get.bind(ctx.env.SESSION);let forwarded;
+    ctx.env.SESSION.get=id=>{const stub=get(id);return{fetch:(url,init)=>{forwarded=new Headers(init.headers);return stub.fetch(url,init);}};};
+    const body=' { "probeOnly" : true } ';
+    const response=await post(ctx.env,'/api/flow/start',body,await ownerHeaders({'Content-Length':String(Buffer.byteLength(body)),Authorization:'Bearer synthetic-only'}));
+    assert.equal(forwarded.has('Content-Length'),false);
+    assert.equal(forwarded.has('Authorization'),false);
+    assert.ok(forwarded.get('Cookie'));assert.ok(forwarded.get('X-Autohadir-CSRF'));
+    assert.equal(response.status,200);
+  });
+
   it('GET /health: versi dan mod sahaja', async () => {
     const res = await worker.fetch(new Request(`${ORIGIN}/health`), ctx.env);
     assert.equal(res.status, 200);
@@ -312,5 +323,46 @@ describe('Pengesahan pemilik', () => {
     const res = await post(env, '/auth/logout', undefined);
     assert.equal(res.status, 200);
     assert.match(res.headers.get('Set-Cookie'), /Max-Age=0/);
+  });
+});
+
+describe('Cloud account and flow API boundaries',()=>{
+  const account={identifier:'fixture-owner',password:'fixture-password',phrase:'fixture phrase',consent:true,allowUnreadablePhrase:false};
+  it('save/status/delete are owner-only; no secret or ciphertext echoes; no auto start',async()=>{
+    const {env,browser}=createEnv();
+    const saved=await post(env,'/api/account/save',account);
+    assert.equal(saved.status,200);assertPrivateHeaders(saved);
+    assert.deepEqual(await saved.json(),{ok:true,account:{configured:true}});
+    const status=await worker.fetch(new Request(ORIGIN+'/api/account/status',{headers:await ownerHeaders()}),env);
+    assert.deepEqual(await status.json(),{ok:true,account:{configured:true}});
+    assert.deepEqual(await (await post(env,'/api/account/delete',{})).json(),{ok:true,account:{configured:false}});
+    assert.equal(browser.remoteCallCount(),0);
+  });
+  it('Worker and DO require auth/Origin/CSRF, whitelist, strict boolean and limits',async()=>{
+    const {env,browser}=createEnv();
+    const headers=await ownerHeaders();
+    for(const path of ['/api/flow/start','/api/flow/cancel','/api/account/save','/api/account/delete']) {
+      assert.equal((await post(env,path,{},{})).status,401,path);
+      for(const patch of [{Origin:'https://evil.example'},{'X-Autohadir-CSRF':''}]) assert.equal((await post(env,path,{}, {...headers,...patch})).status,403,path);
+      assert.equal((await post(env,path,{extra:true})).status,400,path);
+    }
+    for(const probeOnly of ['true',1,null,{}]) assert.equal((await post(env,'/api/flow/start',{probeOnly})).status,400);
+    for(const patch of [{password:3},{consent:false},{allowUnreadablePhrase:'yes'},{identifier:'x'.repeat(129)}]) assert.equal((await post(env,'/api/account/save',{...account,...patch})).status,400);
+    assert.equal((await post(env,'/api/account/save','x'.repeat(4097))).status,413);
+    const stub=env.SESSION.get(env.SESSION.idFromName('JBA5054'));
+    assert.equal((await stub.fetch(ORIGIN+'/flow-start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401);
+    assert.equal((await stub.fetch(ORIGIN+'/flow-start',{method:'POST',headers,body:'{"probeOnly":"yes"}'})).status,400);
+    assert.equal((await stub.fetch(ORIGIN+'/account-save',{method:'POST',headers,body:JSON.stringify({...account,consent:false})})).status,400);
+    assert.equal(browser.remoteCallCount(),0);
+  });
+  it('start returns quickly, stores immutable probe and cached status does not touch browser',async()=>{
+    const {env,browser,storage}=createEnv();
+    assert.equal((await post(env,'/api/flow/start',{probeOnly:true})).status,200);
+    assert.equal(storage.data.get('login_flow').probeOnly,true);
+    assert.equal(browser.remoteCallCount(),0);
+    assert.equal((await post(env,'/api/flow/start',{probeOnly:false})).status,200);
+    assert.equal(storage.data.get('login_flow').probeOnly,true);
+    assert.equal((await post(env,'/api/flow/cancel',{})).status,200);
+    assert.equal(storage.data.get('login_flow').status,'stopped');
   });
 });

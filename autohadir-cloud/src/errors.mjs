@@ -3,6 +3,8 @@
 // (yang mungkin mengandungi teks hulu seperti JWT, URL atau data peribadi).
 
 export const ERROR_CODES = Object.freeze({
+  'vault-unavailable': [409, 'Vault cloud tidak dapat dibaca. Simpan semula akaun secara peribadi.'],
+  'flow-active': [409, 'Aliran sedang berjalan; hentikan dahulu untuk kawalan pelayar lain.'],
   'invalid-request': [400, 'Permintaan tidak sah.'],
   'invalid-json': [400, 'Badan JSON tidak sah.'],
   'unknown-field': [400, 'Medan permintaan tidak dibenarkan.'],
