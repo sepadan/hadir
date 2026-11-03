@@ -1,6 +1,18 @@
 # Blueprint HADIR — SK Paya Redan
 
-**Versi 2.42 · 31 Oktober 2026**
+**Versi 2.43 · 3 November 2026**
+
+### Pembetulan penebusan kod Desktop
+
+Pembaca payload kod sambungan menggunakan `Blob.getDataAsString('UTF-8')`.
+Parameter Blob ini ialah nama charset jenis String, bukan enum
+`Utilities.Charset.UTF_8` (enum itu digunakan oleh kaedah Utilities).
+Ralat penyahkodan sebelum ini ditukar kepada `SAMBUNG_INVALID_CODE`, walaupun
+rekod masih `menunggu`. Ujian kontrak kini membezakan enum Utilities daripada
+nama charset Blob dan menolak jenis yang salah. Pembetulan hanya backend;
+Desktop 1.0.25 dan kod menunggu sedia ada kekal serasi. Tiada daftar, token,
+rekod kehadiran atau klaim direset.
+
 
 > ### 📍 Fail ini ialah **jejari**, bukan hab
 >

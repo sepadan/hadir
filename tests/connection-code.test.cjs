@@ -16,11 +16,14 @@ function fixture(data = new Map()) {
     LockService: { getScriptLock: () => ({ waitLock() { if (locked) throw Error('busy'); locked = true; }, releaseLock() { assert(locked); locked = false; } }) },
     ScriptApp: { getService: () => ({ getUrl: () => endpoint }) },
     Utilities: {
-      getUuid: () => crypto.randomUUID(), DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+      getUuid: () => crypto.randomUUID(), DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: Object.freeze({ toString: () => 'UTF_8' }) },
       computeDigest: (_, s) => [...crypto.createHash('sha256').update(s).digest()],
       base64EncodeWebSafe: s => Buffer.from(s).toString('base64url'),
       base64DecodeWebSafe: s => [...Buffer.from(s, 'base64url')],
-      newBlob: b => ({ getDataAsString: () => Buffer.from(b).toString('utf8') }),
+      newBlob: b => ({ getDataAsString: charset => {
+        if (charset !== undefined && charset !== 'UTF-8') throw new TypeError('Blob.getDataAsString expects a charset name String, not Utilities.Charset');
+        return Buffer.from(b).toString('utf8');
+      } }),
     },
     ss: { getSheetByName: () => null },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: s => ({ setMimeType() { return this; }, getContent: () => s }) },

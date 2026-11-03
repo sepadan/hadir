@@ -160,7 +160,7 @@ function hadirSambungTukar_(kod, mengganti, idPerantiLama) {
     if (r && r.status !== 'menunggu') throw hadirSambungRalat_('INVALID_CODE');
     if (!r) throw hadirSambungRalat_('INVALID_CODE');
     var payload;
-    try { payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(kod.slice(4))).getDataAsString(Utilities.Charset.UTF_8)); }
+    try { payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(kod.slice(4))).getDataAsString('UTF-8')); }
     catch (e) { throw hadirSambungRalat_('INVALID_CODE'); }
     if (!Array.isArray(payload) || payload.length !== 2 || payload[0] !== endpoint) throw hadirSambungRalat_('ENDPOINT');
     if (mengganti !== undefined && typeof mengganti !== 'boolean') throw hadirSambungRalat_('INVALID_CODE');
