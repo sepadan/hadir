@@ -66,6 +66,18 @@ if ($lebihan) {
     exit 1
 }
 
+# Verifikasi resolusi setup.ps1 terhadap layout pakej (regresi 3 Nov 2026:
+# exe di akar pakej tetapi setup.ps1 hanya mencari dist\win-x64 -> PASANG gagal).
+$setupTeks = Get-Content (Join-Path $outDir "setup.ps1") -Raw
+if ($setupTeks -notmatch 'Join-Path \$PSScriptRoot "HadirDesktop\.exe"') {
+    Write-Error "setup.ps1 dalam pakej tiada kandidat laluan akar - PASANG akan gagal."
+    exit 1
+}
+if (-not (Test-Path (Join-Path $outDir "HadirDesktop.exe"))) {
+    Write-Error "Exe tiada di akar pakej - setup.ps1 takkan jumpa."
+    exit 1
+}
+
 # Elak rahsia tersasar masuk pakej: cari nama fail sensitif yang diketahui.
 $sensitif = Get-ChildItem $outDir -Recurse -File |
     Where-Object { $_.Name -match '\.(dat|json|key|pem)$' -or $_.Name -match 'rahsia|kredensial|password|token' }

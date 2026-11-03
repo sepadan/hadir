@@ -7,14 +7,21 @@ $ErrorActionPreference = "Stop"
 # supaya kedua-dua skrip tidak boleh terpesong antara satu sama lain).
 . (Join-Path $PSScriptRoot "hentikan-hadir.ps1")
 
-$src        = Join-Path $PSScriptRoot "dist\win-x64\HadirDesktop.exe"
-$installDir = Join-Path $env:LOCALAPPDATA "HadirDesktop"
-$targetExe  = Join-Path $installDir "HadirDesktop.exe"
+$candidates = @(
+    # Pakej zip: exe di akar folder pakej (lihat bina-pemasang.ps1 + BACA-SAYA.md).
+    (Join-Path $PSScriptRoot "HadirDesktop.exe"),
+    # Pokok repo: binaan publish.ps1 masih di dist\win-x64.
+    (Join-Path $PSScriptRoot "dist\win-x64\HadirDesktop.exe")
+)
+$src = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
-if (-not (Test-Path $src)) {
-    Write-Error "Tidak jumpa $src — jalankan publish.ps1 dahulu."
+if (-not $src) {
+    Write-Error ("Tidak jumpa HadirDesktop.exe (dicari di: " + ($candidates -join " | ") + ").")
     exit 1
 }
+
+$installDir = Join-Path $env:LOCALAPPDATA "HadirDesktop"
+$targetExe  = Join-Path $installDir "HadirDesktop.exe"
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 

@@ -1,6 +1,19 @@
 # Kemas kini HadirDesktop
 
-## 1.0.25 - Paparan Semua fungsi dikemaskan (belum diterbitkan)
+## 1.0.25 - Paparan Semua fungsi dikemaskan + pembaikan pakej pemasang
+
+**Pembaikan pemasang (3 Nov 2026, pakej semula — exe tidak berubah):**
+Pepijat ditemui semasa pemasangan pertama di PC pejabat: `bina-pemasang.ps1`
+meletak `HadirDesktop.exe` di **akar** pakej zip, tetapi `setup.ps1` hanya
+mencari `dist\win-x64\HadirDesktop.exe` — PASANG.cmd gagal dengan "Tidak
+jumpa ... jalankan publish.ps1 dahulu". `setup.ps1` (dan `update.ps1` lalai)
+kini mencari **dua laluan**: akar pakej dahulu, kemudian `dist\win-x64`
+(kedua-dua layout terus berfungsi; `-Sumber` update.ps1 masih diutamakan).
+`bina-pemasang.ps1` menambah guard: gagal bina jika setup.ps1 dalam pakej
+tiada kandidat laluan akar atau exe tiada di akar. Ujian regresi baharu
+`tests/installer-package.test.cjs` (4 ujian). Pakej zip diganti dalam
+release `desktop-v1.0.25` (SHA256 zip baharu; SHA256 exe kekal
+`BB8F813F...`); zip lama `1E0690C2...` dibuang. Node 78/78.
 
 Tetingkap **Semua fungsi** kini satu lajur: butang sama lebar dan sama tinggi,
 tajuk kumpulan sebagai label kecil kelabu (tiada kotak), dan penerangan setiap
